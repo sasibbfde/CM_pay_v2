@@ -19,6 +19,12 @@ function mapLocation(v: any) {
   return locationMap[String(v)] || String(v || 'Unknown');
 }
 
+function normalizeWage(v: any) {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n)) return 0;
+  return n > 100 ? n / 100 : n;
+}
+
 export async function GET() {
   return sync7shifts({});
 }
@@ -50,7 +56,7 @@ async function sync7shifts(body: any) {
       location: 'Unknown',
       department: 'Unknown',
       role: u.type || 'Unknown',
-      wage: Number(u.hourly_wage || 0),
+      wage: normalizeWage(u.hourly_wage),
       active: Boolean(u.active),
       source: '7shifts'
     }));
@@ -82,8 +88,16 @@ async function sync7shifts(body: any) {
           p.user_name ||
           (matchedUser ? fullName(matchedUser) : `User ${userId || 'Unknown'}`);
 
+        const rawWage =
+          p.hourly_wage ||
+          p.wage ||
+          matchedUser?.hourly_wage ||
+          0;
+
         return {
-          punch_id: String(p.id || p.punch_id || `${userId}-${p.clocked_in || p.start}`),
+          punch_id: String(
+            p.id || p.punch_id || `${userId}-${p.clocked_in || p.start}`
+          ),
           employee_id: userId ? `7S-${userId}` : 'UNKNOWN',
           employee_name: employeeName,
 
@@ -127,7 +141,7 @@ async function sync7shifts(body: any) {
             null,
 
           hours: Number(p.hours || p.total_hours || p.duration_hours || 0),
-          wage: Number(p.hourly_wage || p.wage || matchedUser?.hourly_wage || 0),
+          wage: normalizeWage(rawWage),
           source: '7shifts'
         };
       });
