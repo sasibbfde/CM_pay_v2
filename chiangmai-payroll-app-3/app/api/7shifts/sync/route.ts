@@ -24,6 +24,7 @@ async function sync7shifts(body: any) {
     const end = body.end || new Date().toISOString();
 
     const supabase = getSupabaseAdmin();
+
     const users = await fetchUsers();
     const userList = users?.data || users || [];
 
@@ -33,9 +34,9 @@ async function sync7shifts(body: any) {
       first_name: u.first_name || '',
       last_name: u.last_name || '',
       full_name: fullName(u),
-      location: null,
-      department: null,
-      role: u.type || null,
+      location: 'Unknown',
+      department: 'Unknown',
+      role: u.type || 'Unknown',
       wage: Number(u.hourly_wage || 0),
       active: Boolean(u.active),
       source: '7shifts'
@@ -66,18 +67,48 @@ async function sync7shifts(body: any) {
         const employeeName =
           p.employee_name ||
           p.user_name ||
-          (matchedUser ? fullName(matchedUser) : `User ${userId}`);
+          (matchedUser ? fullName(matchedUser) : `User ${userId || 'Unknown'}`);
 
         return {
-          punch_id: String(p.id || p.punch_id),
-          employee_id: userId ? `7S-${userId}` : null,
+          punch_id: String(p.id || p.punch_id || `${userId}-${p.clocked_in || p.start}`),
+          employee_id: userId ? `7S-${userId}` : 'UNKNOWN',
           employee_name: employeeName,
-          location: p.location_name || p.location || null,
-          department: p.department_name || p.department || null,
-          role: p.role_name || p.role || null,
-          clocked_in: p.clocked_in || p.start || p.start_time || p.clock_in,
-          clocked_out: p.clocked_out || p.end || p.end_time || p.clock_out,
-          hours: Number(p.hours || p.total_hours || 0),
+          location: String(
+            p.location_name ||
+              p.location ||
+              p.location_id ||
+              p.locationId ||
+              'Unknown'
+          ),
+          department: String(
+            p.department_name ||
+              p.department ||
+              p.department_id ||
+              p.departmentId ||
+              'Unknown'
+          ),
+          role: String(
+            p.role_name ||
+              p.role ||
+              p.role_id ||
+              p.roleId ||
+              'Unknown'
+          ),
+          clocked_in:
+            p.clocked_in ||
+            p.clock_in ||
+            p.start ||
+            p.start_time ||
+            p.punch_in ||
+            null,
+          clocked_out:
+            p.clocked_out ||
+            p.clock_out ||
+            p.end ||
+            p.end_time ||
+            p.punch_out ||
+            null,
+          hours: Number(p.hours || p.total_hours || p.duration_hours || 0),
           wage: Number(p.hourly_wage || p.wage || matchedUser?.hourly_wage || 0),
           source: '7shifts'
         };
