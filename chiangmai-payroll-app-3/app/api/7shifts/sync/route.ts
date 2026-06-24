@@ -7,18 +7,16 @@ function fullName(u: any) {
 }
 
 export async function GET() {
-  return POST(
-    new Request('https://local-sync', {
-      method: 'POST',
-      body: JSON.stringify({})
-    })
-  );
+  return sync7shifts({});
 }
 
 export async function POST(req: Request) {
-  try {
-    const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
+  return sync7shifts(body);
+}
 
+async function sync7shifts(body: any) {
+  try {
     const start =
       body.start ||
       new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
@@ -26,10 +24,10 @@ export async function POST(req: Request) {
     const end = body.end || new Date().toISOString();
 
     const supabase = getSupabaseAdmin();
-
     const users = await fetchUsers();
+    const userList = users?.data || users || [];
 
-    const userRows = (users?.data || users || []).map((u: any) => ({
+    const userRows = userList.map((u: any) => ({
       employee_id: `7S-${u.id}`,
       seven_shifts_user_id: String(u.id),
       first_name: u.first_name || '',
@@ -43,11 +41,13 @@ export async function POST(req: Request) {
       source: '7shifts'
     }));
 
-    const { error: userError } = await supabase
-      .from('employees')
-      .upsert(userRows, { onConflict: 'seven_shifts_user_id' });
+    if (userRows.length) {
+      const { error: userError } = await supabase
+        .from('employees')
+        .upsert(userRows, { onConflict: 'seven_shifts_user_id' });
 
-    if (userError) throw userError;
+      if (userError) throw userError;
+    }
 
     let punchesSaved = 0;
     let punchErrorMessage = null;
@@ -58,7 +58,8 @@ export async function POST(req: Request) {
 
       const punchRows = punchList.map((p: any) => {
         const userId = p.user_id || p.employee_id || p.user?.id;
-        const matchedUser = (users?.data || users || []).find(
+
+        const matchedUser = userList.find(
           (u: any) => String(u.id) === String(userId)
         );
 
@@ -107,15 +108,9 @@ export async function POST(req: Request) {
       punch_error: punchErrorMessage
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e.message },
+      { status: 500 }
+    );
   }
-}
-
-export async function GET() {
-  return POST(
-    new Request('https://local-sync', {
-      method: 'POST',
-      body: JSON.stringify({})
-    })
-  );
 }
