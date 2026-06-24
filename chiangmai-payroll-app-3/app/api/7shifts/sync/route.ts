@@ -2,8 +2,21 @@ import { NextResponse } from 'next/server';
 import { fetchTimePunches, fetchUsers } from '@/lib/7shifts';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
+const locationMap: Record<string, string> = {
+  '450889': 'Chiang Mai Liberty',
+  '458858': 'Chiang Mai York Mills',
+  '461096': 'Chiang Mai Junction',
+  '461097': 'Chiang Mai Danforth',
+  '464811': 'Imm Thai Kitchen',
+  '465654': 'Chiang Mai Parklawn'
+};
+
 function fullName(u: any) {
   return `${u.first_name || ''} ${u.last_name || ''}`.trim();
+}
+
+function mapLocation(v: any) {
+  return locationMap[String(v)] || String(v || 'Unknown');
 }
 
 export async function GET() {
@@ -73,13 +86,14 @@ async function sync7shifts(body: any) {
           punch_id: String(p.id || p.punch_id || `${userId}-${p.clocked_in || p.start}`),
           employee_id: userId ? `7S-${userId}` : 'UNKNOWN',
           employee_name: employeeName,
-          location: String(
+
+          location: mapLocation(
             p.location_name ||
               p.location ||
               p.location_id ||
-              p.locationId ||
-              'Unknown'
+              p.locationId
           ),
+
           department: String(
             p.department_name ||
               p.department ||
@@ -87,6 +101,7 @@ async function sync7shifts(body: any) {
               p.departmentId ||
               'Unknown'
           ),
+
           role: String(
             p.role_name ||
               p.role ||
@@ -94,6 +109,7 @@ async function sync7shifts(body: any) {
               p.roleId ||
               'Unknown'
           ),
+
           clocked_in:
             p.clocked_in ||
             p.clock_in ||
@@ -101,6 +117,7 @@ async function sync7shifts(body: any) {
             p.start_time ||
             p.punch_in ||
             null,
+
           clocked_out:
             p.clocked_out ||
             p.clock_out ||
@@ -108,6 +125,7 @@ async function sync7shifts(body: any) {
             p.end_time ||
             p.punch_out ||
             null,
+
           hours: Number(p.hours || p.total_hours || p.duration_hours || 0),
           wage: Number(p.hourly_wage || p.wage || matchedUser?.hourly_wage || 0),
           source: '7shifts'
