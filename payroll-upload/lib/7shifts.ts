@@ -3,12 +3,10 @@ const BASE = 'https://api.7shifts.com/v2';
 async function sevenFetch(path: string) {
   const token = process.env.SEVENSHIFTS_API_KEY;
   if (!token) throw new Error('Missing SEVENSHIFTS_API_KEY');
-
   const res = await fetch(`${BASE}${path}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     cache: 'no-store',
   });
-
   if (!res.ok) throw new Error(`7shifts API error ${res.status}: ${await res.text()}`);
   return res.json();
 }
@@ -19,72 +17,51 @@ function companyPath(path: string) {
   return `/company/${companyId}${path}`;
 }
 
-/**
- * Fetch ALL users by paginating with limit=100 until no more pages.
- * 7shifts returns at most 100 per request — this loops until done.
- */
+/** Paginate any 7shifts list endpoint until all records are fetched */
+async function fetchAllPages(basePath: string, limit = 100): Promise<any[]> {
+  const all: any[] = [];
+  let offset = 0;
+  const MAX = 5000; // safety cap
+
+  while (true) {
+    const sep = basePath.includes('?') ? '&' : '?';
+    const res  = await sevenFetch(`${basePath}${sep}limit=${limit}&offset=${offset}`);
+    const page: any[] = res?.data || (Array.isArray(res) ? res : []);
+    all.push(...page);
+    if (page.length < limit || all.length >= MAX) break;
+    offset += limit;
+  }
+  return all;
+}
+
+/** All ACTIVE users — fully paginated */
 export async function fetchUsers() {
-  const allUsers: any[] = [];
-  let offset = 0;
-  const limit = 100;
-
-  while (true) {
-    const params = new URLSearchParams({
-      status: 'active',
-      limit: String(limit),
-      offset: String(offset),
-    });
-
-    const res = await sevenFetch(companyPath(`/users?${params}`));
-    const page = res?.data || res || [];
-
-    // Normalise: 7shifts sometimes wraps in { data: [...] } or returns array directly
-    const users = Array.isArray(page) ? page : [];
-    allUsers.push(...users);
-
-    // Stop if we got fewer than a full page — no more data
-    if (users.length < limit) break;
-
-    offset += limit;
-
-    // Safety cap — never loop more than 20 pages (2000 employees)
-    if (offset >= 2000) break;
-  }
-
-  // Return in the same shape the sync route expects: { data: [...] }
-  return { data: allUsers };
+  const data = await fetchAllPages(companyPath('/users?status=active'), 100);
+  return { data };
 }
 
-/**
- * Fetch ALL time punches in a date range, paginating 200 at a time.
- */
-export async function fetchTimePunches(start: string, end: string) {
-  const allPunches: any[] = [];
-  let offset = 0;
-  const limit = 200;
-
-  while (true) {
-    const params = new URLSearchParams({
-      'clocked_in[gte]': start,
-      'clocked_in[lte]': end,
-      limit: String(limit),
-      offset: String(offset),
-    });
-
-    const res = await sevenFetch(companyPath(`/time_punches?${params}`));
-    const page = res?.data || res || [];
-    const punches = Array.isArray(page) ? page : [];
-    allPunches.push(...punches);
-
-    if (punches.length < limit) break;
-    offset += limit;
-    if (offset >= 10000) break; // safety cap
-  }
-
-  return { data: allPunches };
-}
-
-/** All locations for the company — used to build a live ID→name map */
+/** All locations */
 export async function fetchLocations() {
   return sevenFetch(companyPath('/locations'));
+}
+
+/** All departments — for ID → name lookup */
+export async function fetchDepartments() {
+  const data = await fetchAllPages(companyPath('/departments'), 100);
+  return { data };
+}
+
+/** All roles — for ID → name lookup */
+export async function fetchRoles() {
+  const data = await fetchAllPages(companyPath('/roles'), 100);
+  return { data };
+}
+
+/** Time punches between two ISO timestamps — fully paginated */
+export async function fetchTimePunches(start: string, end: string) {
+  const base = companyPath(
+    `/time_punches?clocked_in[gte]=${encodeURIComponent(start)}&clocked_in[lte]=${encodeURIComponent(end)}`
+  );
+  const data = await fetchAllPages(base, 200);
+  return { data };
 }
