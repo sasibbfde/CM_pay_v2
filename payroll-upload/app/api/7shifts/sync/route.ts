@@ -72,19 +72,24 @@ async function sync7shifts(body: any) {
       userById.set(String(u.id), u);
     }
 
-    const userRows = userList.map((u: any) => ({
-      employee_id:          `7S-${u.id}`,
-      seven_shifts_user_id: String(u.id),
-      first_name:           (u.first_name || '').trim(),
-      last_name:            (u.last_name  || '').trim(),
-      full_name:            fullName(u),
-      location:             mapLocation(u.location_id || u.home_location_id),
-      department:           u.department_name || u.department || 'Unknown',
-      role:                 u.role_name || u.type || 'Unknown',
-      wage:                 normalizeWage(u.hourly_wage),
-      active:               Boolean(u.active),
-      source:               '7shifts',
-    }));
+    // Deduplicate by seven_shifts_user_id — keep last occurrence
+    const userMap = new Map<string, any>();
+    for (const u of userList) {
+      userMap.set(String(u.id), {
+        employee_id:          `7S-${u.id}`,
+        seven_shifts_user_id: String(u.id),
+        first_name:           (u.first_name || '').trim(),
+        last_name:            (u.last_name  || '').trim(),
+        full_name:            fullName(u),
+        location:             mapLocation(u.location_id || u.home_location_id),
+        department:           u.department_name || u.department || 'Unknown',
+        role:                 u.role_name || u.type || 'Unknown',
+        wage:                 normalizeWage(u.hourly_wage),
+        active:               Boolean(u.active),
+        source:               '7shifts',
+      });
+    }
+    const userRows = [...userMap.values()];
 
     // Upsert in batches of 200 to avoid request size limits
     const BATCH = 200;
@@ -138,29 +143,32 @@ async function sync7shifts(body: any) {
       const punches   = await fetchTimePunches(start, end);
       const punchList: any[] = punches?.data || [];
 
-      const punchRows = punchList.map((p: any) => {
-        const userId = String(p.user_id || p.employee_id || p.user?.id || '');
-        const name   = resolveName(p, userId);
+      // Build deduped punch map keyed by punch_id — last write wins
+      const punchMap = new Map<string, any>();
+      for (const p of punchList) {
+        const userId  = String(p.user_id || p.employee_id || p.user?.id || '');
+        const name    = resolveName(p, userId);
         const rawWage = p.hourly_wage || p.wage || userById.get(userId)?.hourly_wage || 0;
-
         const location = mapLocation(
           p.location_name || p.location || p.location_id || p.locationId
         );
+        const punchId = String(p.id || p.punch_id || `${userId}-${p.clocked_in || p.start}`);
 
-        return {
-          punch_id:     String(p.id || p.punch_id || `${userId}-${p.clocked_in || p.start}`),
-          employee_id:  userId ? `7S-${userId}` : 'UNKNOWN',
+        punchMap.set(punchId, {
+          punch_id:      punchId,
+          employee_id:   userId ? `7S-${userId}` : 'UNKNOWN',
           employee_name: name,
           location,
-          department:   String(p.department_name || p.department || p.department_id || 'Unknown'),
-          role:         String(p.role_name || p.role || p.role_id || 'Unknown'),
-          clocked_in:   p.clocked_in || p.clock_in || p.start  || p.punch_in  || null,
-          clocked_out:  p.clocked_out|| p.clock_out|| p.end    || p.punch_out || null,
-          hours:        Number(p.hours || p.total_hours || p.duration_hours || 0),
-          wage:         normalizeWage(rawWage),
-          source:       '7shifts',
-        };
-      });
+          department:    String(p.department_name || p.department || p.department_id || 'Unknown'),
+          role:          String(p.role_name || p.role || p.role_id || 'Unknown'),
+          clocked_in:    p.clocked_in || p.clock_in || p.start  || p.punch_in  || null,
+          clocked_out:   p.clocked_out|| p.clock_out|| p.end    || p.punch_out || null,
+          hours:         Number(p.hours || p.total_hours || p.duration_hours || 0),
+          wage:          normalizeWage(rawWage),
+          source:        '7shifts',
+        });
+      }
+      const punchRows = [...punchMap.values()];
 
       // Upsert punches in batches
       for (let i = 0; i < punchRows.length; i += BATCH) {
