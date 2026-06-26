@@ -1,52 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { mockEmployees } from '@/lib/mock-data';
-import { getSupabaseAdmin, hasSupabaseEnv } from '@/lib/supabase';
+import { getSupabaseAdmin } from '@/lib/supabase';
 
-export async function GET() {
-  if (!hasSupabaseEnv()) {
-    return NextResponse.json({ source: 'mock', employees: mockEmployees });
-  }
-
+export async function GET(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
   try {
+    const { id }  = await context.params;
+    const sp      = req.nextUrl.searchParams;
+    const year    = Number(sp.get('year')  || new Date().getFullYear());
+    const month   = Number(sp.get('month') || new Date().getMonth() + 1);
+    const start   = new Date(year, month - 1, 1).toISOString();
+    const end     = new Date(year, month, 0, 23, 59, 59).toISOString();
     const supabase = getSupabaseAdmin();
-
     const { data, error } = await supabase
-      .from('employees')
+      .from('punches')
       .select('*')
-      .order('first_name', { ascending: true });
-
+      .or(`employee_id.eq.7S-${id},employee_id.eq.${id}`)
+      .gte('clocked_in', start)
+      .lte('clocked_in', end)
+      .order('clocked_in', { ascending: false });
     if (error) throw error;
-
-    return NextResponse.json({
-      source: 'supabase',
-      employees: data ?? []
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      {
-        source: 'mock - supabase not connected',
-        employees: mockEmployees,
-        error: error.message
-      },
-      { status: 200 }
-    );
-  }
-}
-
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const supabase = getSupabaseAdmin();
-
-    const { data, error } = await supabase
-      .from('employees')
-      .upsert(body, { onConflict: 'employee_id' })
-      .select();
-
-    if (error) throw error;
-
-    return NextResponse.json({ ok: true, employees: data });
-  } catch (error: any) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ punches: data ?? [] });
+  } catch (e: any) {
+    return NextResponse.json({ punches: [], error: e.message }, { status: 500 });
   }
 }
