@@ -7,57 +7,77 @@ async function sevenFetch(path: string) {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     cache: 'no-store',
   });
-  if (!res.ok) throw new Error(`7shifts API error ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`7shifts ${res.status}: ${await res.text()}`);
   return res.json();
 }
 
 function companyPath(path: string) {
-  const companyId = process.env.SEVENSHIFTS_COMPANY_ID;
-  if (!companyId) throw new Error('Missing SEVENSHIFTS_COMPANY_ID');
-  return `/company/${companyId}${path}`;
+  const id = process.env.SEVENSHIFTS_COMPANY_ID;
+  if (!id) throw new Error('Missing SEVENSHIFTS_COMPANY_ID');
+  return `/company/${id}${path}`;
 }
 
-/** Paginate any 7shifts list endpoint until all records are fetched */
 async function fetchAllPages(basePath: string, limit = 100): Promise<any[]> {
   const all: any[] = [];
+  let cursor: string | null = null;
   let offset = 0;
-  const MAX = 5000; // safety cap
 
   while (true) {
     const sep = basePath.includes('?') ? '&' : '?';
-    const res  = await sevenFetch(`${basePath}${sep}limit=${limit}&offset=${offset}`);
+    let url = `${basePath}${sep}limit=${limit}`;
+    if (cursor) {
+      url += `&cursor=${encodeURIComponent(cursor)}`;
+    } else {
+      url += `&offset=${offset}`;
+    }
+
+    const res = await sevenFetch(url);
     const page: any[] = res?.data || (Array.isArray(res) ? res : []);
     all.push(...page);
-    if (page.length < limit || all.length >= MAX) break;
-    offset += limit;
+
+    const nextCursor = res?.meta?.cursor ?? res?.cursor ?? null;
+    if (nextCursor && nextCursor !== cursor) {
+      cursor = nextCursor;
+    } else if (page.length === limit) {
+      cursor = null;
+      offset += limit;
+    } else {
+      break;
+    }
+
+    if (all.length >= 5000) break;
   }
   return all;
 }
 
-/** All ACTIVE users — fully paginated */
+/** Fetch ALL users — active AND inactive to resolve all punch names */
 export async function fetchUsers() {
-  const data = await fetchAllPages(companyPath('/users?status=active'), 100);
-  return { data };
+  // Fetch active users first, then inactive — combine both
+  const [active, inactive] = await Promise.all([
+    fetchAllPages(companyPath('/users?status=active'), 100),
+    fetchAllPages(companyPath('/users?status=inactive'), 100),
+  ]);
+  // Merge, deduplicate by id (active takes priority)
+  const map = new Map<string, any>();
+  for (const u of inactive) map.set(String(u.id), u);
+  for (const u of active)   map.set(String(u.id), u); // active overwrites
+  return { data: [...map.values()] };
 }
 
-/** All locations */
 export async function fetchLocations() {
   return sevenFetch(companyPath('/locations'));
 }
 
-/** All departments — for ID → name lookup */
 export async function fetchDepartments() {
   const data = await fetchAllPages(companyPath('/departments'), 100);
   return { data };
 }
 
-/** All roles — for ID → name lookup */
 export async function fetchRoles() {
   const data = await fetchAllPages(companyPath('/roles'), 100);
   return { data };
 }
 
-/** Time punches between two ISO timestamps — fully paginated */
 export async function fetchTimePunches(start: string, end: string) {
   const base = companyPath(
     `/time_punches?clocked_in[gte]=${encodeURIComponent(start)}&clocked_in[lte]=${encodeURIComponent(end)}`
