@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 const links = [
   { href: '/',         label: 'Dashboard'   },
@@ -18,6 +19,8 @@ export default function Nav() {
   const path = usePathname();
   const [syncing, setSyncing] = useState(false);
   const [msg,     setMsg]     = useState('');
+
+  if (path === '/login' || path === '/signup' || path.startsWith('/auth/')) return null;
 
   async function quickSync() {
     setSyncing(true); setMsg('');
@@ -49,6 +52,11 @@ export default function Nav() {
     }
   }
 
+  async function signOut() {
+    await createClient().auth.signOut();
+    window.location.assign('/login');
+  }
+
   return (
     <nav style={{background:'#0d1117',borderBottom:'1px solid rgba(255,255,255,0.07)',padding:'0 16px',display:'flex',alignItems:'center',gap:2,height:48,position:'sticky',top:0,zIndex:100}}>
       <span style={{color:'#22d3ee',fontWeight:700,fontSize:14,marginRight:12,letterSpacing:'0.05em',whiteSpace:'nowrap',flexShrink:0}}>CM PAY</span>
@@ -66,6 +74,9 @@ export default function Nav() {
       <span title="Auto-syncs daily at 3am EST" style={{fontSize:10,color:'#4b5563',marginRight:6,whiteSpace:'nowrap',cursor:'default',flexShrink:0}}>🔄 Auto 3am</span>
       <button onClick={quickSync} disabled={syncing} title="Sync punches + Snappy sales" style={{background:syncing?'rgba(34,211,238,0.05)':'rgba(34,211,238,0.12)',border:'1px solid rgba(34,211,238,0.3)',color:syncing?'#6b7280':'#22d3ee',borderRadius:6,padding:'5px 12px',fontSize:11,fontWeight:500,cursor:syncing?'wait':'pointer',whiteSpace:'nowrap',flexShrink:0}}>
         {syncing?'Syncing…':'↻ Sync Now'}
+      </button>
+      <button onClick={signOut} title="Sign out" style={{background:'transparent',border:'1px solid rgba(255,255,255,0.1)',color:'#9ca3af',borderRadius:6,padding:'5px 10px',fontSize:11,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+        Sign out
       </button>
     </nav>
   );

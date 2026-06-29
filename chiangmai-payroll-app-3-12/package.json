@@ -9,6 +9,7 @@
     "seed:rules": "tsx scripts/extract-roster-rules.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "0.12.0",
     "@supabase/supabase-js": "2.108.2",
     "@tailwindcss/postcss": "latest",
     "@types/node": "latest",

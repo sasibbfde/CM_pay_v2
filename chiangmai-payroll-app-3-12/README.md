@@ -20,18 +20,18 @@ Add these in Vercel Project Settings → Environment Variables:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 SEVENSHIFTS_API_KEY=
 SEVENSHIFTS_COMPANY_ID=
-APP_USERNAME=
-APP_PASSWORD=
 CRON_SECRET=
 ```
 
-`APP_USERNAME` and `APP_PASSWORD` protect the complete dashboard and API with
-HTTP Basic authentication. `CRON_SECRET` authenticates Vercel cron requests.
-Production returns `503` rather than exposing payroll data when app credentials
-are absent. Do not put real keys in GitHub.
+Supabase email/password authentication protects the complete dashboard and API.
+Users can create an account at `/signup`; hosted Supabase projects require email
+confirmation by default. `CRON_SECRET` authenticates Vercel cron requests. Use
+the publishable key when available; the legacy anon key remains supported. Do
+not put real keys in GitHub.
 
 ## Supabase setup
 1. Create a Supabase project.
