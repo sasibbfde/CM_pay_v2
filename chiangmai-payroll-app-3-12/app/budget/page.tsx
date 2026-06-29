@@ -1,13 +1,15 @@
 'use client';
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
 
 type DaySales = {
   sale_date: string; location: string;
   net_sales: number; gross_sales: number; projected_sales: number;
   actual_labor_cost: number; labor_percent: number | null;
   sales_per_labor_hr: number | null; source: string;
+  actual_labor_hours?: number;
 };
-type Punch = { location: string; clocked_in: string; hours: number; wage: number; };
+type DailyLabour = { date:string; location:string; hours:number; cost:number; employees:number };
 
 const LOCATIONS = [
   'Chiang Mai Mississauga','Chiang Mai York Mills','Chiang Mai Parklawn',
@@ -32,9 +34,16 @@ function getWeekDates(anchor: Date) {
 
 export default function BudgetPage() {
   const [weekAnchor, setWeekAnchor] = useState(new Date());
-  const [sales, setSales]       = useState<DaySales[]>([]);
-  const [punches, setPunches]   = useState<Punch[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const initialDates = getWeekDates(new Date());
+  const initialFrom = isoDate(initialDates[0]);
+  const initialTo = isoDate(initialDates[6]);
+  const initialSalesUrl = `/api/sales?from=${initialFrom}&to=${initialTo}`;
+  const initialPayrollUrl = `/api/payroll?from=${initialFrom}&to=${initialTo}&year=${initialDates[0].getFullYear()}&month=${initialDates[0].getMonth()+1}&period=month`;
+  const initialSales = peekJson<{sales:DaySales[]}>(initialSalesUrl);
+  const initialPayroll = peekJson<{daily:DailyLabour[]}>(initialPayrollUrl);
+  const [sales, setSales]       = useState<DaySales[]>(() => initialSales?.sales || []);
+  const [dailyLabour, setDailyLabour] = useState<DailyLabour[]>(() => initialPayroll?.daily || []);
+  const [loading, setLoading]   = useState(() => !initialSales || !initialPayroll);
   const [syncing, setSyncing]   = useState(false);
   const [syncMsg, setSyncMsg]   = useState('');
   const [locFilter, setLocFilter] = useState('ALL');
@@ -43,16 +52,26 @@ export default function BudgetPage() {
   const fromDate  = isoDate(weekDates[0]);
   const toDate    = isoDate(weekDates[6]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    const [salesRes, payRes] = await Promise.all([
-      fetch(`/api/sales?from=${fromDate}&to=${toDate}`).then(r=>r.json()),
-      fetch(`/api/payroll?from=${fromDate}&to=${toDate}&year=${weekDates[0].getFullYear()}&month=${weekDates[0].getMonth()+1}&period=month`).then(r=>r.json()),
-    ]);
-    setSales(salesRes.sales || []);
-    // Extract punches from payroll rows for daily breakdown
-    setPunches([]);
-    setLoading(false);
+  const loadData = useCallback(async (force = false) => {
+    const salesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
+    const payrollUrl = `/api/payroll?from=${fromDate}&to=${toDate}&year=${weekDates[0].getFullYear()}&month=${weekDates[0].getMonth()+1}&period=month`;
+    const cachedSales = !force ? peekJson<{sales:DaySales[]}>(salesUrl) : undefined;
+    const cachedPayroll = !force ? peekJson<{daily:DailyLabour[]}>(payrollUrl) : undefined;
+    if (cachedSales) setSales(cachedSales.sales || []);
+    if (cachedPayroll) setDailyLabour(cachedPayroll.daily || []);
+    setLoading(!cachedSales || !cachedPayroll);
+    try {
+      const [salesRes, payRes] = await Promise.all([
+        cachedJson<{sales:DaySales[]}>(salesUrl, 120_000, force),
+        cachedJson<{daily:DailyLabour[]}>(payrollUrl, 120_000, force),
+      ]);
+      setSales(salesRes.sales || []);
+      setDailyLabour(payRes.daily || []);
+    } catch (error:any) {
+      setSyncMsg(`✗ ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
   }, [fromDate, toDate, weekDates]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -66,7 +85,8 @@ export default function BudgetPage() {
     const d = await res.json();
     if (d.ok) {
       setSyncMsg(`✓ Synced ${d.synced} days from Snappy`);
-      loadData();
+      invalidateClientCache(['/api/sales']);
+      loadData(true);
     } else {
       setSyncMsg(`✗ ${d.error}`);
     }
@@ -79,39 +99,52 @@ export default function BudgetPage() {
     const m: Record<string, Record<string, DaySales>> = {};
     for (const s of sales) {
       if (!m[s.location]) m[s.location] = {};
-      m[s.location][s.sale_date] = s;
+      m[s.location][s.sale_date] = {...s};
+    }
+    for (const labour of dailyLabour) {
+      if (!m[labour.location]) m[labour.location] = {};
+      const row = m[labour.location][labour.date] || {
+        sale_date:labour.date, location:labour.location, net_sales:0, gross_sales:0,
+        projected_sales:0, actual_labor_cost:0, labor_percent:null,
+        sales_per_labor_hr:null, source:'7shifts-punches',
+      };
+      row.actual_labor_hours = labour.hours;
+      if (!row.actual_labor_cost) row.actual_labor_cost = labour.cost;
+      m[labour.location][labour.date] = row;
     }
     return m;
-  }, [sales]);
+  }, [sales, dailyLabour]);
 
   // Daily totals across all locations
   const dailyTotals = useMemo(() => weekDates.map(d => {
     const date = isoDate(d);
-    const rows = locFilter === 'ALL'
-      ? sales.filter(s => s.sale_date === date)
-      : sales.filter(s => s.sale_date === date && s.location === locFilter);
+    const rows = (locFilter === 'ALL' ? [...new Set([...LOCATIONS, ...Object.keys(matrix)])] : [locFilter])
+      .map(location => matrix[location]?.[date]).filter(Boolean) as DaySales[];
     return {
       date,
       actual_sales:    rows.reduce((s,r) => s + (r.net_sales||0), 0),
       proj_sales:      rows.reduce((s,r) => s + (r.projected_sales||0), 0),
       actual_labor:    rows.reduce((s,r) => s + (r.actual_labor_cost||0), 0),
+      labor_hours:     rows.reduce((s,r) => s + (r.actual_labor_hours||0), 0),
       has_data:        rows.length > 0,
     };
-  }), [sales, weekDates, locFilter]);
+  }), [matrix, weekDates, locFilter]);
 
   const weekTotal = useMemo(() => ({
     actual_sales: dailyTotals.reduce((s,d) => s + d.actual_sales, 0),
     proj_sales:   dailyTotals.reduce((s,d) => s + d.proj_sales, 0),
     actual_labor: dailyTotals.reduce((s,d) => s + d.actual_labor, 0),
+    labor_hours:  dailyTotals.reduce((s,d) => s + d.labor_hours, 0),
   }), [dailyTotals]);
 
   const weekLabourPct = weekTotal.actual_sales > 0 ? weekTotal.actual_labor / weekTotal.actual_sales : null;
-  const noData = sales.length === 0;
+  const noData = sales.length === 0 && dailyLabour.length === 0;
 
   const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const today = isoDate(new Date());
 
-  const filteredLocs = locFilter === 'ALL' ? LOCATIONS : [locFilter];
+  const availableLocs = Array.from(new Set([...LOCATIONS, ...Object.keys(matrix)]));
+  const filteredLocs = locFilter === 'ALL' ? availableLocs : [locFilter];
 
   return (
     <div style={{background:'#0a0c10',minHeight:'100vh',color:'#e5e7eb',fontFamily:'Inter,sans-serif',padding:'20px 24px'}}>
@@ -156,7 +189,7 @@ export default function BudgetPage() {
           {l:'Projected Sales',v:weekTotal.proj_sales>0?cad(weekTotal.proj_sales):'—',c:'#9ca3af'},
           {l:'Week Labour',v:weekTotal.actual_labor>0?cad(weekTotal.actual_labor):'—',c:'#a78bfa'},
           {l:'Labour %',v:weekLabourPct!=null?pct(weekLabourPct):'—',c:weekLabourPct!=null&&weekLabourPct>0.35?'#f87171':weekLabourPct!=null&&weekLabourPct>0.25?'#fbbf24':'#34d399'},
-          {l:'SPLH',v:weekTotal.actual_sales>0&&weekTotal.actual_labor>0?cad(weekTotal.actual_sales/(weekTotal.actual_labor/(18))):'—',c:'#60a5fa'},
+          {l:'SPLH',v:weekTotal.actual_sales>0&&weekTotal.labor_hours>0?cad(weekTotal.actual_sales/weekTotal.labor_hours):'—',c:'#60a5fa'},
         ].map(k=>(
           <div key={k.l} style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10,padding:'10px 14px'}}>
             <div style={{fontSize:9,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.05em'}}>{k.l}</div>
@@ -283,9 +316,9 @@ export default function BudgetPage() {
                   const lp = day?.net_sales>0&&day?.actual_labor_cost>0 ? day.actual_labor_cost/day.net_sales : null;
                   return (
                     <div key={i} style={{padding:'8px 6px',textAlign:'center',borderLeft:'1px solid rgba(255,255,255,0.03)'}}>
-                      {day?.net_sales>0?(
+                      {(day?.net_sales>0 || day?.actual_labor_cost>0)?(
                         <div>
-                          <div style={{fontSize:11,color:'#34d399'}}>{cad(day.net_sales)}</div>
+                          {day.net_sales>0&&<div style={{fontSize:11,color:'#34d399'}}>{cad(day.net_sales)}</div>}
                           {day.actual_labor_cost>0&&<div style={{fontSize:10,color:'#a78bfa'}}>{cad(day.actual_labor_cost)}</div>}
                           {lp!=null&&<div style={{fontSize:10,fontWeight:600,color:lp>0.35?'#f87171':lp>0.25?'#fbbf24':'#34d399'}}>{pct(lp)}</div>}
                         </div>
@@ -334,7 +367,8 @@ export default function BudgetPage() {
                 const labor   = weekDates.reduce((s,d)=>s+(locData[isoDate(d)]?.actual_labor_cost||0),0);
                 const lp      = sales_>0&&labor>0 ? labor/sales_ : null;
                 const vs_proj = sales_>0&&proj>0 ? (sales_-proj)/proj : null;
-                const splh_est = sales_>0&&labor>0 ? sales_/(labor/18) : null; // rough
+                const laborHours = weekDates.reduce((s,d)=>s+(locData[isoDate(d)]?.actual_labor_hours||0),0);
+                const splh_est = sales_>0&&laborHours>0 ? sales_/laborHours : null;
                 return (
                   <tr key={loc} style={{borderTop:'1px solid rgba(255,255,255,0.05)',background:i%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
                     <td style={{padding:'9px 14px',fontWeight:600,color:'#f9fafb'}}>{loc}</td>

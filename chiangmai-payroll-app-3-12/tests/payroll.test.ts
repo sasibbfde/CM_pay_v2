@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyEmployeeWages, calculatePayroll, filterPunches } from '../lib/payroll';
+import { applyEmployeeWages, calculatePayroll, filterPunches, summarizeDailyLabour } from '../lib/payroll';
 import { EmployeeRule, Punch } from '../lib/types';
 
 function punch(overrides: Partial<Punch> = {}): Punch {
@@ -55,4 +55,16 @@ test('current employee wages are applied to existing punches', () => {
   }]);
   assert.equal(updated.wage, 22);
   assert.equal(updated.cash_wage, 28);
+});
+
+test('daily labour uses Toronto dates, completed punches, and punch wages', () => {
+  const rows = summarizeDailyLabour([
+    punch({ clocked_in:'2026-07-01T02:30:00Z', hours:4, wage:20 }),
+    punch({ clocked_in:'2026-07-01T14:00:00Z', hours:3, wage:22 }),
+    punch({ clocked_in:'2026-07-01T16:00:00Z', clocked_out:'', hours:9, wage:99 }),
+  ]);
+  assert.deepEqual(rows.map(row => ({date:row.date,hours:row.hours,cost:row.cost})), [
+    { date:'2026-06-30', hours:4, cost:80 },
+    { date:'2026-07-01', hours:3, cost:66 },
+  ]);
 });

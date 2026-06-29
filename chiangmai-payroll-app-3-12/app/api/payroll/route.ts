@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { applyEmployeeWages, calculatePayroll, filterPunches, filterPunchesByDateRange, summarize } from '@/lib/payroll';
+import { applyEmployeeWages, calculatePayroll, filterPunches, filterPunchesByDateRange, summarize, summarizeDailyLabour } from '@/lib/payroll';
 import { getSupabaseAdmin, hasSupabaseEnv } from '@/lib/supabase';
 import { Employee, EmployeeRule, Punch } from '@/lib/types';
 
@@ -50,13 +50,24 @@ export async function GET(req: NextRequest) {
   const toDate   = sp.get('to');
 
   if (!hasSupabaseEnv()) {
-    return NextResponse.json({ source:'supabase not configured', summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], monthly:[], yearly:[] });
+    return NextResponse.json({ source:'supabase not configured', summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], daily:[], monthly:[], yearly:[] });
   }
 
   try {
     const supabase = getSupabaseAdmin();
+    const yearStart = `${year}-01-01`;
+    const yearEnd = `${year}-12-31`;
+    const requestedStart = fromDate && fromDate < yearStart ? fromDate : yearStart;
+    const requestedEnd = toDate && toDate > yearEnd ? toDate : yearEnd;
+    const queryStart = new Date(`${requestedStart}T00:00:00Z`);
+    queryStart.setUTCDate(queryStart.getUTCDate() - 1);
+    const queryEnd = new Date(`${requestedEnd}T23:59:59Z`);
+    queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
     const [punchData, ruleData, employeeData] = await Promise.all([
-      fetchAll(supabase, 'punches'),
+      fetchAll(supabase, 'punches', query => query
+        .gte('clocked_in', queryStart.toISOString())
+        .lte('clocked_in', queryEnd.toISOString())
+        .order('clocked_in')),
       fetchAll(supabase, 'employee_rules', q => q.eq('active', true)),
       fetchAll(supabase, 'employees'),
     ]);
@@ -71,6 +82,7 @@ export async function GET(req: NextRequest) {
 
     const rows    = calculatePayroll(periodPunches, rules);
     const summary = summarize(rows);
+    const daily   = summarizeDailyLabour(periodPunches);
 
     // Monthly breakdown always uses year
     const monthly = Array.from({ length: 12 }, (_, i) => {
@@ -82,9 +94,9 @@ export async function GET(req: NextRequest) {
 
     const yearly = [{ year, payrollAmount: monthly.reduce((s,m)=>s+m.payrollAmount,0), totalHours: monthly.reduce((s,m)=>s+m.totalHours,0) }];
 
-    return NextResponse.json({ source:'supabase', summary, rows, monthly, yearly, counts:{ punches: punches.length, rules: rules.length } });
+    return NextResponse.json({ source:'supabase', summary, rows, daily, monthly, yearly, counts:{ punches: punches.length, rules: rules.length } });
 
   } catch (error: any) {
-    return NextResponse.json({ source:'supabase error', error:error.message, summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], monthly:[], yearly:[] }, { status:200 });
+    return NextResponse.json({ source:'supabase error', error:error.message, summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], daily:[], monthly:[], yearly:[] }, { status:500 });
   }
 }

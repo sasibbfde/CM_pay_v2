@@ -7,7 +7,7 @@ function round(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-function localDate(iso: string) {
+export function getPayrollDate(iso: string) {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) return '';
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -22,7 +22,7 @@ function dateString(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-function getPunchHours(p: Punch) {
+export function getPunchHours(p: Punch) {
   const given = Number(p.hours || 0);
   if (given > 0) return given;
   const start = new Date(p.clocked_in).getTime();
@@ -45,7 +45,7 @@ export function filterPunches(punches: Punch[], year: number, month: number, per
 
 export function filterPunchesByDateRange(punches: Punch[], start: string, end: string) {
   return punches.filter(p => {
-    const date = localDate(p.clocked_in);
+    const date = getPayrollDate(p.clocked_in);
     return Boolean(date && date >= start && date <= end);
   });
 }
@@ -120,7 +120,7 @@ export function calculatePayroll(punches: Punch[], rules: EmployeeRule[]): Payro
 
     const partitions = new Map<EmployeeRule | undefined, Punch[]>();
     for (const punch of items) {
-      const date = localDate(punch.clocked_in);
+      const date = getPayrollDate(punch.clocked_in);
       const rule = candidates.find(candidate => ruleApplies(candidate, date));
       partitions.set(rule, [...(partitions.get(rule) || []), punch]);
     }
@@ -190,6 +190,30 @@ export function calculatePayroll(punches: Punch[], rules: EmployeeRule[]): Payro
   }
 
   return rows.sort((a, b) => a.employee_name.localeCompare(b.employee_name));
+}
+
+export function summarizeDailyLabour(punches: Punch[]) {
+  const grouped = new Map<string, { date:string; location:string; hours:number; cost:number; employees:Set<string> }>();
+  for (const punch of punches) {
+    if (!punch.clocked_out) continue;
+    const date = getPayrollDate(punch.clocked_in);
+    if (!date) continue;
+    const location = punch.location || 'Unknown';
+    const key = `${date}\u0000${location}`;
+    const row = grouped.get(key) || { date, location, hours:0, cost:0, employees:new Set<string>() };
+    const hours = getPunchHours(punch);
+    row.hours += hours;
+    row.cost += hours * Number(punch.wage || 0);
+    row.employees.add(punch.employee_id || punch.employee_name);
+    grouped.set(key, row);
+  }
+  return [...grouped.values()].map(row => ({
+    date:row.date,
+    location:row.location,
+    hours:round(row.hours),
+    cost:round(row.cost),
+    employees:row.employees.size,
+  })).sort((a, b) => a.date.localeCompare(b.date) || a.location.localeCompare(b.location));
 }
 
 export function summarize(rows: PayrollRow[]) {

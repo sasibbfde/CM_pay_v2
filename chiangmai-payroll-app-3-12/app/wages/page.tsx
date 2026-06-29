@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
+import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
 
 type Employee = {
   id: string; seven_shifts_user_id: string | null; full_name: string;
@@ -10,19 +11,23 @@ type Employee = {
 const sel: React.CSSProperties = { background:'#1a1f2e',border:'1px solid rgba(255,255,255,0.1)',borderRadius:7,color:'#e5e7eb',padding:'7px 12px',fontSize:13,outline:'none',cursor:'pointer' };
 
 export default function WagesPage() {
-  const [employees, setEmployees]   = useState<Employee[]>([]);
-  const [loading, setLoading]       = useState(true);
+  const initial = peekJson<{employees:Employee[]}>('/api/employees?active=true');
+  const [employees, setEmployees]   = useState<Employee[]>(() => initial?.employees || []);
+  const [loading, setLoading]       = useState(() => !initial);
   const [saving,  setSaving]        = useState<Set<string>>(new Set());
   const [saved,   setSaved]         = useState<Set<string>>(new Set());
+  const [syncing, setSyncing]       = useState(false);
   const [edits,   setEdits]         = useState<Record<string,{wage:string;cash_wage:string}>>({});
   const [search,  setSearch]        = useState('');
   const [locFilter, setLocFilter]   = useState('ALL');
   const [msg, setMsg]               = useState<{text:string;ok:boolean}|null>(null);
 
-  const load = () => {
-    setLoading(true);
-    fetch('/api/employees?active=true')
-      .then(r=>r.json())
+  const load = (force = false) => {
+    const url = '/api/employees?active=true';
+    const cached = !force ? peekJson<{employees:Employee[]}>(url) : undefined;
+    if (cached) setEmployees(cached.employees || []);
+    setLoading(!cached);
+    cachedJson<{employees:Employee[]}>(url, 120_000, force)
       .then(d => {
         const list = (d.employees||[]).sort((a: Employee,b: Employee)=>(a.full_name||'').localeCompare(b.full_name||''));
         setEmployees(list);
@@ -58,6 +63,7 @@ export default function WagesPage() {
       });
       const d = await res.json();
       if (d.ok) {
+        invalidateClientCache(['/api/employees', '/api/payroll']);
         setEmployees(p=>p.map(e=>e.id===emp.id?{...e,wage,cash_wage}:e));
         setSaved(p=>new Set([...p,emp.id]));
         setTimeout(()=>setSaved(p=>{const n=new Set(p);n.delete(emp.id);return n;}),2000);
@@ -75,6 +81,27 @@ export default function WagesPage() {
     if(!toSave.length){setMsg({text:'No changes to save',ok:false});return;}
     for(const e of toSave) await saveOne(e);
     setMsg({text:`✓ Saved ${toSave.length} employees`,ok:true});
+  };
+
+  const syncFrom7shifts = async () => {
+    setSyncing(true); setMsg(null);
+    try {
+      const today = new Date().toISOString().slice(0,10);
+      const response = await fetch('/api/7shifts/sync', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({start:`${today}T00:00:00.000Z`,end:`${today}T23:59:59.999Z`,triggered_by:'wages-page'}),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || '7shifts sync failed');
+      invalidateClientCache(['/api/employees','/api/payroll','/api/synclog']);
+      load(true);
+      const failed = result.wage_errors?.length || 0;
+      setMsg({text:failed ? `Updated ${result.wages_synced} wages; ${failed} failed` : `✓ Updated wages for ${result.wages_synced} employees`,ok:failed===0});
+    } catch (error:any) {
+      setMsg({text:error.message,ok:false});
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const zeroWageCount = filtered.filter(e=>!e.wage||e.wage===0).length;
@@ -95,12 +122,15 @@ export default function WagesPage() {
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {msg&&<span style={{fontSize:12,color:msg.ok?'#34d399':'#f87171',background:msg.ok?'rgba(52,211,153,0.1)':'rgba(248,113,113,0.1)',padding:'5px 12px',borderRadius:6}}>{msg.text}</span>}
+          <button onClick={syncFrom7shifts} disabled={syncing} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:'#34d399',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:syncing?'wait':'pointer'}}>
+            {syncing?'Syncing wages…':'↻ Sync wages from 7shifts'}
+          </button>
           {editCount>0&&(
             <button onClick={saveAll} style={{background:'rgba(34,211,238,0.12)',border:'1px solid rgba(34,211,238,0.3)',color:'#22d3ee',borderRadius:7,padding:'7px 16px',fontSize:13,fontWeight:600,cursor:'pointer'}}>
               Save all changes ({editCount})
             </button>
           )}
-          <button onClick={load} style={{background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',color:'#9ca3af',borderRadius:7,padding:'7px 12px',fontSize:13,cursor:'pointer'}}>
+          <button onClick={()=>load(true)} style={{background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.1)',color:'#9ca3af',borderRadius:7,padding:'7px 12px',fontSize:13,cursor:'pointer'}}>
             ↻ Refresh
           </button>
         </div>

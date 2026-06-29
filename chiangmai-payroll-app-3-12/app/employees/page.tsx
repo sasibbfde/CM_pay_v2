@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
+import { cachedJson, peekJson } from '@/lib/client-cache';
 
 type Employee = {
   id: string; seven_shifts_user_id: string; full_name: string;
@@ -23,10 +24,12 @@ function cad(n: number) { return `$${n.toFixed(2)}`; }
 
 export default function EmployeesPage() {
   const today = new Date();
-  const [employees, setEmployees]  = useState<Employee[]>([]);
+  const initialEmployeeUrl = '/api/employees?active=true&with_punches=true';
+  const initialEmployees = peekJson<{employees:Employee[]}>(initialEmployeeUrl);
+  const [employees, setEmployees]  = useState<Employee[]>(() => initialEmployees?.employees || []);
   const [selected,  setSelected]   = useState<Employee | null>(null);
   const [punches,   setPunches]    = useState<Punch[]>([]);
-  const [loading,   setLoading]    = useState(true);
+  const [loading,   setLoading]    = useState(() => !initialEmployees);
   const [punchLoad, setPunchLoad]  = useState(false);
   const [search,    setSearch]     = useState('');
   const [locFilter, setLocFilter]  = useState('ALL');
@@ -48,9 +51,11 @@ export default function EmployeesPage() {
   };
 
   useEffect(() => {
-    setLoading(true);
-    fetch(showInactive ? '/api/employees?active=false' : '/api/employees?active=true&with_punches=true')
-      .then(r=>r.json())
+    const url = showInactive ? '/api/employees?active=false' : '/api/employees?active=true&with_punches=true';
+    const cached = peekJson<{employees:Employee[]}>(url);
+    if (cached) setEmployees(cached.employees || []);
+    setLoading(!cached);
+    cachedJson<{employees:Employee[]}>(url)
       .then(d=>setEmployees((d.employees||[]).sort((a: Employee,b: Employee)=>a.full_name.localeCompare(b.full_name))))
       .finally(()=>setLoading(false));
   }, [showInactive]);
@@ -59,9 +64,12 @@ export default function EmployeesPage() {
 
   useEffect(() => {
     if (!selected) return;
-    setPunches([]); setPunchLoad(true);
-    fetch(`/api/employees/${selected.seven_shifts_user_id||selected.id}/punches?from=${fromDate}&to=${toDate}`)
-      .then(r=>r.json())
+    const url = `/api/employees/${selected.seven_shifts_user_id||selected.id}/punches?from=${fromDate}&to=${toDate}`;
+    const cached = peekJson<{punches:Punch[]}>(url);
+    if (cached) setPunches(cached.punches || []);
+    else setPunches([]);
+    setPunchLoad(!cached);
+    cachedJson<{punches:Punch[]}>(url, 120_000)
       .then(d=>setPunches(d.punches||[]))
       .finally(()=>setPunchLoad(false));
   }, [fromDate, toDate, selected]);
@@ -74,8 +82,11 @@ export default function EmployeesPage() {
   }),[employees,locFilter,search]);
 
   // Use payroll_hours (7shifts approved) — NEVER recompute from timestamps
-  const payrollHours = punches.filter(p=>p.clocked_out).reduce((s,p)=>s+(+p.payroll_hours||+p.hours||0),0);
-  const estPay = payrollHours * (selected?.wage||0);
+  const payrollHours = punches.filter(p=>p.clocked_out).reduce((s,p)=>s+(Number(p.payroll_hours)>0?Number(p.payroll_hours):Number(p.hours)||0),0);
+  const estPay = punches.filter(p=>p.clocked_out).reduce((sum,p)=>{
+    const hours=Number(p.payroll_hours)>0?Number(p.payroll_hours):Number(p.hours)||0;
+    return sum + hours * Number(p.wage || 0);
+  },0);
 
   // Ongoing shift — show elapsed
   const elapsed = (iso: string) => {
@@ -93,8 +104,8 @@ export default function EmployeesPage() {
       [`Period: ${fromDate} to ${toDate}`],
       [],
       ['Date','Clock In','Clock Out','Break (min)','Payroll Hours','Location','Role','Pay'],
-      ...punches.sort((a,b)=>new Date(b.clocked_in).getTime()-new Date(a.clocked_in).getTime()).map(p=>{
-        const ph = +p.payroll_hours||+p.hours||0;
+      ...[...punches].sort((a,b)=>new Date(b.clocked_in).getTime()-new Date(a.clocked_in).getTime()).map(p=>{
+        const ph = Number(p.payroll_hours)>0?Number(p.payroll_hours):Number(p.hours)||0;
         return [
           fmtDate(p.clocked_in),
           fmtTime(p.clocked_in),
@@ -103,11 +114,11 @@ export default function EmployeesPage() {
           ph.toFixed(2),
           p.location,
           p.role||p.department||'—',
-          p.clocked_out&&selected.wage ? cad(ph*selected.wage) : '—',
+          p.clocked_out&&p.wage ? cad(ph*p.wage) : '—',
         ];
       }),
       [],
-      ['TOTAL','','','',payrollHours.toFixed(2),'','',selected.wage?cad(estPay):'—'],
+      ['TOTAL','','','',payrollHours.toFixed(2),'','',estPay?cad(estPay):'—'],
     ];
     const csv = rows.map(r=>r.map(c=>JSON.stringify(c??'')).join(',')).join('\n');
     const blob = new Blob([csv],{type:'text/csv'});
@@ -212,7 +223,7 @@ export default function EmployeesPage() {
                 {l:'Shifts',v:punches.length,c:'#22d3ee'},
                 {l:'Payroll Hours',v:`${payrollHours.toFixed(2)}h`,c:'#a78bfa'},
                 {l:'Wage',v:`$${(+selected.wage||0).toFixed(2)}/hr`,c:'#34d399'},
-                {l:'Est. Pay',v:selected.wage?`$${estPay.toFixed(0)}`:'—',c:'#fbbf24'},
+                {l:'Est. Pay',v:estPay?`$${estPay.toFixed(0)}`:'—',c:'#fbbf24'},
                 {l:'Still Clocked In',v:punches.filter(p=>!p.clocked_out).length,c:'#f97316'},
               ].map(k=>(
                 <div key={k.l} style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:9,padding:'9px 12px'}}>
@@ -236,16 +247,16 @@ export default function EmployeesPage() {
                 <div style={{overflowX:'auto'}}>
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,minWidth:700}}>
                     <thead><tr style={{background:'rgba(0,0,0,0.2)'}}>
-                      {['Date','Clock In','Clock Out','Break','Payroll Hrs','Gross Hrs','Location','Role','Pay'].map(h=>(
+                      {['Date','Clock In','Clock Out','Break','Payroll Hrs','Gross Hrs','Location','Role','Wage','Pay'].map(h=>(
                         <th key={h} style={{padding:'7px 10px',textAlign:'left',color:'#6b7280',fontWeight:500,fontSize:9,textTransform:'uppercase',letterSpacing:'0.05em',whiteSpace:'nowrap'}}>{h}</th>
                       ))}
                     </tr></thead>
                     <tbody>
-                      {punches.sort((a,b)=>new Date(b.clocked_in).getTime()-new Date(a.clocked_in).getTime()).map((p,i)=>{
-                        const ph = +p.payroll_hours||+p.hours||0;
+                      {[...punches].sort((a,b)=>new Date(b.clocked_in).getTime()-new Date(a.clocked_in).getTime()).map((p,i)=>{
+                        const ph = Number(p.payroll_hours)>0?Number(p.payroll_hours):Number(p.hours)||0;
                         const gh = +p.gross_hours||ph;
                         const isLive = !p.clocked_out;
-                        const pay = ph*(+selected.wage||0);
+                        const pay = ph*Number(p.wage||0);
                         const bk = +p.break_minutes||0;
                         return (
                           <tr key={p.punch_id} style={{borderTop:'1px solid rgba(255,255,255,0.04)',background:isLive?'rgba(249,115,22,0.04)':i%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
@@ -269,8 +280,9 @@ export default function EmployeesPage() {
                             </td>
                             <td style={{padding:'7px 10px',color:'#6b7280',fontSize:10}}>{p.location}</td>
                             <td style={{padding:'7px 10px',color:'#6b7280',fontSize:10}}>{p.role||p.department||'—'}</td>
+                            <td style={{padding:'7px 10px',color:'#9ca3af',textAlign:'right'}}>{p.wage?cad(Number(p.wage)):'—'}</td>
                             <td style={{padding:'7px 10px',textAlign:'right',color:isLive?'#374151':'#34d399'}}>
-                              {isLive?'—':(selected.wage?cad(pay):'—')}
+                              {isLive?'—':(p.wage?cad(pay):'—')}
                             </td>
                           </tr>
                         );
@@ -279,8 +291,8 @@ export default function EmployeesPage() {
                       <tr style={{borderTop:'2px solid rgba(255,255,255,0.1)',background:'rgba(34,211,238,0.04)'}}>
                         <td colSpan={4} style={{padding:'9px 10px',fontWeight:700,color:'#22d3ee',fontSize:12}}>Total (payroll-approved hours)</td>
                         <td style={{padding:'9px 10px',color:'#22d3ee',fontWeight:700,textAlign:'right'}}>{payrollHours.toFixed(2)}h</td>
-                        <td/><td/><td/>
-                        <td style={{padding:'9px 10px',color:'#34d399',fontWeight:700,textAlign:'right'}}>{selected.wage?cad(estPay):'—'}</td>
+                        <td/><td/><td/><td/>
+                        <td style={{padding:'9px 10px',color:'#34d399',fontWeight:700,textAlign:'right'}}>{estPay?cad(estPay):'—'}</td>
                       </tr>
                     </tbody>
                   </table>

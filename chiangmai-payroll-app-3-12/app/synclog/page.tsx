@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { cachedJson, peekJson } from '@/lib/client-cache';
 
 type SyncEntry = {
   id: string;
@@ -25,13 +26,13 @@ const fmt = (iso: string) => {
 const hrs = (n: number) => n ? `${n.toFixed(1)}h` : '—';
 
 export default function SyncLogPage() {
-  const [logs, setLogs]       = useState<SyncEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const initial = peekJson<{logs:SyncEntry[]}>('/api/synclog');
+  const [logs, setLogs]       = useState<SyncEntry[]>(() => initial?.logs || []);
+  const [loading, setLoading] = useState(() => !initial);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/synclog')
-      .then(r => r.json())
+    cachedJson<{logs:SyncEntry[]}>('/api/synclog', 60_000)
       .then(d => setLogs(d.logs || []))
       .finally(() => setLoading(false));
   }, []);

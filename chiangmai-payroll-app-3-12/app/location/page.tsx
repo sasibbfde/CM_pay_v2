@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
+import { cachedJson, peekJson } from '@/lib/client-cache';
 
 type PayrollRow = {
   employee_name: string;
@@ -33,8 +34,11 @@ const cadFull = (n: number) => new Intl.NumberFormat('en-CA', { style: 'currency
 const hrs = (n: number) => `${(n || 0).toFixed(2)}h`;
 
 export default function LocationPage() {
-  const [rows, setRows]         = useState<PayrollRow[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const now = new Date();
+  const initialUrl = `/api/payroll?year=${now.getFullYear()}&month=${now.getMonth() + 1}&period=month`;
+  const initial = peekJson<{rows:PayrollRow[]}>(initialUrl);
+  const [rows, setRows]         = useState<PayrollRow[]>(() => initial?.rows || []);
+  const [loading, setLoading]   = useState(() => !initial);
   const [year, setYear]         = useState(new Date().getFullYear());
   const [month, setMonth]       = useState(new Date().getMonth() + 1);
   const [period, setPeriod]     = useState<string>('month');
@@ -43,9 +47,11 @@ export default function LocationPage() {
   const [search, setSearch]     = useState('');
 
   useEffect(() => {
-    setLoading(true);
-    fetch(`/api/payroll?year=${year}&month=${month}&period=${period}`)
-      .then(r => r.json())
+    const url = `/api/payroll?year=${year}&month=${month}&period=${period}`;
+    const cached = peekJson<{rows:PayrollRow[]}>(url);
+    if (cached) setRows(cached.rows || []);
+    setLoading(!cached);
+    cachedJson<{rows:PayrollRow[]}>(url)
       .then(d => { setRows(d.rows || []); setLoading(false); })
       .catch(() => setLoading(false));
   }, [year, month, period]);

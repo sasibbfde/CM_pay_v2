@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { invalidateClientCache } from '@/lib/client-cache';
 
 const links = [
   { href: '/',         label: 'Dashboard'   },
@@ -43,6 +44,7 @@ export default function Nav() {
 
       const punches = punchRes.synced?.punches ?? 0;
       const salesDays = salesRes.synced ?? 0;
+      if (punchRes.ok !== false && salesRes.ok !== false) invalidateClientCache();
       setMsg(`✓ ${punches} punches · ${salesDays} sales days`);
     } catch (e: any) {
       setMsg(`✗ ${e.message}`);
@@ -53,6 +55,7 @@ export default function Nav() {
   }
 
   async function signOut() {
+    invalidateClientCache();
     await createClient().auth.signOut();
     window.location.assign('/login');
   }

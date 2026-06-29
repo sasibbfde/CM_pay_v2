@@ -1,18 +1,13 @@
 import { NextResponse } from 'next/server';
-import { fetchUsers, fetchTimePunches, fetchDepartments, fetchRoles } from '@/lib/7shifts';
+import { fetchUsers, fetchTimePunches, fetchDepartments, fetchRoles, fetchUserWages } from '@/lib/7shifts';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { selectHourlyWage, SevenShiftsWage } from '@/lib/wages';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 function fullName(u: any): string {
   const f = (u.first_name || '').trim();
   const l = (u.last_name  || '').trim();
   return [f, l].filter(Boolean).join(' ') || `Staff ${u.id}`;
-}
-
-function normalizeWage(v: any): number {
-  const n = Number(v ?? 0);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return n > 200 ? n / 100 : n;
 }
 
 const LOCATION_MAP: Record<string, string> = {
@@ -74,9 +69,25 @@ async function runSync(body: any): Promise<NextResponse> {
   function mapDept(id: any) { return deptById.get(String(id)) || ''; }
   function mapRole(id: any) { return roleById.get(String(id)) || ''; }
 
+  // 7shifts stores wages in a separate endpoint. Fetch active-user wages in
+  // bounded batches to avoid overwhelming the API.
+  const wagesByUser = new Map<string, SevenShiftsWage[]>();
+  const wageErrors: string[] = [];
+  const activeUsers = [...userById.values()].filter((user:any) => user.active !== false);
+  for (let index = 0; index < activeUsers.length; index += 10) {
+    await Promise.all(activeUsers.slice(index, index + 10).map(async (user:any) => {
+      try {
+        const result = await fetchUserWages(user.id);
+        wagesByUser.set(String(user.id), result.data || []);
+      } catch (error:any) {
+        wageErrors.push(`${fullName(user)}: ${error.message}`);
+      }
+    }));
+  }
+
   // ─── 2. Upsert employees (never overwrite good wage/location with nulls) ───
   const userRows = [...userById.values()].map((u: any) => {
-    const wage = normalizeWage(u.hourly_wage ?? u.wage ?? 0);
+    const wage = selectHourlyWage(wagesByUser.get(String(u.id)) || [], u.role_id);
     const loc  = mapLoc(u.location_id ?? u.home_location_id ?? '');
     const dept = u.department_name || mapDept(u.department_id) || null;
     const role = u.role_name || mapRole(u.role_id) || null;
@@ -124,8 +135,9 @@ async function runSync(body: any): Promise<NextResponse> {
   const locBreakdown: Record<string, number> = {};
 
   for (const p of rawPunches) {
-    const punchId = String(p.id || p.punch_id);
-    if (!punchId) continue;
+    const rawPunchId = p.id ?? p.punch_id;
+    if (rawPunchId == null || rawPunchId === '') continue;
+    const punchId = String(rawPunchId);
 
     const userId  = String(p.user_id || p.userId || '');
     const dbEmp   = dbEmpMap.get(userId);
@@ -146,10 +158,10 @@ async function runSync(body: any): Promise<NextResponse> {
     const department = mapDept(deptId) || dbEmp?.department || 'Unknown';
     const role       = mapRole(roleId) || dbEmp?.role || 'Unknown';
 
-    // Wage — prefer DB wage (accurate from mastersheet), fall back to 7shifts
-    const wage = Number(dbEmp?.wage || 0) > 0
-      ? Number(dbEmp.wage)
-      : normalizeWage(p.hourly_wage || u7?.hourly_wage || 0);
+    // Match the authoritative 7shifts wage by punch role and effective date.
+    const punchDate = String(p.clocked_in || p.clock_in || '').slice(0, 10);
+    const wage = selectHourlyWage(wagesByUser.get(userId) || [], p.role_id, punchDate)
+      || Number(dbEmp?.wage || 0);
 
     // Times
     const clockIn  = p.clocked_in  || p.clock_in  || null;
@@ -176,6 +188,7 @@ async function runSync(body: any): Promise<NextResponse> {
     punchMap.set(punchId, {
       punch_id:      punchId,
       employee_id:   userId ? `7S-${userId}` : 'UNKNOWN',
+      seven_shifts_user_id: userId || null,
       employee_name: name,
       location,
       department,
@@ -219,6 +232,8 @@ async function runSync(body: any): Promise<NextResponse> {
     duration_ms: duration,
     location_breakdown: locBreakdown,
     breaks_found: rawPunches.filter((p: any) => (p.breaks||[]).length > 0).length,
+    wages_synced: wagesByUser.size,
+    wage_errors: wageErrors.length ? wageErrors : undefined,
   });
 }
 

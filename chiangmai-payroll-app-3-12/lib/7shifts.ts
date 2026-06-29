@@ -63,9 +63,16 @@ export async function fetchUsers() {
     fetchAllPages(companyPath('/users?status=inactive'), 100),
   ]);
   const map = new Map<string, any>();
-  for (const u of inactive) map.set(String(u.id), u);
-  for (const u of active)   map.set(String(u.id), u);
+  for (const u of inactive) map.set(String(u.id), { ...u, active:false });
+  for (const u of active)   map.set(String(u.id), { ...u, active:true });
   return { data: [...map.values()] };
+}
+
+/** Current wage records for one user; 7shifts exposes wages separately from users. */
+export async function fetchUserWages(userId: string | number) {
+  const response = await sevenFetch(companyPath(`/users/${userId}/wages`));
+  const payload = response?.data || response || {};
+  return { data: Array.isArray(payload.current) ? payload.current : [] };
 }
 
 export async function fetchLocations() {

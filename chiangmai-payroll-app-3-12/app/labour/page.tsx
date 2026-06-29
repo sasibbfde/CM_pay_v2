@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,LineChart,Line,CartesianGrid } from 'recharts';
+import { cachedJson, peekJson } from '@/lib/client-cache';
 
 type PayrollRow = { employee_name:string; location:string; department:string; role:string;
   actual_hours:number; payroll_hours:number; cash_hours:number;
@@ -18,9 +19,11 @@ export default function LabourPage() {
   const [preset,setPreset]=useState('month');
   const [fromDate,setFromDate]=useState(isoDate(new Date(today.getFullYear(),today.getMonth(),1)));
   const [toDate,setToDate]=useState(isoDate(new Date(today.getFullYear(),today.getMonth()+1,0)));
-  const [rows,setRows]=useState<PayrollRow[]>([]);
-  const [monthly,setMonthly]=useState<any[]>([]);
-  const [loading,setLoading]=useState(true);
+  const initialUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&from=${fromDate}&to=${toDate}`;
+  const initial=peekJson<{rows:PayrollRow[];monthly:any[]}>(initialUrl);
+  const [rows,setRows]=useState<PayrollRow[]>(()=>initial?.rows||[]);
+  const [monthly,setMonthly]=useState<any[]>(()=>initial?.monthly||[]);
+  const [loading,setLoading]=useState(()=>!initial);
   const [sales,setSales]=useState<Record<string,number>>({});
   const [editSales,setEditSales]=useState(false);
   const [salesInput,setSalesInput]=useState<Record<string,string>>({});
@@ -38,11 +41,14 @@ export default function LabourPage() {
   },[]);
 
   useEffect(()=>{
-    setLoading(true);
     const year=new Date(fromDate).getFullYear();
     const month=new Date(fromDate).getMonth()+1;
-    fetch(`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}`)
-      .then(r=>r.json()).then(d=>{setRows(d.rows||[]);setMonthly(d.monthly||[]);}).finally(()=>setLoading(false));
+    const url=`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}`;
+    const cached=peekJson<{rows:PayrollRow[];monthly:any[]}>(url);
+    if(cached){setRows(cached.rows||[]);setMonthly(cached.monthly||[]);}
+    setLoading(!cached);
+    cachedJson<{rows:PayrollRow[];monthly:any[]}>(url)
+      .then(d=>{setRows(d.rows||[]);setMonthly(d.monthly||[]);}).finally(()=>setLoading(false));
   },[fromDate,toDate]);
 
   const byLocation=useMemo(()=>{

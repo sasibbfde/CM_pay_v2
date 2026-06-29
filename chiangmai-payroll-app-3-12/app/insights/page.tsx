@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,LineChart,Line,CartesianGrid,PieChart,Pie,Cell } from 'recharts';
+import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
 
 type Row = { employee_name:string; location:string; department:string; role:string;
   actual_hours:number; payroll_hours:number; cash_hours:number;
@@ -27,11 +28,18 @@ export default function InsightsPage() {
   const [toDate,   setToDate]   = useState(isoDate(today));
   const [locFilter, setLocFilter] = useState('ALL');
 
+  const initialYear = new Date(fromDate).getFullYear();
+  const initialMonth = new Date(fromDate).getMonth() + 1;
+  const initialPayrollUrl = `/api/payroll?year=${initialYear}&month=${initialMonth}&period=month&from=${fromDate}&to=${toDate}`;
+  const initialSalesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
+  const initialPay = peekJson<{rows:Row[];monthly:any[]}>(initialPayrollUrl);
+  const initialSales = peekJson<{sales:Sale[]}>(initialSalesUrl);
+
   // Data
-  const [rows,    setRows]    = useState<Row[]>([]);
-  const [monthly, setMonthly] = useState<any[]>([]);
-  const [sales,   setSales]   = useState<Sale[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rows,    setRows]    = useState<Row[]>(() => initialPay?.rows || []);
+  const [monthly, setMonthly] = useState<any[]>(() => initialPay?.monthly || []);
+  const [sales,   setSales]   = useState<Sale[]>(() => initialSales?.sales || []);
+  const [loading, setLoading] = useState(() => !initialPay || !initialSales);
   const [tab, setTab]         = useState<'overview'|'locations'|'roles'|'alerts'|'top'|'sales'>('overview');
 
   // Sales entry state
@@ -62,12 +70,18 @@ export default function InsightsPage() {
   }, []);
 
   useEffect(() => {
-    setLoading(true);
     const year = new Date(fromDate).getFullYear();
     const month = new Date(fromDate).getMonth() + 1;
+    const payrollUrl = `/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}`;
+    const salesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
+    const cachedPay = peekJson<{rows:Row[];monthly:any[]}>(payrollUrl);
+    const cachedSales = peekJson<{sales:Sale[]}>(salesUrl);
+    if (cachedPay) { setRows(cachedPay.rows || []); setMonthly(cachedPay.monthly || []); }
+    if (cachedSales) setSales(cachedSales.sales || []);
+    setLoading(!cachedPay || !cachedSales);
     Promise.all([
-      fetch(`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}`).then(r=>r.json()),
-      fetch(`/api/sales?from=${fromDate}&to=${toDate}`).then(r=>r.json()),
+      cachedJson<{rows:Row[];monthly:any[]}>(payrollUrl),
+      cachedJson<{sales:Sale[]}>(salesUrl),
     ]).then(([pay, sal]) => {
       setRows(pay.rows || []);
       setMonthly(pay.monthly || []);
@@ -154,7 +168,12 @@ export default function InsightsPage() {
     const d = await res.json();
     setSalesMsg(d.ok ? `✓ Saved ${d.saved} location(s)` : `Error: ${d.error}`);
     setSavingSales(false);
-    if (d.ok) { setTimeout(()=>{ setShowSalesModal(false); setSalesMsg(''); setSalesEntry({}); },1500); }
+    if (d.ok) {
+      invalidateClientCache(['/api/sales']);
+      const salesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
+      cachedJson<{sales:Sale[]}>(salesUrl, 120_000, true).then(result => setSales(result.sales || []));
+      setTimeout(()=>{ setShowSalesModal(false); setSalesMsg(''); setSalesEntry({}); },1500);
+    }
   };
 
   const downloadExcel = () => {

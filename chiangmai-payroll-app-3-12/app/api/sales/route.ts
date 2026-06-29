@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
+const numericFields = ['gross_sales','net_sales','projected_sales','actual_labor_cost','labor_percent','sales_per_labor_hr'] as const;
+function normalizeSale(row: any) {
+  const normalized = { ...row };
+  numericFields.forEach(field => { normalized[field] = row[field] == null ? null : Number(row[field]); });
+  normalized.covers = Number(row.covers || 0);
+  return normalized;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const sp = req.nextUrl.searchParams;
@@ -12,7 +20,7 @@ export async function GET(req: NextRequest) {
     if (to)   q = q.lte('sale_date', to);
     const { data, error } = await q;
     if (error) throw error;
-    return NextResponse.json({ sales: data ?? [] });
+    return NextResponse.json({ sales: (data ?? []).map(normalizeSale) });
   } catch (e: any) {
     return NextResponse.json({ sales: [], error: e.message }, { status: 500 });
   }

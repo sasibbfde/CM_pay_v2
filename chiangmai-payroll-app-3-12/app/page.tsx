@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   AreaChart, Area, CartesianGrid,
@@ -103,11 +104,12 @@ function ChartTooltip({ active, payload, label }: any) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function Home() {
   const now = new Date();
+  const initialPayrollUrl = `/api/payroll?year=${now.getFullYear()}&month=${now.getMonth() + 1}&period=1-15`;
   const [year,   setYear]   = useState(now.getFullYear());
   const [month,  setMonth]  = useState(now.getMonth() + 1);
   const [period, setPeriod] = useState('1-15');
-  const [data,   setData]   = useState<ApiData | null>(null);
-  const [loading,    setLoading]    = useState(false);
+  const [data,   setData]   = useState<ApiData | null>(() => peekJson<ApiData>(initialPayrollUrl) || null);
+  const [loading,    setLoading]    = useState(() => !peekJson<ApiData>(initialPayrollUrl));
   const [downloading, setDl]        = useState(false);
   const [syncing,    setSyncing]    = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
@@ -117,11 +119,13 @@ export default function Home() {
   const [syncStart,  setSyncStart]  = useState('');
   const [syncEnd,    setSyncEnd]    = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (force = false) => {
+    const url = `/api/payroll?year=${year}&month=${month}&period=${period}`;
+    const cached = !force ? peekJson<ApiData>(url) : undefined;
+    if (cached) setData(cached);
+    setLoading(!cached);
     try {
-      const res = await fetch(`/api/payroll?year=${year}&month=${month}&period=${period}`);
-      setData(await res.json());
+      setData(await cachedJson<ApiData>(url, 120_000, force));
     } finally {
       setLoading(false);
     }
@@ -186,7 +190,10 @@ export default function Home() {
       });
       const d: SyncResult = await res.json();
       setSyncResult(d);
-      if (d.ok) load();
+      if (d.ok) {
+        invalidateClientCache(['/api/payroll', '/api/employees', '/api/synclog']);
+        load(true);
+      }
     } catch (e: any) {
       setSyncResult({ ok: false, error: e.message });
     } finally {
@@ -275,7 +282,7 @@ export default function Home() {
 
               <div style={{ width: 1, height: 28, background: 'var(--border)', margin: '0 4px' }} />
 
-              <button className="btn btn-ghost" onClick={load} disabled={loading}>
+              <button className="btn btn-ghost" onClick={()=>load(true)} disabled={loading}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={loading ? 'spin' : ''}>
                   <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>
                 </svg>
