@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchUsers, fetchTimePunches, fetchLocations, fetchDepartments, fetchRoles } from '@/lib/7shifts';
+import { fetchUsers, fetchTimePunches, fetchDepartments, fetchRoles } from '@/lib/7shifts';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -63,8 +63,8 @@ async function runSync(body: any): Promise<NextResponse> {
   const triggeredBy = body.triggered_by || 'manual';
 
   // ─── 1. Fetch reference data ───────────────────────────────────────────────
-  const [usersRes, locsRes, deptsRes, rolesRes] = await Promise.all([
-    fetchUsers(), fetchLocations(), fetchDepartments(), fetchRoles(),
+  const [usersRes, deptsRes, rolesRes] = await Promise.all([
+    fetchUsers(), fetchDepartments(), fetchRoles(),
   ]);
 
   const userById    = new Map<string, any>((usersRes.data || []).map((u: any) => [String(u.id), u]));
@@ -101,13 +101,13 @@ async function runSync(body: any): Promise<NextResponse> {
   for (let i = 0; i < userRows.length; i += BATCH) {
     const { error } = await supabase.from('employees')
       .upsert(userRows.slice(i, i + BATCH), { onConflict: 'seven_shifts_user_id', ignoreDuplicates: false });
-    if (error) console.error('Employee upsert error:', error.message);
+    if (error) throw new Error(`Employee upsert failed: ${error.message}`);
   }
 
   // ─── 3. Load DB employee map ───────────────────────────────────────────────
   const { data: dbEmps } = await supabase
     .from('employees')
-    .select('employee_id, seven_shifts_user_id, full_name, location, department, role, wage');
+    .select('employee_id, seven_shifts_user_id, full_name, location, department, role, wage, cash_wage');
   const dbEmpMap = new Map<string, any>();
   for (const e of dbEmps || []) {
     if (e.seven_shifts_user_id) dbEmpMap.set(String(e.seven_shifts_user_id), e);
@@ -187,6 +187,7 @@ async function runSync(body: any): Promise<NextResponse> {
       gross_hours:   grossHours,       // raw clock diff
       break_minutes: Math.round(breakMinutes),    // total break duration (paid + unpaid)
       wage,
+      cash_wage: Number(dbEmp?.cash_wage || 0),
       source: '7shifts',
     });
   }
@@ -197,17 +198,19 @@ async function runSync(body: any): Promise<NextResponse> {
   for (let i = 0; i < punchRows.length; i += BATCH) {
     const { error } = await supabase.from('punches')
       .upsert(punchRows.slice(i, i + BATCH), { onConflict: 'punch_id' });
-    if (error) { console.error('Punch upsert error:', error.message); }
+    if (error) { throw new Error(`Punch upsert failed: ${error.message}`); }
     else { punchesSynced += punchRows.slice(i, i + BATCH).length; }
   }
 
   // ─── 7. After-sync: fill location/dept/role/wage from punches for employees ─
   // This runs after every sync so new employees get their metadata filled in
-  try { await supabase.rpc('fill_employee_fields_from_punches'); } catch(_){}
+  const { error: fillError } = await supabase.rpc('fill_employee_fields_from_punches');
+  if (fillError) throw new Error(`Employee metadata update failed: ${fillError.message}`);
 
   // ─── 8. Log sync ───────────────────────────────────────────────────────────
   const duration = Date.now() - t0;
-  try { await supabase.from('sync_log').insert({ triggered_by: triggeredBy, date_from: startDate, date_to: endDate, users_synced: userRows.length, punches_synced: punchesSynced, duration_ms: duration, location_breakdown: locBreakdown, notes: `breaks parsed from ${rawPunches.filter((p:any)=>p.breaks?.length>0).length} punches` }); } catch(_) {}
+  const { error: logError } = await supabase.from('sync_log').insert({ triggered_by: triggeredBy, date_from: startDate, date_to: endDate, users_synced: userRows.length, punches_synced: punchesSynced, duration_ms: duration, location_breakdown: locBreakdown, notes: `breaks parsed from ${rawPunches.filter((p:any)=>p.breaks?.length>0).length} punches` });
+  if (logError) throw new Error(`Sync log write failed: ${logError.message}`);
 
   return NextResponse.json({
     ok: true,
@@ -219,8 +222,16 @@ async function runSync(body: any): Promise<NextResponse> {
   });
 }
 
-export async function GET()          { return runSync({}); }
+async function handleSync(body: any) {
+  try {
+    return await runSync(body);
+  } catch (error: any) {
+    return NextResponse.json({ ok:false, error:error.message || '7shifts sync failed' }, { status:500 });
+  }
+}
+
+export async function GET()          { return handleSync({}); }
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  return runSync(body);
+  return handleSync(body);
 }

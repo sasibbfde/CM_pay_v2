@@ -37,8 +37,6 @@ export default function LabourPage() {
     else if(p==='last-month'){setFromDate(isoDate(new Date(y,m-1,1)));setToDate(isoDate(new Date(y,m,0)));}
   },[]);
 
-  useEffect(()=>{applyPreset('month');},[]);
-
   useEffect(()=>{
     setLoading(true);
     const year=new Date(fromDate).getFullYear();

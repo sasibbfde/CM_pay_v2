@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { calculatePayroll, filterPunches, summarize } from '@/lib/payroll';
+import { applyEmployeeWages, calculatePayroll, filterPunches, summarize } from '@/lib/payroll';
 import { getSupabaseAdmin } from '@/lib/supabase';
-import { EmployeeRule, Punch } from '@/lib/types';
-import * as XLSX from 'xlsx';
+import { Employee, EmployeeRule, Punch } from '@/lib/types';
+import ExcelJS from 'exceljs';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -23,12 +23,15 @@ function mapPunch(r: any): Punch {
     clocked_out:   r.clocked_out,
     hours:         toNum(r.hours),
     wage:          toNum(r.wage),
+    cash_wage:     toNum(r.cash_wage),
     source:        r.source || 'supabase',
   };
 }
 
 function mapRule(r: any): EmployeeRule {
   return {
+    id:                 r.id,
+    employee_id:        r.employee_id,
     employee_name:      r.employee_name,
     rule_type:          r.rule_type,
     rule_value:         r.rule_value,
@@ -39,10 +42,6 @@ function mapRule(r: any): EmployeeRule {
     effective_from:     r.effective_from,
     effective_to:       r.effective_to,
   };
-}
-
-function money(n: number) {
-  return `$${(n || 0).toFixed(2)}`;
 }
 
 function periodLabel(year: number, month: number, period: string) {
@@ -63,16 +62,18 @@ export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseAdmin();
 
-    const [{ data: punchData, error: punchErr }, { data: ruleData, error: ruleErr }] =
+    const [{ data: punchData, error: punchErr }, { data: ruleData, error: ruleErr }, { data: employeeData, error: employeeErr }] =
       await Promise.all([
         supabase.from('punches').select('*'),
         supabase.from('employee_rules').select('*').eq('active', true),
+        supabase.from('employees').select('*'),
       ]);
 
     if (punchErr) throw punchErr;
     if (ruleErr)  throw ruleErr;
+    if (employeeErr) throw employeeErr;
 
-    const punches = (punchData || []).map(mapPunch);
+    const punches = applyEmployeeWages((punchData || []).map(mapPunch), (employeeData || []) as Employee[]);
     const rules   = (ruleData  || []).map(mapRule);
 
     const filtered = filterPunches(punches, year, month, period);
@@ -104,7 +105,10 @@ export async function GET(req: NextRequest) {
       r.notes || '',
     ]);
 
-    const detailSheet = XLSX.utils.aoa_to_sheet([
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'CM Payroll';
+    const detailSheet = workbook.addWorksheet('Payroll Detail');
+    detailSheet.addRows([
       [`Chiang Mai Group — Payroll: ${label}`],
       [],
       detailHeaders,
@@ -118,12 +122,7 @@ export async function GET(req: NextRequest) {
     ]);
 
     // Column widths
-    detailSheet['!cols'] = [
-      { wch: 24 }, { wch: 26 }, { wch: 18 }, { wch: 16 },
-      { wch: 11 }, { wch: 12 }, { wch: 10 },
-      { wch: 8  }, { wch: 16  }, { wch: 14 },
-      { wch: 22 }, { wch: 40 },
-    ];
+    detailSheet.columns.forEach((column, index) => { column.width = [24,26,18,16,11,12,10,8,16,14,22,40][index]; });
 
     // ── Sheet 2: Summary by Location ──────────────────────────────
     const byLocation = new Map<string, { payroll: number; cash: number; employees: Set<string> }>();
@@ -144,7 +143,8 @@ export async function GET(req: NextRequest) {
       d.payroll + d.cash,
     ]);
 
-    const summarySheet = XLSX.utils.aoa_to_sheet([
+    const summarySheet = workbook.addWorksheet('Summary by Location');
+    summarySheet.addRows([
       [`Summary by Location — ${label}`],
       [],
       summaryHeaders,
@@ -159,13 +159,12 @@ export async function GET(req: NextRequest) {
       ],
     ]);
 
-    summarySheet['!cols'] = [
-      { wch: 28 }, { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 16 },
-    ];
+    summarySheet.columns.forEach((column, index) => { column.width = [28,12,18,16,16][index]; });
 
     // ── Sheet 3: Rule Exceptions ───────────────────────────────────
     const exceptions     = rows.filter((r) => r.rule_applied !== 'STANDARD');
-    const exceptionSheet = XLSX.utils.aoa_to_sheet([
+    const exceptionSheet = workbook.addWorksheet('Rule Exceptions');
+    exceptionSheet.addRows([
       [`Rule Exceptions — ${label}`],
       [],
       ['Employee', 'Location', 'Rule Applied', 'Payroll Hrs', 'Cash Hrs', 'Payroll Amount', 'Cash Amount', 'Notes'],
@@ -177,18 +176,9 @@ export async function GET(req: NextRequest) {
       ]),
     ]);
 
-    exceptionSheet['!cols'] = [
-      { wch: 24 }, { wch: 26 }, { wch: 24 },
-      { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 14 }, { wch: 40 },
-    ];
+    exceptionSheet.columns.forEach((column, index) => { column.width = [24,26,24,12,10,16,14,40][index]; });
 
-    // ── Assemble workbook ──────────────────────────────────────────
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, detailSheet,    'Payroll Detail');
-    XLSX.utils.book_append_sheet(wb, summarySheet,   'Summary by Location');
-    XLSX.utils.book_append_sheet(wb, exceptionSheet, 'Rule Exceptions');
-
-    const buffer   = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const buffer   = await workbook.xlsx.writeBuffer();
     const filename = `CM_Payroll_${year}_${String(month).padStart(2,'0')}_${period.replace(/[^a-z0-9]/gi,'-')}.xlsx`;
 
     return new NextResponse(buffer, {

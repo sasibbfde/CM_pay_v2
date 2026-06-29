@@ -58,14 +58,24 @@ export async function PATCH(req: NextRequest) {
     const { id, seven_shifts_user_id, wage, cash_wage } = await req.json();
     const supabase = getSupabaseAdmin();
     const updates: any = {};
-    if (wage      !== undefined) updates.wage      = Number(wage);
-    if (cash_wage !== undefined) updates.cash_wage = Number(cash_wage);
+    if (wage !== undefined) {
+      const value = Number(wage);
+      if (!Number.isFinite(value) || value < 0) return NextResponse.json({ error: 'wage must be a non-negative number' }, { status: 400 });
+      updates.wage = value;
+    }
+    if (cash_wage !== undefined) {
+      const value = Number(cash_wage);
+      if (!Number.isFinite(value) || value < 0) return NextResponse.json({ error: 'cash_wage must be a non-negative number' }, { status: 400 });
+      updates.cash_wage = value;
+    }
+    if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'wage or cash_wage required' }, { status: 400 });
     let q = supabase.from('employees').update(updates);
     if (id)                   q = q.eq('id', id);
     else if (seven_shifts_user_id) q = q.eq('seven_shifts_user_id', String(seven_shifts_user_id));
     else return NextResponse.json({ error: 'id or seven_shifts_user_id required' }, { status: 400 });
-    const { error } = await q;
+    const { data, error } = await q.select('id');
     if (error) throw error;
+    if (!data?.length) return NextResponse.json({ error: 'employee not found' }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });

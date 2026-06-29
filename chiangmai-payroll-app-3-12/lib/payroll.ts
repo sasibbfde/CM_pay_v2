@@ -1,191 +1,191 @@
-import { PayrollRow, Punch, EmployeeRule } from './types';
+import { Employee, EmployeeRule, PayrollRow, Punch } from './types';
 
+const PAYROLL_TIME_ZONE = 'America/Toronto';
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
 function round(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+function localDate(iso: string) {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: PAYROLL_TIME_ZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function dateString(year: number, month: number, day: number) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 function getPunchHours(p: Punch) {
   const given = Number(p.hours || 0);
   if (given > 0) return given;
-
   const start = new Date(p.clocked_in).getTime();
-  const end   = new Date(p.clocked_out).getTime();
-
+  const end = new Date(p.clocked_out).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
-  return round((end - start) / (1000 * 60 * 60));
+  return round((end - start) / 3_600_000);
 }
 
-export function getPeriodRange(year: number, month: number, period: string) {
-  const startMonth = month - 1;
-  const endDay     = new Date(year, month, 0).getDate();
-
-  if (period === '1-15') {
-    return {
-      start: new Date(year, startMonth, 1),
-      end:   new Date(year, startMonth, 15, 23, 59, 59),
-    };
-  }
-  if (period === '16-end') {
-    return {
-      start: new Date(year, startMonth, 16),
-      end:   new Date(year, startMonth, endDay, 23, 59, 59),
-    };
-  }
-  return {
-    start: new Date(year, startMonth, 1),
-    end:   new Date(year, startMonth, endDay, 23, 59, 59),
-  };
+export function getPeriodDateRange(year: number, month: number, period: string) {
+  const endDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (period === '1-15') return { start: dateString(year, month, 1), end: dateString(year, month, 15) };
+  if (period === '16-end') return { start: dateString(year, month, 16), end: dateString(year, month, endDay) };
+  return { start: dateString(year, month, 1), end: dateString(year, month, endDay) };
 }
 
-export function filterPunches(
-  punches: Punch[],
-  year:    number,
-  month:   number,
-  period:  string
-) {
-  const { start, end } = getPeriodRange(year, month, period);
-  return punches.filter((p) => {
-    const d = new Date(p.clocked_in);
-    return d >= start && d <= end;
+export function filterPunches(punches: Punch[], year: number, month: number, period: string) {
+  const { start, end } = getPeriodDateRange(year, month, period);
+  return filterPunchesByDateRange(punches, start, end);
+}
+
+export function filterPunchesByDateRange(punches: Punch[], start: string, end: string) {
+  return punches.filter(p => {
+    const date = localDate(p.clocked_in);
+    return Boolean(date && date >= start && date <= end);
   });
 }
 
-export function calculatePayroll(
-  punches: Punch[],
-  rules:   EmployeeRule[]
-): PayrollRow[] {
-  // ── Group punches by employee (all locations together) ──────────────
+export function applyEmployeeWages(punches: Punch[], employees: Employee[]) {
+  const byId = new Map<string, Employee>();
+  const byName = new Map<string, Employee>();
+  for (const employee of employees) {
+    if (employee.employee_id) byId.set(employee.employee_id, employee);
+    if (employee.seven_shifts_user_id) {
+      byId.set(employee.seven_shifts_user_id, employee);
+      byId.set(`7S-${employee.seven_shifts_user_id}`, employee);
+    }
+    byName.set(norm(employee.full_name), employee);
+  }
+  return punches.map(punch => {
+    const employee = (punch.employee_id && byId.get(punch.employee_id)) || byName.get(norm(punch.employee_name));
+    if (!employee) return punch;
+    return {
+      ...punch,
+      wage: Number(employee.wage || 0),
+      cash_wage: Number(employee.cash_wage || 0),
+    };
+  });
+}
+
+function ruleApplies(rule: EmployeeRule, date: string) {
+  return rule.active !== false
+    && (!rule.effective_from || date >= rule.effective_from)
+    && (!rule.effective_to || date <= rule.effective_to);
+}
+
+function addPay(
+  punch: Punch,
+  payrollHours: number,
+  cashHours: number,
+  totals: { payrollHours: number; cashHours: number; payrollAmount: number; cashAmount: number },
+) {
+  const wage = Number(punch.wage || 0);
+  const cashWage = Number(punch.cash_wage || 0) || wage;
+  totals.payrollHours += payrollHours;
+  totals.cashHours += cashHours;
+  totals.payrollAmount += payrollHours * wage;
+  totals.cashAmount += cashHours * cashWage;
+}
+
+export function calculatePayroll(punches: Punch[], rules: EmployeeRule[]): PayrollRow[] {
   const grouped = new Map<string, Punch[]>();
-  for (const p of punches) {
-    const key = norm(p.employee_name || 'Unknown');
-    grouped.set(key, [...(grouped.get(key) || []), p]);
+  for (const punch of punches) {
+    const key = punch.employee_id ? `id:${punch.employee_id}` : `name:${norm(punch.employee_name || 'Unknown')}`;
+    grouped.set(key, [...(grouped.get(key) || []), punch]);
   }
 
-  const activeRules = rules.filter((r) => r.active !== false);
-  const rulesByName = new Map(activeRules.map((r) => [norm(r.employee_name), r]));
+  const activeRules = rules.filter(rule => rule.active !== false);
+  const rulesById = new Map<string, EmployeeRule[]>();
+  const rulesByName = new Map<string, EmployeeRule[]>();
+  activeRules.forEach(rule => {
+    if (rule.employee_id) rulesById.set(rule.employee_id, [...(rulesById.get(rule.employee_id) || []), rule]);
+    const name = norm(rule.employee_name);
+    rulesByName.set(name, [...(rulesByName.get(name) || []), rule]);
+  });
 
   const rows: PayrollRow[] = [];
-
-  for (const [key, items] of grouped) {
+  for (const items of grouped.values()) {
+    items.sort((a, b) => a.clocked_in.localeCompare(b.clocked_in));
     const first = items[0];
-    const wage  = Number(first.wage || 0);
-    const rule  = rulesByName.get(key);
+    const candidates = [
+      ...(first.employee_id ? rulesById.get(first.employee_id) || [] : []),
+      ...(rulesByName.get(norm(first.employee_name)) || []),
+    ].filter((rule, index, all) => all.indexOf(rule) === index)
+      .sort((a, b) => (b.effective_from || '').localeCompare(a.effective_from || ''));
 
-    // Total actual hours across ALL locations
-    const actual = round(items.reduce((s, p) => s + getPunchHours(p), 0));
+    const partitions = new Map<EmployeeRule | undefined, Punch[]>();
+    for (const punch of items) {
+      const date = localDate(punch.clocked_in);
+      const rule = candidates.find(candidate => ruleApplies(candidate, date));
+      partitions.set(rule, [...(partitions.get(rule) || []), punch]);
+    }
 
-    // Default (no rule)
-    let payrollHours = actual;
-    let cashHours    = 0;
-    let payrollAmount = round(actual * wage);
-    let cashAmount   = 0;
-    let ruleApplied  = 'STANDARD';
-    let notes        = '';
+    const totals = { payrollHours: 0, cashHours: 0, payrollAmount: 0, cashAmount: 0 };
+    const ruleNames = new Set<string>();
+    const notes = new Set<string>();
     let payrollLocation = first.location;
 
-    if (rule) {
-      notes       = rule.notes || '';
-      ruleApplied = rule.rule_type;
+    for (const [rule, segment] of partitions) {
+      const type = rule?.rule_type || 'STANDARD';
+      ruleNames.add(type);
+      if (rule?.notes) notes.add(rule.notes);
+      const cap = Number(rule?.rule_value || 0);
+      let remaining = cap;
 
-      // ── CASH_ONLY ─────────────────────────────────────────────────
-      if (rule.rule_type === 'CASH_ONLY') {
-        payrollHours  = 0;
-        cashHours     = actual;
-        payrollAmount = 0;
-        cashAmount    = round(actual * wage);
+      if (type === 'SALARY_FIXED') {
+        totals.payrollHours += segment.reduce((sum, punch) => sum + getPunchHours(punch), 0);
+        totals.payrollAmount += cap;
+        continue;
       }
 
-      // ── PAYROLL_HOURS_CAP ─────────────────────────────────────────
-      if (rule.rule_type === 'PAYROLL_HOURS_CAP') {
-        const cap     = Number(rule.rule_value || 0);
-        payrollHours  = round(Math.min(actual, cap));
-        cashHours     = round(Math.max(actual - cap, 0));
-        payrollAmount = round(payrollHours * wage);
-        cashAmount    = round(cashHours * wage);
+      if (type === 'PAY_UNDER_OTHER_LOCATION') {
+        payrollLocation = rule?.payroll_location || payrollLocation;
       }
 
-      // ── COMBINED_LOCATION_CAP ─────────────────────────────────────
-      // Hours across specific locations are combined; cap applies to total
-      if (rule.rule_type === 'COMBINED_LOCATION_CAP') {
-        const cap = Number(rule.rule_value || 0);
-
-        // Which locations count toward the combined cap?
-        const capLocations = (rule.combined_locations || '')
-          .split(',')
-          .map((l) => norm(l.trim()))
-          .filter(Boolean);
-
-        // Hours inside the cap-location group vs outside
-        const cappedHours = capLocations.length
-          ? round(
-              items
-                .filter((p) => capLocations.includes(norm(p.location)))
-                .reduce((s, p) => s + getPunchHours(p), 0)
-            )
-          : actual;
-
-        const uncappedHours = round(actual - cappedHours);
-
-        // Apply cap only to the capped group
-        payrollHours  = round(Math.min(cappedHours, cap) + uncappedHours);
-        cashHours     = round(Math.max(cappedHours - cap, 0));
-        payrollAmount = round(payrollHours * wage);
-        cashAmount    = round(cashHours * wage);
-      }
-
-      // ── SALARY_FIXED ──────────────────────────────────────────────
-      if (rule.rule_type === 'SALARY_FIXED') {
-        payrollHours  = actual;
-        cashHours     = 0;
-        payrollAmount = Number(rule.rule_value || 0);
-        cashAmount    = 0;
-      }
-
-      // ── HOLD_PAYROLL ──────────────────────────────────────────────
-      if (rule.rule_type === 'HOLD_PAYROLL') {
-        payrollHours  = 0;
-        cashHours     = 0;
-        payrollAmount = 0;
-        cashAmount    = 0;
-      }
-
-      // ── PAY_UNDER_OTHER_LOCATION ──────────────────────────────────
-      // Employee's hours are reported under a different location for payroll.
-      // All actual hours go to payroll; location shown is the payroll_location.
-      if (rule.rule_type === 'PAY_UNDER_OTHER_LOCATION') {
-        payrollHours    = actual;
-        cashHours       = 0;
-        payrollAmount   = round(actual * wage);
-        cashAmount      = 0;
-        payrollLocation = rule.payroll_location || first.location;
-        notes           = `Paid under: ${payrollLocation}. ${notes}`.trim();
-      }
-
-      // ── NOTE_ONLY ─────────────────────────────────────────────────
-      if (rule.rule_type === 'NOTE_ONLY') {
-        // No changes to hours/pay — just attach the note
-        payrollHours  = actual;
-        cashHours     = 0;
-        payrollAmount = round(actual * wage);
-        cashAmount    = 0;
+      const capLocations = new Set((rule?.combined_locations || '').split(',').map(norm).filter(Boolean));
+      for (const punch of segment) {
+        const hours = getPunchHours(punch);
+        if (type === 'HOLD_PAYROLL') continue;
+        if (type === 'CASH_ONLY') {
+          addPay(punch, 0, hours, totals);
+        } else if (type === 'PAYROLL_HOURS_CAP') {
+          const payrollHours = Math.min(hours, Math.max(remaining, 0));
+          addPay(punch, payrollHours, hours - payrollHours, totals);
+          remaining -= payrollHours;
+        } else if (type === 'COMBINED_LOCATION_CAP' && (capLocations.size === 0 || capLocations.has(norm(punch.location)))) {
+          const payrollHours = Math.min(hours, Math.max(remaining, 0));
+          addPay(punch, payrollHours, hours - payrollHours, totals);
+          remaining -= payrollHours;
+        } else {
+          addPay(punch, hours, 0, totals);
+        }
       }
     }
 
+    const actual = round(items.reduce((sum, punch) => sum + getPunchHours(punch), 0));
+    const weightedWage = actual > 0
+      ? items.reduce((sum, punch) => sum + getPunchHours(punch) * Number(punch.wage || 0), 0) / actual
+      : Number(first.wage || 0);
+
     rows.push({
-      employee_name:  first.employee_name,
-      location:       payrollLocation,
-      department:     first.department,
-      role:           first.role,
-      actual_hours:   actual,
-      payroll_hours:  payrollHours,
-      cash_hours:     cashHours,
-      wage,
-      payroll_amount: payrollAmount,
-      cash_amount:    cashAmount,
-      rule_applied:   ruleApplied,
-      notes,
+      employee_id: first.employee_id,
+      employee_name: first.employee_name,
+      location: payrollLocation,
+      department: first.department,
+      role: first.role,
+      actual_hours: actual,
+      payroll_hours: round(totals.payrollHours),
+      cash_hours: round(totals.cashHours),
+      wage: round(weightedWage),
+      payroll_amount: round(totals.payrollAmount),
+      cash_amount: round(totals.cashAmount),
+      rule_applied: [...ruleNames].join(' + '),
+      notes: [...notes].join(' | '),
     });
   }
 
@@ -194,12 +194,12 @@ export function calculatePayroll(
 
 export function summarize(rows: PayrollRow[]) {
   return {
-    employees:     rows.length,
-    totalHours:    round(rows.reduce((s, r) => s + r.actual_hours,   0)),
-    payrollHours:  round(rows.reduce((s, r) => s + r.payroll_hours,  0)),
-    cashHours:     round(rows.reduce((s, r) => s + r.cash_hours,     0)),
-    payrollAmount: round(rows.reduce((s, r) => s + r.payroll_amount, 0)),
-    cashAmount:    round(rows.reduce((s, r) => s + r.cash_amount,    0)),
-    exceptions:    rows.filter((r) => r.rule_applied !== 'STANDARD').length,
+    employees: rows.length,
+    totalHours: round(rows.reduce((sum, row) => sum + row.actual_hours, 0)),
+    payrollHours: round(rows.reduce((sum, row) => sum + row.payroll_hours, 0)),
+    cashHours: round(rows.reduce((sum, row) => sum + row.cash_hours, 0)),
+    payrollAmount: round(rows.reduce((sum, row) => sum + row.payroll_amount, 0)),
+    cashAmount: round(rows.reduce((sum, row) => sum + row.cash_amount, 0)),
+    exceptions: rows.filter(row => row.rule_applied !== 'STANDARD').length,
   };
 }

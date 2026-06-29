@@ -61,8 +61,6 @@ export default function InsightsPage() {
     else if (p==='year')  { setFromDate(`${y}-01-01`); setToDate(`${y}-12-31`); }
   }, []);
 
-  useEffect(() => { applyPreset('month'); }, []);
-
   useEffect(() => {
     setLoading(true);
     const year = new Date(fromDate).getFullYear();

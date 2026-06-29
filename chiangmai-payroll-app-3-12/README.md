@@ -23,9 +23,15 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 SEVENSHIFTS_API_KEY=
 SEVENSHIFTS_COMPANY_ID=
+APP_USERNAME=
+APP_PASSWORD=
+CRON_SECRET=
 ```
 
-Do not put real keys in GitHub.
+`APP_USERNAME` and `APP_PASSWORD` protect the complete dashboard and API with
+HTTP Basic authentication. `CRON_SECRET` authenticates Vercel cron requests.
+Production returns `503` rather than exposing payroll data when app credentials
+are absent. Do not put real keys in GitHub.
 
 ## Supabase setup
 1. Create a Supabase project.
@@ -33,6 +39,10 @@ Do not put real keys in GitHub.
 3. Run `supabase/schema.sql`.
 4. Optional: run `supabase/seed.sql` to load demo employees/rules/punches.
 5. Copy project keys into Vercel.
+
+For an existing database, apply
+`supabase/migrations/20260629065059_repair_payroll_schema.sql` before deploying
+this version.
 
 ## Local development
 ```bash

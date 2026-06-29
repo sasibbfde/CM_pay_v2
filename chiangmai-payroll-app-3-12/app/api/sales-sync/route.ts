@@ -67,11 +67,11 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      ok: true,
+      ok: errors.length === 0,
       synced: rows.length,
       date_range: `${startDate} to ${endDate}`,
       errors: errors.length ? errors : undefined,
-    });
+    }, { status: errors.length ? 502 : 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }

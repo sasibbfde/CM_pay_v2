@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { calculatePayroll, filterPunches, summarize } from '@/lib/payroll';
+import { applyEmployeeWages, calculatePayroll, filterPunches, filterPunchesByDateRange, summarize } from '@/lib/payroll';
 import { getSupabaseAdmin, hasSupabaseEnv } from '@/lib/supabase';
-import { EmployeeRule, Punch } from '@/lib/types';
+import { Employee, EmployeeRule, Punch } from '@/lib/types';
 
 function toNum(v: any) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
@@ -10,13 +10,13 @@ function mapPunch(r: any): Punch {
     punch_id: r.punch_id, employee_id: r.employee_id, employee_name: r.employee_name,
     location: r.location, department: r.department, role: r.role,
     clocked_in: r.clocked_in, clocked_out: r.clocked_out,
-    hours: toNum(r.hours), wage: toNum(r.wage), source: r.source || 'supabase'
+    hours: toNum(r.hours), wage: toNum(r.wage), cash_wage: toNum(r.cash_wage), source: r.source || 'supabase'
   };
 }
 
 function mapRule(r: any): EmployeeRule {
   return {
-    employee_name: r.employee_name, rule_type: r.rule_type, rule_value: r.rule_value,
+    id: r.id, employee_id: r.employee_id, employee_name: r.employee_name, rule_type: r.rule_type, rule_value: r.rule_value,
     combined_locations: r.combined_locations, payroll_location: r.payroll_location,
     notes: r.notes, active: r.active !== false,
     effective_from: r.effective_from, effective_to: r.effective_to
@@ -40,17 +40,6 @@ async function fetchAll(supabase: any, table: string, filterFn?: (q: any) => any
   return all;
 }
 
-/** Filter punches by explicit from/to date strings (YYYY-MM-DD) */
-function filterByDateRange(punches: Punch[], from: string, to: string): Punch[] {
-  const start = new Date(from + 'T00:00:00');
-  const end   = new Date(to   + 'T23:59:59');
-  return punches.filter(p => {
-    if (!p.clocked_in) return false;
-    const d = new Date(p.clocked_in);
-    return d >= start && d <= end;
-  });
-}
-
 export async function GET(req: NextRequest) {
   const sp     = req.nextUrl.searchParams;
   const year   = Number(sp.get('year')   || new Date().getFullYear());
@@ -66,17 +55,18 @@ export async function GET(req: NextRequest) {
 
   try {
     const supabase = getSupabaseAdmin();
-    const [punchData, ruleData] = await Promise.all([
+    const [punchData, ruleData, employeeData] = await Promise.all([
       fetchAll(supabase, 'punches'),
-      fetchAll(supabase, 'employee_rules', q => q.eq('active', true))
+      fetchAll(supabase, 'employee_rules', q => q.eq('active', true)),
+      fetchAll(supabase, 'employees'),
     ]);
 
-    const punches: Punch[]        = punchData.map(mapPunch);
+    const punches: Punch[]        = applyEmployeeWages(punchData.map(mapPunch), employeeData as Employee[]);
     const rules:   EmployeeRule[] = ruleData.map(mapRule);
 
     // Use custom date range if provided, otherwise use year/month/period
     const periodPunches = (fromDate && toDate)
-      ? filterByDateRange(punches, fromDate, toDate)
+      ? filterPunchesByDateRange(punches, fromDate, toDate)
       : filterPunches(punches, year, month, period);
 
     const rows    = calculatePayroll(periodPunches, rules);

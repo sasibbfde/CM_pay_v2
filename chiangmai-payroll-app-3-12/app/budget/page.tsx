@@ -53,7 +53,7 @@ export default function BudgetPage() {
     // Extract punches from payroll rows for daily breakdown
     setPunches([]);
     setLoading(false);
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, weekDates]);
 
   useEffect(() => { loadData(); }, [loadData]);
 

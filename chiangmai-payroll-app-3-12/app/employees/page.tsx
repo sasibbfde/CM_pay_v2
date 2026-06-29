@@ -55,15 +55,16 @@ export default function EmployeesPage() {
       .finally(()=>setLoading(false));
   }, [showInactive]);
 
-  const loadPunches = (emp: Employee) => {
-    setSelected(emp); setPunches([]); setPunchLoad(true);
-    fetch(`/api/employees/${emp.seven_shifts_user_id||emp.id}/punches?from=${fromDate}&to=${toDate}`)
+  const loadPunches = (emp: Employee) => setSelected(emp);
+
+  useEffect(() => {
+    if (!selected) return;
+    setPunches([]); setPunchLoad(true);
+    fetch(`/api/employees/${selected.seven_shifts_user_id||selected.id}/punches?from=${fromDate}&to=${toDate}`)
       .then(r=>r.json())
       .then(d=>setPunches(d.punches||[]))
       .finally(()=>setPunchLoad(false));
-  };
-
-  useEffect(() => { if (selected) loadPunches(selected); }, [fromDate, toDate]);
+  }, [fromDate, toDate, selected]);
 
   const locations = useMemo(()=>['ALL',...[...new Set(employees.map(e=>e.location).filter(Boolean))].sort()],[employees]);
   const filtered  = useMemo(()=>employees.filter(e=>{

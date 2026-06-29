@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { applyEmployeeWages, calculatePayroll, filterPunchesByDateRange } from '@/lib/payroll';
+import { Employee, EmployeeRule, Punch } from '@/lib/types';
 import ExcelJS from 'exceljs';
 
 async function fetchAll(supabase: any, table: string, filterFn?: (q: any) => any) {
@@ -24,27 +26,24 @@ export async function GET(req: NextRequest) {
     const sp      = req.nextUrl.searchParams;
     const from    = sp.get('from') || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
     const to      = sp.get('to')   || new Date().toISOString().split('T')[0];
-    const format  = sp.get('format') || 'excel';
     const supabase = getSupabaseAdmin();
 
-    const [punches, rules, sales] = await Promise.all([
-      fetchAll(supabase, 'punches', q => q.gte('clocked_in', from).lte('clocked_in', to + 'T23:59:59')),
+    const [allPunches, rules, employees, sales] = await Promise.all([
+      fetchAll(supabase, 'punches'),
       fetchAll(supabase, 'employee_rules', q => q.eq('active', true)),
+      fetchAll(supabase, 'employees'),
       fetchAll(supabase, 'daily_sales',    q => q.gte('sale_date', from).lte('sale_date', to)),
     ]);
+    const punches = applyEmployeeWages(
+      filterPunchesByDateRange(allPunches.map((row:any):Punch => ({...row,hours:+row.hours||0,wage:+row.wage||0,cash_wage:+row.cash_wage||0})), from, to),
+      employees as Employee[],
+    );
+    const payrollRows = calculatePayroll(punches, rules.map((row:any):EmployeeRule => ({...row,active:row.active !== false})));
 
     // Aggregate by employee
     const empMap = new Map<string, any>();
-    for (const p of punches) {
-      const k = p.employee_name;
-      if (!empMap.has(k)) empMap.set(k, { name: k, location: p.location, dept: p.department, role: p.role, wage: +p.wage||0, hours: 0, payroll: 0, cash: 0 });
-      const e = empMap.get(k);
-      const h = +p.hours || 0;
-      const w = +p.wage  || 0;
-      const rule = rules.find((r: any) => r.employee_name?.toLowerCase() === k.toLowerCase());
-      if (rule?.rule_type === 'CASH_ONLY') { e.cash += h * w; }
-      else { e.payroll += h * w; }
-      e.hours += h;
+    for (const row of payrollRows) {
+      empMap.set(row.employee_id || row.employee_name, { name:row.employee_name, location:row.location, dept:row.department, role:row.role, wage:row.wage, hours:row.actual_hours, payroll:row.payroll_amount, cash:row.cash_amount });
     }
 
     // Aggregate sales by location
@@ -73,7 +72,7 @@ export async function GET(req: NextRequest) {
     ws1.getRow(1).font = { bold: true };
     ws1.getRow(1).fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF1a1f2e'} };
     ws1.getRow(1).font = { bold:true, color:{argb:'FFe5e7eb'} };
-    for (const [, e] of [...empMap.entries()].sort((a,b)=>a[0].localeCompare(b[0]))) {
+    for (const [, e] of [...empMap.entries()].sort((a,b)=>a[1].name.localeCompare(b[1].name))) {
       ws1.addRow([e.name, e.location||'', e.dept||'', e.role||'', +e.hours.toFixed(2), +e.wage.toFixed(2), +e.payroll.toFixed(2), +e.cash.toFixed(2), +(e.payroll+e.cash).toFixed(2)]);
     }
     // Total row
