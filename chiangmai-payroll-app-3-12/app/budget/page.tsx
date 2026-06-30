@@ -23,7 +23,9 @@ const LOC_SHORT: Record<string,string> = {
 
 const cad = (n: number) => new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:0}).format(n||0);
 const pct = (n: number) => `${(n*100).toFixed(1)}%`;
-function isoDate(d: Date) { return d.toISOString().split('T')[0]; }
+function isoDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 function addDays(d: Date, n: number) { const r=new Date(d); r.setDate(r.getDate()+n); return r; }
 
 function getWeekDates(anchor: Date) {

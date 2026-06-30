@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
-import { cachedJson, peekJson } from '@/lib/client-cache';
+import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
 
 type Employee = {
   id: string; seven_shifts_user_id: string; full_name: string;
@@ -20,7 +20,9 @@ const EMPLOYEE_PAGE_SIZE = 75;
 
 function fmtDate(iso: string) { return new Date(iso).toLocaleDateString('en-CA',{month:'short',day:'numeric',weekday:'short'}); }
 function fmtTime(iso: string) { return new Date(iso).toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true}); }
-function isoDate(d: Date) { return d.toISOString().split('T')[0]; }
+function isoDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 function cad(n: number) { return `$${n.toFixed(2)}`; }
 
 export default function EmployeesPage() {
@@ -32,6 +34,8 @@ export default function EmployeesPage() {
   const [punches,   setPunches]    = useState<Punch[]>([]);
   const [loading,   setLoading]    = useState(() => !initialEmployees);
   const [punchLoad, setPunchLoad]  = useState(false);
+  const [punchError, setPunchError] = useState('');
+  const [punchRefresh, setPunchRefresh] = useState(0);
   const [search,    setSearch]     = useState('');
   const [locFilter, setLocFilter]  = useState('ALL');
   const [showInactive, setShowInactive] = useState(false);
@@ -68,13 +72,15 @@ export default function EmployeesPage() {
     if (!selected) return;
     const url = `/api/employees/${selected.seven_shifts_user_id||selected.id}/punches?from=${fromDate}&to=${toDate}`;
     const cached = peekJson<{punches:Punch[]}>(url);
+    setPunchError('');
     if (cached) setPunches(cached.punches || []);
     else setPunches([]);
     setPunchLoad(!cached);
     cachedJson<{punches:Punch[]}>(url, 120_000)
       .then(d=>setPunches(d.punches||[]))
+      .catch(error=>{setPunches([]);setPunchError(error.message || 'Unable to load punches');})
       .finally(()=>setPunchLoad(false));
-  }, [fromDate, toDate, selected]);
+  }, [fromDate, toDate, selected, punchRefresh]);
 
   const locations = useMemo(()=>['ALL',...[...new Set(employees.map(e=>e.location).filter(Boolean))].sort()],[employees]);
   const filtered  = useMemo(()=>employees.filter(e=>{
@@ -218,7 +224,11 @@ export default function EmployeesPage() {
                 <input type="date" value={fromDate} onChange={e=>{setFromDate(e.target.value);setPreset('custom');}} style={{...inp,width:130}}/>
                 <span style={{color:'#6b7280',fontSize:12}}>→</span>
                 <input type="date" value={toDate} onChange={e=>{setToDate(e.target.value);setPreset('custom');}} style={{...inp,width:130}}/>
-                <button onClick={()=>loadPunches(selected)} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:'#22d3ee',borderRadius:6,padding:'5px 12px',fontSize:11,cursor:'pointer'}}>
+                <button onClick={()=>{
+                  const url=`/api/employees/${selected.seven_shifts_user_id||selected.id}/punches?from=${fromDate}&to=${toDate}`;
+                  invalidateClientCache([url]);
+                  setPunchRefresh(value=>value+1);
+                }} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:'#22d3ee',borderRadius:6,padding:'5px 12px',fontSize:11,cursor:'pointer'}}>
                   Apply →
                 </button>
               </div>
@@ -248,6 +258,8 @@ export default function EmployeesPage() {
               </div>
               {punchLoad ? (
                 <div style={{color:'#6b7280',padding:24,textAlign:'center',fontSize:12}}>Loading punches…</div>
+              ) : punchError ? (
+                <div style={{color:'#f87171',padding:24,textAlign:'center',fontSize:12}}>Unable to load punches: {punchError}</div>
               ) : punches.length===0 ? (
                 <div style={{color:'#6b7280',padding:24,textAlign:'center',fontSize:12}}>No punches found for this period</div>
               ) : (
