@@ -6,6 +6,7 @@ import { cachedJson, peekJson } from '@/lib/client-cache';
 type PayrollRow = { employee_name:string; location:string; department:string; role:string;
   actual_hours:number; payroll_hours:number; cash_hours:number;
   wage:number; payroll_amount:number; cash_amount:number; rule_applied:string; };
+type LabourGroupRow = { group:'Back of House'|'Front of House'|'Managers'|'Other'; location:string; hours:number; cost:number; employees:number };
 
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const cad=(n:number)=>new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:0}).format(n||0);
@@ -19,11 +20,15 @@ export default function LabourPage() {
   const [preset,setPreset]=useState('month');
   const [fromDate,setFromDate]=useState(isoDate(new Date(today.getFullYear(),today.getMonth(),1)));
   const [toDate,setToDate]=useState(isoDate(new Date(today.getFullYear(),today.getMonth()+1,0)));
-  const initialUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&from=${fromDate}&to=${toDate}&include_trends=true`;
-  const initial=peekJson<{rows:PayrollRow[];monthly:any[]}>(initialUrl);
+  const initialUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&from=${fromDate}&to=${toDate}`;
+  const initialTrendsUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&trends_only=true`;
+  const initial=peekJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(initialUrl);
+  const initialTrends=peekJson<{monthly:any[]}>(initialTrendsUrl);
   const [rows,setRows]=useState<PayrollRow[]>(()=>initial?.rows||[]);
-  const [monthly,setMonthly]=useState<any[]>(()=>initial?.monthly||[]);
+  const [labourGroups,setLabourGroups]=useState<LabourGroupRow[]>(()=>initial?.labourGroups||[]);
+  const [monthly,setMonthly]=useState<any[]>(()=>initialTrends?.monthly||[]);
   const [loading,setLoading]=useState(()=>!initial);
+  const [locationFilter,setLocationFilter]=useState('ALL');
   const [sales,setSales]=useState<Record<string,number>>({});
   const [editSales,setEditSales]=useState(false);
   const [salesInput,setSalesInput]=useState<Record<string,string>>({});
@@ -43,39 +48,60 @@ export default function LabourPage() {
   useEffect(()=>{
     const year=new Date(fromDate).getFullYear();
     const month=new Date(fromDate).getMonth()+1;
-    const url=`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}&include_trends=true`;
-    const cached=peekJson<{rows:PayrollRow[];monthly:any[]}>(url);
-    if(cached){setRows(cached.rows||[]);setMonthly(cached.monthly||[]);}
+    const url=`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}`;
+    const trendsUrl=`/api/payroll?year=${year}&month=${month}&period=month&trends_only=true`;
+    const cached=peekJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url);
+    const cachedTrends=peekJson<{monthly:any[]}>(trendsUrl);
+    if(cached){setRows(cached.rows||[]);setLabourGroups(cached.labourGroups||[]);}
+    if(cachedTrends)setMonthly(cachedTrends.monthly||[]);
     setLoading(!cached);
-    cachedJson<{rows:PayrollRow[];monthly:any[]}>(url)
-      .then(d=>{setRows(d.rows||[]);setMonthly(d.monthly||[]);}).finally(()=>setLoading(false));
+    const periodRequest=cachedJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url,600_000)
+      .then(d=>{setRows(d.rows||[]);setLabourGroups(d.labourGroups||[]);}).finally(()=>setLoading(false));
+    periodRequest.then(()=>cachedJson<{monthly:any[]}>(trendsUrl,600_000).then(d=>setMonthly(d.monthly||[]))).catch(()=>{});
   },[fromDate,toDate]);
+
+  const locations=useMemo(()=>[...new Set(rows.map(row=>row.location).filter(Boolean))].sort(),[rows]);
+  const filteredRows=useMemo(()=>locationFilter==='ALL'?rows:rows.filter(row=>row.location===locationFilter),[rows,locationFilter]);
 
   const byLocation=useMemo(()=>{
     const map=new Map<string,any>();
-    for(const r of rows){
+    for(const r of filteredRows){
       const l=r.location||'Unknown';
       if(!map.has(l))map.set(l,{loc:l,hours:0,payroll:0,cash:0,headcount:0});
       const e=map.get(l);e.hours+=r.actual_hours;e.payroll+=r.payroll_amount;e.cash+=r.cash_amount;e.headcount++;
     }
     return [...map.values()].sort((a,b)=>b.payroll+b.cash-a.payroll-a.cash);
-  },[rows]);
+  },[filteredRows]);
 
   const byRole=useMemo(()=>{
     const map=new Map<string,any>();
-    for(const r of rows){
+    for(const r of filteredRows){
       const k=r.role||'Unknown';
       if(!map.has(k))map.set(k,{role:k,hours:0,cost:0,count:0});
       const e=map.get(k);e.hours+=r.actual_hours;e.cost+=r.payroll_amount+r.cash_amount;e.count++;
     }
     return [...map.values()].sort((a,b)=>b.cost-a.cost).slice(0,10);
-  },[rows]);
+  },[filteredRows]);
+
+  const groupedLabour=useMemo(()=>{
+    const order=['Back of House','Front of House','Managers'];
+    return order.map(group=>{
+      const matches=labourGroups.filter(row=>row.group===group&&(locationFilter==='ALL'||row.location===locationFilter));
+      return {
+        group,
+        hours:matches.reduce((sum,row)=>sum+row.hours,0),
+        cost:matches.reduce((sum,row)=>sum+row.cost,0),
+        employees:matches.reduce((sum,row)=>sum+row.employees,0),
+      };
+    });
+  },[labourGroups,locationFilter]);
+  const groupedLabourCost=groupedLabour.reduce((sum,row)=>sum+row.cost,0);
 
   const grand={
-    hours:rows.reduce((s,r)=>s+r.actual_hours,0),
-    payroll:rows.reduce((s,r)=>s+r.payroll_amount,0),
-    cash:rows.reduce((s,r)=>s+r.cash_amount,0),
-    heads:rows.length,
+    hours:filteredRows.reduce((s,r)=>s+r.actual_hours,0),
+    payroll:filteredRows.reduce((s,r)=>s+r.payroll_amount,0),
+    cash:filteredRows.reduce((s,r)=>s+r.cash_amount,0),
+    heads:filteredRows.length,
   };
 
   const saveSales=()=>{
@@ -105,6 +131,10 @@ export default function LabourPage() {
 
       {/* Date presets */}
       <div style={{display:'flex',gap:4,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
+        <select aria-label="Labour location" value={locationFilter} onChange={event=>setLocationFilter(event.target.value)} style={sel}>
+          <option value="ALL">All locations</option>
+          {locations.map(location=><option key={location}>{location}</option>)}
+        </select>
         {PRESET_BTNS.map(b=>(
           <button key={b.k} onClick={()=>applyPreset(b.k)} style={{
             padding:'5px 12px',fontSize:12,borderRadius:6,cursor:'pointer',
@@ -120,6 +150,38 @@ export default function LabourPage() {
             <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} style={{...inp,width:130}}/>
           </div>
         )}
+      </div>
+
+      {/* 7shifts department breakdown */}
+      <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:12,overflow:'hidden',marginBottom:20}}>
+        <div style={{padding:'12px 16px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}>
+          <div style={{fontSize:13,fontWeight:600,color:'#f9fafb'}}>7shifts labour by department</div>
+          <div style={{fontSize:10,color:'#6b7280',marginTop:2}}>Completed punches · hours and cost use the wage stored for each 7shifts employee</div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(180px,1fr))'}}>
+          {groupedLabour.map((row,index)=>{
+            const colors=['#f97316','#22d3ee','#a78bfa'];
+            const percent=groupedLabourCost>0?row.cost/groupedLabourCost:0;
+            return <div key={row.group} style={{padding:'16px 18px',borderLeft:index?'1px solid rgba(255,255,255,0.06)':'none'}}>
+              <div style={{fontSize:11,fontWeight:700,color:colors[index],textTransform:'uppercase',letterSpacing:'0.05em'}}>{row.group}</div>
+              <div style={{display:'flex',alignItems:'baseline',gap:8,marginTop:5}}>
+                <span style={{fontSize:21,fontWeight:700,color:'#f9fafb'}}>{cad(row.cost)}</span>
+                <span style={{fontSize:12,color:'#9ca3af'}}>{(percent*100).toFixed(1)}%</span>
+              </div>
+              <div style={{fontSize:11,color:'#6b7280',marginTop:4}}>{row.hours.toFixed(1)} hours · {row.employees} staff assignments</div>
+            </div>;
+          })}
+        </div>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,borderTop:'1px solid rgba(255,255,255,0.06)'}}>
+          <thead><tr style={{background:'rgba(0,0,0,0.18)'}}>{['Department','Hours','Labour cost','Cost/hr','% of labour'].map(header=><th key={header} style={{padding:'8px 16px',textAlign:header==='Department'?'left':'right',color:'#6b7280',fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{header}</th>)}</tr></thead>
+          <tbody>{groupedLabour.map(row=><tr key={row.group} style={{borderTop:'1px solid rgba(255,255,255,0.04)'}}>
+            <td style={{padding:'9px 16px',fontWeight:600,color:'#e5e7eb'}}>{row.group}</td>
+            <td style={{padding:'9px 16px',textAlign:'right',color:'#22d3ee'}}>{row.hours.toFixed(2)}h</td>
+            <td style={{padding:'9px 16px',textAlign:'right',color:'#a78bfa',fontWeight:600}}>{cadFull(row.cost)}</td>
+            <td style={{padding:'9px 16px',textAlign:'right',color:'#9ca3af'}}>{cadFull(row.hours?row.cost/row.hours:0)}</td>
+            <td style={{padding:'9px 16px',textAlign:'right',color:'#fbbf24'}}>{groupedLabourCost?`${(row.cost/groupedLabourCost*100).toFixed(1)}%`:'—'}</td>
+          </tr>)}</tbody>
+        </table>
       </div>
 
       {/* Sales modal */}

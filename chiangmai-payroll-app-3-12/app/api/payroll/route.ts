@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { applyEmployeeWages, calculatePayroll, filterPunches, filterPunchesByDateRange, summarize, summarizeDailyLabour } from '@/lib/payroll';
+import { applyEmployeeWages, calculatePayroll, filterPunches, filterPunchesByDateRange, summarize, summarizeDailyLabour, summarizeLabourGroups } from '@/lib/payroll';
 import { getSupabaseAdmin, hasSupabaseEnv } from '@/lib/supabase';
 import { Employee, EmployeeRule, Punch } from '@/lib/types';
 
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
   const trendsOnly = sp.get('trends_only') === 'true';
 
   if (!hasSupabaseEnv()) {
-    return NextResponse.json({ source:'supabase not configured', summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], daily:[], monthly:[], yearly:[] });
+    return NextResponse.json({ source:'supabase not configured', summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], daily:[], labourGroups:[], monthly:[], yearly:[] });
   }
 
   try {
@@ -93,6 +93,7 @@ export async function GET(req: NextRequest) {
     const rows    = calculatePayroll(periodPunches, rules);
     const summary = summarize(rows);
     const daily   = summarizeDailyLabour(periodPunches);
+    const labourGroups = summarizeLabourGroups(periodPunches);
 
     // Monthly breakdown always uses year
     const monthly = (includeTrends || trendsOnly) ? Array.from({ length: 12 }, (_, i) => {
@@ -104,9 +105,9 @@ export async function GET(req: NextRequest) {
 
     const yearly = [{ year, payrollAmount: monthly.reduce((s,m)=>s+m.payrollAmount,0), totalHours: monthly.reduce((s,m)=>s+m.totalHours,0) }];
 
-    return NextResponse.json({ source:'supabase', summary, rows, daily, monthly, yearly, counts:{ punches: punches.length, rules: rules.length } });
+    return NextResponse.json({ source:'supabase', summary, rows, daily, labourGroups, monthly, yearly, counts:{ punches: punches.length, rules: rules.length } });
 
   } catch (error: any) {
-    return NextResponse.json({ source:'supabase error', error:error.message, summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], daily:[], monthly:[], yearly:[] }, { status:500 });
+    return NextResponse.json({ source:'supabase error', error:error.message, summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], daily:[], labourGroups:[], monthly:[], yearly:[] }, { status:500 });
   }
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyEmployeeWages, calculatePayroll, filterPunches, summarizeDailyLabour } from '../lib/payroll';
+import { applyEmployeeWages, calculatePayroll, filterPunches, getLabourGroup, summarizeDailyLabour, summarizeLabourGroups } from '../lib/payroll';
 import { EmployeeRule, Punch } from '../lib/types';
 
 function punch(overrides: Partial<Punch> = {}): Punch {
@@ -66,5 +66,23 @@ test('daily labour uses Toronto dates, completed punches, and punch wages', () =
   assert.deepEqual(rows.map(row => ({date:row.date,hours:row.hours,cost:row.cost})), [
     { date:'2026-06-30', hours:4, cost:80 },
     { date:'2026-07-01', hours:3, cost:66 },
+  ]);
+});
+
+test('groups 7shifts labour into BOH, FOH, and Managers', () => {
+  assert.equal(getLabourGroup('Back of House', 'Wok'), 'Back of House');
+  assert.equal(getLabourGroup('Front of House', 'Server'), 'Front of House');
+  assert.equal(getLabourGroup('Manager', 'FOH Manager'), 'Managers');
+  assert.equal(getLabourGroup('Front of House', 'Manager'), 'Managers');
+
+  const grouped = summarizeLabourGroups([
+    punch({ employee_id:'boh', department:'Back of House', role:'Wok', hours:8, wage:20 }),
+    punch({ employee_id:'foh', department:'Front of House', role:'Server', hours:6, wage:18 }),
+    punch({ employee_id:'mgr', department:'Management', role:'Manager', hours:5, wage:30 }),
+  ]);
+  assert.deepEqual(grouped.map(row=>[row.group,row.hours,row.cost]), [
+    ['Back of House',8,160],
+    ['Front of House',6,108],
+    ['Managers',5,150],
   ]);
 });
