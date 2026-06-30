@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,LineChart,Line,CartesianGrid,PieChart,Pie,Cell } from 'recharts';
 import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
 
@@ -50,6 +50,8 @@ export default function InsightsPage() {
   const [salesDate,  setSalesDate]  = useState(isoDate(today));
   const [savingSales, setSavingSales] = useState(false);
   const [salesMsg,   setSalesMsg]   = useState('');
+  const [syncingSnappy, setSyncingSnappy] = useState(false);
+  const autoSalesSync = useRef(new Set<string>());
 
   // Alert drill-down
   const [alertDetail, setAlertDetail] = useState<Row[]|null>(null);
@@ -194,6 +196,37 @@ export default function InsightsPage() {
     }
   };
 
+  const syncSnappySales = useCallback(async (automatic = false) => {
+    if (syncingSnappy) return;
+    setSyncingSnappy(true);
+    if (!automatic) setSalesMsg('');
+    try {
+      const response = await fetch('/api/sales-sync', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({start_date:fromDate,end_date:toDate}),
+      });
+      const result = await response.json();
+      if (!response.ok || result.ok === false) throw new Error(result.error || result.errors?.join(' · ') || 'Sales sync failed');
+      invalidateClientCache(['/api/sales']);
+      const salesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
+      const refreshed = await cachedJson<{sales:Sale[]}>(salesUrl, 600_000, true);
+      setSales(refreshed.sales || []);
+      if (!automatic) setSalesMsg(`✓ Updated ${result.synced || 0} Snappy sales records`);
+    } catch (error:any) {
+      setSalesMsg(`Sales update failed: ${error.message}`);
+    } finally {
+      setSyncingSnappy(false);
+    }
+  }, [fromDate, toDate, syncingSnappy]);
+
+  useEffect(() => {
+    const key = `${fromDate}|${toDate}`;
+    const todayString = isoDate(new Date());
+    if (loading || syncingSnappy || fromDate > todayString || autoSalesSync.current.has(key)) return;
+    autoSalesSync.current.add(key);
+    syncSnappySales(true);
+  }, [fromDate, toDate, loading, syncingSnappy, syncSnappySales]);
+
   const downloadExcel = () => {
     window.location.href = `/api/export?from=${fromDate}&to=${toDate}&type=full`;
   };
@@ -228,6 +261,9 @@ export default function InsightsPage() {
           <button onClick={()=>setShowSalesModal(true)} style={{background:'rgba(251,191,36,0.1)',border:'1px solid rgba(251,191,36,0.3)',color:'#fbbf24',borderRadius:7,padding:'7px 14px',fontSize:12,cursor:'pointer',fontWeight:500}}>
             + Enter Sales
           </button>
+          <button onClick={()=>syncSnappySales(false)} disabled={syncingSnappy} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:syncingSnappy?'#6b7280':'#22d3ee',borderRadius:7,padding:'7px 14px',fontSize:12,cursor:syncingSnappy?'wait':'pointer',fontWeight:500}}>
+            {syncingSnappy?'Updating sales…':'↻ Update Snappy Sales'}
+          </button>
           <button onClick={downloadExcel} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:'#34d399',borderRadius:7,padding:'7px 14px',fontSize:12,cursor:'pointer',fontWeight:500}}>
             ↓ Export Excel
           </button>
@@ -237,6 +273,7 @@ export default function InsightsPage() {
           </select>
         </div>
       </div>
+      {salesMsg&&<div role="status" style={{fontSize:11,color:salesMsg.startsWith('✓')?'#34d399':'#f87171',margin:'-8px 0 10px'}}>{salesMsg}</div>}
 
       {/* Date presets */}
       <div style={{display:'flex',gap:4,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
