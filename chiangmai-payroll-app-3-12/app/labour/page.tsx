@@ -20,7 +20,7 @@ export default function LabourPage() {
   const [preset,setPreset]=useState('month');
   const [fromDate,setFromDate]=useState(isoDate(new Date(today.getFullYear(),today.getMonth(),1)));
   const [toDate,setToDate]=useState(isoDate(new Date(today.getFullYear(),today.getMonth()+1,0)));
-  const initialUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&from=${fromDate}&to=${toDate}`;
+  const initialUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&from=${fromDate}&to=${toDate}&breakdown=departments`;
   const initialTrendsUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&trends_only=true`;
   const initial=peekJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(initialUrl);
   const initialTrends=peekJson<{monthly:any[]}>(initialTrendsUrl);
@@ -48,7 +48,7 @@ export default function LabourPage() {
   useEffect(()=>{
     const year=new Date(fromDate).getFullYear();
     const month=new Date(fromDate).getMonth()+1;
-    const url=`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}`;
+    const url=`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}&breakdown=departments`;
     const trendsUrl=`/api/payroll?year=${year}&month=${month}&period=month&trends_only=true`;
     const cached=peekJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url);
     const cachedTrends=peekJson<{monthly:any[]}>(trendsUrl);
