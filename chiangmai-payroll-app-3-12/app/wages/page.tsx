@@ -9,6 +9,7 @@ type Employee = {
 };
 
 const sel: React.CSSProperties = { background:'#1a1f2e',border:'1px solid rgba(255,255,255,0.1)',borderRadius:7,color:'#e5e7eb',padding:'7px 12px',fontSize:13,outline:'none',cursor:'pointer' };
+const PAGE_SIZE = 50;
 
 export default function WagesPage() {
   const initial = peekJson<{employees:Employee[]}>('/api/employees?active=true');
@@ -20,6 +21,7 @@ export default function WagesPage() {
   const [edits,   setEdits]         = useState<Record<string,{wage:string;cash_wage:string}>>({});
   const [search,  setSearch]        = useState('');
   const [locFilter, setLocFilter]   = useState('ALL');
+  const [page, setPage]             = useState(0);
   const [msg, setMsg]               = useState<{text:string;ok:boolean}|null>(null);
 
   const load = (force = false) => {
@@ -45,6 +47,9 @@ export default function WagesPage() {
     if (search&&!e.full_name?.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   }),[employees,locFilter,search]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const visibleEmployees = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  useEffect(()=>setPage(0),[search,locFilter,employees.length]);
 
   const getEdit = (id: string, field: 'wage'|'cash_wage', fallback: number) =>
     edits[id]?.[field] ?? String(fallback||0);
@@ -144,6 +149,11 @@ export default function WagesPage() {
           {locations.map(l=><option key={l}>{l}</option>)}
         </select>
         <button onClick={()=>{setSearch('');setLocFilter('ALL');}} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.08)',color:'#6b7280',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:'pointer'}}>Clear</button>
+        <span style={{marginLeft:'auto',fontSize:11,color:'#6b7280',alignSelf:'center'}}>
+          {filtered.length ? `${page*PAGE_SIZE+1}–${Math.min((page+1)*PAGE_SIZE,filtered.length)} of ${filtered.length}` : '0 employees'}
+        </span>
+        <button disabled={page===0} onClick={()=>setPage(p=>Math.max(0,p-1))} style={{...sel,opacity:page===0?0.4:1}}>Previous</button>
+        <button disabled={page>=pageCount-1} onClick={()=>setPage(p=>Math.min(pageCount-1,p+1))} style={{...sel,opacity:page>=pageCount-1?0.4:1}}>Next</button>
       </div>
 
       {loading ? (
@@ -159,7 +169,7 @@ export default function WagesPage() {
             <tbody>
               {filtered.length===0?(
                 <tr><td colSpan={6} style={{padding:40,textAlign:'center',color:'#6b7280'}}>No employees found</td></tr>
-              ):filtered.map((emp,i)=>{
+              ):visibleEmployees.map((emp,i)=>{
                 const isSaving = saving.has(emp.id);
                 const isSaved  = saved.has(emp.id);
                 const hasEdit  = !!edits[emp.id];

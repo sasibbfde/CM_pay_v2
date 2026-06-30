@@ -82,6 +82,7 @@ const cadFull = (n: number) =>
   new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n || 0);
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const ROW_PAGE_SIZE = 75;
 
 // ─── Custom chart tooltip ─────────────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }: any) {
@@ -114,6 +115,7 @@ export default function Home() {
   const [syncing,    setSyncing]    = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [filterLoc,  setFilterLoc]  = useState('');
+  const [rowPage, setRowPage] = useState(0);
   const [syncOpen,   setSyncOpen]   = useState(false);
   const [syncRange,  setSyncRange]  = useState<'today'|'week'|'biweek'|'month'|'custom'>('biweek');
   const [syncStart,  setSyncStart]  = useState('');
@@ -215,6 +217,9 @@ export default function Home() {
     filterLoc ? (data?.rows || []).filter(r => r.location === filterLoc) : (data?.rows || []),
     [data, filterLoc]
   );
+  const rowPageCount = Math.max(1, Math.ceil(filteredRows.length / ROW_PAGE_SIZE));
+  const visibleRows = filteredRows.slice(rowPage * ROW_PAGE_SIZE, (rowPage + 1) * ROW_PAGE_SIZE);
+  useEffect(()=>setRowPage(0),[filterLoc,year,month,period]);
 
   const periodLabel = () => {
     const mName = new Date(year, month - 1, 1).toLocaleString('en', { month: 'long' });
@@ -549,6 +554,11 @@ export default function Home() {
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{fontSize:11,color:'var(--muted)'}}>
+                {filteredRows.length ? `${rowPage*ROW_PAGE_SIZE+1}–${Math.min((rowPage+1)*ROW_PAGE_SIZE,filteredRows.length)} of ${filteredRows.length}` : '0 employees'}
+              </span>
+              <button className="btn btn-ghost" disabled={rowPage===0} onClick={()=>setRowPage(p=>Math.max(0,p-1))}>Previous</button>
+              <button className="btn btn-ghost" disabled={rowPage>=rowPageCount-1} onClick={()=>setRowPage(p=>Math.min(rowPageCount-1,p+1))}>Next</button>
               <select
                 className="select"
                 value={filterLoc}
@@ -593,7 +603,7 @@ export default function Home() {
                         : 'No data for this period. Pull from 7shifts to populate.'}
                     </td>
                   </tr>
-                ) : filteredRows.map((r, i) => {
+                ) : visibleRows.map((r, i) => {
                   const rs = RULE_STYLE[r.rule_applied] || RULE_STYLE.STANDARD;
                   const isException = r.rule_applied !== 'STANDARD';
                   return (

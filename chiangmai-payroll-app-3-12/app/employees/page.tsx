@@ -16,6 +16,7 @@ type Punch = {
 const sel: React.CSSProperties = { background:'#1a1f2e', border:'1px solid rgba(255,255,255,0.1)', borderRadius:7, color:'#e5e7eb', padding:'7px 10px', fontSize:12, outline:'none', cursor:'pointer' };
 const inp: React.CSSProperties = { background:'#0d1117', border:'1px solid rgba(255,255,255,0.12)', borderRadius:6, color:'#f9fafb', padding:'5px 8px', fontSize:12, outline:'none' };
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const EMPLOYEE_PAGE_SIZE = 75;
 
 function fmtDate(iso: string) { return new Date(iso).toLocaleDateString('en-CA',{month:'short',day:'numeric',weekday:'short'}); }
 function fmtTime(iso: string) { return new Date(iso).toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true}); }
@@ -34,6 +35,7 @@ export default function EmployeesPage() {
   const [search,    setSearch]     = useState('');
   const [locFilter, setLocFilter]  = useState('ALL');
   const [showInactive, setShowInactive] = useState(false);
+  const [employeePage, setEmployeePage] = useState(0);
   // Date range — default to current month
   const [fromDate, setFromDate] = useState(`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-01`);
   const [toDate,   setToDate]   = useState(isoDate(new Date(today.getFullYear(), today.getMonth()+1, 0)));
@@ -80,6 +82,9 @@ export default function EmployeesPage() {
     if (search&&!e.full_name?.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   }),[employees,locFilter,search]);
+  const employeePageCount = Math.max(1, Math.ceil(filtered.length / EMPLOYEE_PAGE_SIZE));
+  const visibleEmployees = filtered.slice(employeePage * EMPLOYEE_PAGE_SIZE, (employeePage + 1) * EMPLOYEE_PAGE_SIZE);
+  useEffect(()=>setEmployeePage(0),[search,locFilter,showInactive,employees.length]);
 
   // Use payroll_hours (7shifts approved) — NEVER recompute from timestamps
   const payrollHours = punches.filter(p=>p.clocked_out).reduce((s,p)=>s+(Number(p.payroll_hours)>0?Number(p.payroll_hours):Number(p.hours)||0),0);
@@ -149,7 +154,7 @@ export default function EmployeesPage() {
         </div>
         <div style={{overflowY:'auto',flex:1}}>
           {loading ? <div style={{color:'#6b7280',padding:16,textAlign:'center',fontSize:12}}>Loading…</div> :
-            filtered.map(emp=>(
+            visibleEmployees.map(emp=>(
               <div key={emp.id} onClick={()=>loadPunches(emp)}
                 style={{padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid rgba(255,255,255,0.03)',
                   background:selected?.id===emp.id?'rgba(34,211,238,0.08)':'transparent',
@@ -164,8 +169,10 @@ export default function EmployeesPage() {
             ))
           }
         </div>
-        <div style={{padding:'7px 12px',borderTop:'1px solid rgba(255,255,255,0.07)',fontSize:10,color:'#6b7280'}}>
-          {filtered.length} of {employees.length} shown
+        <div style={{padding:'7px 12px',borderTop:'1px solid rgba(255,255,255,0.07)',fontSize:10,color:'#6b7280',display:'flex',alignItems:'center',gap:6}}>
+          <span style={{flex:1}}>{filtered.length ? `${employeePage*EMPLOYEE_PAGE_SIZE+1}–${Math.min((employeePage+1)*EMPLOYEE_PAGE_SIZE,filtered.length)} of ${filtered.length}` : '0 employees'}</span>
+          <button disabled={employeePage===0} onClick={()=>setEmployeePage(p=>Math.max(0,p-1))} style={{...sel,padding:'3px 7px',opacity:employeePage===0?0.4:1}}>‹</button>
+          <button disabled={employeePage>=employeePageCount-1} onClick={()=>setEmployeePage(p=>Math.min(employeePageCount-1,p+1))} style={{...sel,padding:'3px 7px',opacity:employeePage>=employeePageCount-1?0.4:1}}>›</button>
         </div>
       </div>
 
