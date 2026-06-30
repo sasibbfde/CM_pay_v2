@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
   const fromDate = sp.get('from');
   const toDate   = sp.get('to');
   const includeTrends = sp.get('include_trends') === 'true';
+  const trendsOnly = sp.get('trends_only') === 'true';
 
   if (!hasSupabaseEnv()) {
     return NextResponse.json({ source:'supabase not configured', summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], daily:[], monthly:[], yearly:[] });
@@ -62,10 +63,10 @@ export async function GET(req: NextRequest) {
     const monthEnd = `${year}-${String(month).padStart(2,'0')}-${String(new Date(year, month, 0).getDate()).padStart(2,'0')}`;
     const periodStart = period === '16-end' ? `${year}-${String(month).padStart(2,'0')}-16` : monthStart;
     const periodEnd = period === '1-15' ? `${year}-${String(month).padStart(2,'0')}-15` : monthEnd;
-    const requestedStart = includeTrends
+    const requestedStart = (includeTrends || trendsOnly)
       ? (fromDate && fromDate < yearStart ? fromDate : yearStart)
       : (fromDate || periodStart);
-    const requestedEnd = includeTrends
+    const requestedEnd = (includeTrends || trendsOnly)
       ? (toDate && toDate > yearEnd ? toDate : yearEnd)
       : (toDate || periodEnd);
     const queryStart = new Date(`${requestedStart}T00:00:00Z`);
@@ -85,7 +86,7 @@ export async function GET(req: NextRequest) {
     const rules:   EmployeeRule[] = ruleData.map(mapRule);
 
     // Use custom date range if provided, otherwise use year/month/period
-    const periodPunches = (fromDate && toDate)
+    const periodPunches = trendsOnly ? [] : (fromDate && toDate)
       ? filterPunchesByDateRange(punches, fromDate, toDate)
       : filterPunches(punches, year, month, period);
 
@@ -94,7 +95,7 @@ export async function GET(req: NextRequest) {
     const daily   = summarizeDailyLabour(periodPunches);
 
     // Monthly breakdown always uses year
-    const monthly = includeTrends ? Array.from({ length: 12 }, (_, i) => {
+    const monthly = (includeTrends || trendsOnly) ? Array.from({ length: 12 }, (_, i) => {
       const p = filterPunches(punches, year, i + 1, 'month');
       const r = calculatePayroll(p, rules);
       const s = summarize(r);

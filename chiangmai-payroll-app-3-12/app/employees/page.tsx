@@ -46,16 +46,25 @@ export default function EmployeesPage() {
   const [fromDate, setFromDate] = useState(`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-01`);
   const [toDate,   setToDate]   = useState(isoDate(new Date(today.getFullYear(), today.getMonth()+1, 0)));
   const [preset,   setPreset]   = useState('month');
+  const [filterYear, setFilterYear] = useState(today.getFullYear());
+  const [filterMonth, setFilterMonth] = useState(today.getMonth()+1);
+  const [filterPeriod, setFilterPeriod] = useState('month');
+
+  const applyMonthPeriod = (year:number, month:number, period:string) => {
+    setFilterYear(year); setFilterMonth(month); setFilterPeriod(period); setPreset(period);
+    const prefix = `${year}-${String(month).padStart(2,'0')}`;
+    const lastDay = String(new Date(year, month, 0).getDate()).padStart(2,'0');
+    setFromDate(`${prefix}-${period==='16-end'?'16':'01'}`);
+    setToDate(`${prefix}-${period==='1-15'?'15':lastDay}`);
+  };
 
   const applyPreset = (p: string) => {
     setPreset(p);
     const y=today.getFullYear(), m=today.getMonth();
-    if (p==='month')      { setFromDate(`${y}-${String(m+1).padStart(2,'0')}-01`); setToDate(isoDate(new Date(y,m+1,0))); }
-    if (p==='1-15')       { setFromDate(`${y}-${String(m+1).padStart(2,'0')}-01`); setToDate(`${y}-${String(m+1).padStart(2,'0')}-15`); }
-    if (p==='16-end')     { setFromDate(`${y}-${String(m+1).padStart(2,'0')}-16`); setToDate(isoDate(new Date(y,m+1,0))); }
-    if (p==='last-month') { setFromDate(isoDate(new Date(y,m-1,1))); setToDate(isoDate(new Date(y,m,0))); }
-    if (p==='week')       { const d=new Date(today); d.setDate(today.getDate()-6); setFromDate(isoDate(d)); setToDate(isoDate(today)); }
-    if (p==='custom')     {} // user sets dates manually
+    if (p==='month'||p==='1-15'||p==='16-end') applyMonthPeriod(y,m+1,p);
+    if (p==='last-month') { const previous=new Date(y,m-1,1); applyMonthPeriod(previous.getFullYear(),previous.getMonth()+1,'month'); setPreset('last-month'); }
+    if (p==='week')       { const d=new Date(today); d.setDate(today.getDate()-6); setFromDate(isoDate(d)); setToDate(isoDate(today)); setFilterPeriod('custom'); }
+    if (p==='custom')     setFilterPeriod('custom');
   };
 
   useEffect(() => {
@@ -239,13 +248,26 @@ export default function EmployeesPage() {
                   {(!selected.wage||+selected.wage===0)&&<div style={{fontSize:10,color:'#f87171',marginTop:2}}>⚠ No wage set</div>}
                 </div>
               </div>
-              <button onClick={downloadExcel} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:'#34d399',borderRadius:7,padding:'6px 14px',fontSize:12,cursor:'pointer',fontWeight:500,flexShrink:0}}>
-                ↓ Download CSV
+              <button onClick={downloadExcel} disabled={punches.length===0} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:punches.length?'#34d399':'#4b5563',borderRadius:7,padding:'6px 14px',fontSize:12,cursor:punches.length?'pointer':'not-allowed',fontWeight:500,flexShrink:0}}>
+                ↓ Download Logbook CSV
               </button>
             </div>
 
             {/* Date range controls */}
             <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10,padding:'12px 14px',marginBottom:14}}>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:9}}>
+                <select aria-label="Logbook year" value={filterYear} onChange={e=>applyMonthPeriod(Number(e.target.value),filterMonth,filterPeriod==='custom'?'month':filterPeriod)} style={sel}>
+                  {[2024,2025,2026,2027].map(year=><option key={year}>{year}</option>)}
+                </select>
+                <select aria-label="Logbook month" value={filterMonth} onChange={e=>applyMonthPeriod(filterYear,Number(e.target.value),filterPeriod==='custom'?'month':filterPeriod)} style={sel}>
+                  {MONTHS.map((name,index)=><option key={name} value={index+1}>{name}</option>)}
+                </select>
+                <select aria-label="Logbook pay period" value={filterPeriod==='custom'?'month':filterPeriod} onChange={e=>applyMonthPeriod(filterYear,filterMonth,e.target.value)} style={sel}>
+                  <option value="month">Full month</option>
+                  <option value="1-15">1–15</option>
+                  <option value="16-end">16–End</option>
+                </select>
+              </div>
               <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:8}}>
                 {[{k:'month',l:'This month'},{k:'1-15',l:'1–15'},{k:'16-end',l:'16–End'},{k:'last-month',l:'Last month'},{k:'week',l:'Last 7 days'},{k:'custom',l:'Custom'}].map(b=>(
                   <button key={b.k} onClick={()=>applyPreset(b.k)} style={{padding:'4px 10px',fontSize:11,borderRadius:5,cursor:'pointer',border:'none',

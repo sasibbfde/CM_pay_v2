@@ -105,7 +105,7 @@ function ChartTooltip({ active, payload, label }: any) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function Home() {
   const now = new Date();
-  const initialPayrollUrl = `/api/payroll?year=${now.getFullYear()}&month=${now.getMonth() + 1}&period=1-15&include_trends=true`;
+  const initialPayrollUrl = `/api/payroll?year=${now.getFullYear()}&month=${now.getMonth() + 1}&period=1-15`;
   const [year,   setYear]   = useState(now.getFullYear());
   const [month,  setMonth]  = useState(now.getMonth() + 1);
   const [period, setPeriod] = useState('1-15');
@@ -122,12 +122,19 @@ export default function Home() {
   const [syncEnd,    setSyncEnd]    = useState('');
 
   const load = useCallback(async (force = false) => {
-    const url = `/api/payroll?year=${year}&month=${month}&period=${period}&include_trends=true`;
+    const url = `/api/payroll?year=${year}&month=${month}&period=${period}`;
+    const trendsUrl = `/api/payroll?year=${year}&month=${month}&period=month&trends_only=true`;
     const cached = !force ? peekJson<ApiData>(url) : undefined;
+    const cachedTrends = !force ? peekJson<ApiData>(trendsUrl) : undefined;
     if (cached) setData(cached);
+    if (cachedTrends) setData(current => current ? {...current, monthly:cachedTrends.monthly || []} : current);
     setLoading(!cached);
     try {
-      setData(await cachedJson<ApiData>(url, 120_000, force));
+      const periodData = await cachedJson<ApiData>(url, 600_000, force);
+      setData(current => ({...periodData, monthly:current?.monthly || cachedTrends?.monthly || []}));
+      cachedJson<ApiData>(trendsUrl, 600_000, force).then(trends => {
+        setData(current => current ? {...current, monthly:trends.monthly || []} : current);
+      }).catch(() => { /* period payroll remains usable if trends fail */ });
     } finally {
       setLoading(false);
     }
