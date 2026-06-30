@@ -36,6 +36,8 @@ export default function EmployeesPage() {
   const [punchLoad, setPunchLoad]  = useState(false);
   const [punchError, setPunchError] = useState('');
   const [punchRefresh, setPunchRefresh] = useState(0);
+  const [periodSyncing, setPeriodSyncing] = useState(false);
+  const [periodSyncMessage, setPeriodSyncMessage] = useState('');
   const [search,    setSearch]     = useState('');
   const [locFilter, setLocFilter]  = useState('ALL');
   const [showInactive, setShowInactive] = useState(false);
@@ -92,12 +94,44 @@ export default function EmployeesPage() {
   const visibleEmployees = filtered.slice(employeePage * EMPLOYEE_PAGE_SIZE, (employeePage + 1) * EMPLOYEE_PAGE_SIZE);
   useEffect(()=>setEmployeePage(0),[search,locFilter,showInactive,employees.length]);
 
-  // Use payroll_hours (7shifts approved) — NEVER recompute from timestamps
-  const payrollHours = punches.filter(p=>p.clocked_out).reduce((s,p)=>s+(Number(p.payroll_hours)>0?Number(p.payroll_hours):Number(p.hours)||0),0);
+  const completedPunches = punches.filter(p=>p.clocked_out);
+  // Actual hours are the full clock-in/out duration. Payroll hours deduct only
+  // unpaid breaks; total break time includes both paid and unpaid breaks.
+  const actualHours = completedPunches.reduce((sum,p)=>sum+Number(p.gross_hours||0),0);
+  const payrollHours = completedPunches.reduce((sum,p)=>sum+Number(p.payroll_hours||0),0);
+  const totalBreakMinutes = completedPunches.reduce((sum,p)=>sum+Number(p.break_minutes||0),0);
   const estPay = punches.filter(p=>p.clocked_out).reduce((sum,p)=>{
-    const hours=Number(p.payroll_hours)>0?Number(p.payroll_hours):Number(p.hours)||0;
+    const hours=Number(p.payroll_hours||0);
     return sum + hours * Number(p.wage || 0);
   },0);
+
+  const syncSelectedPeriod = async () => {
+    if (!selected || periodSyncing) return;
+    setPeriodSyncing(true);
+    setPeriodSyncMessage('');
+    try {
+      const response = await fetch('/api/7shifts/sync', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          start:`${fromDate}T00:00:00.000Z`,
+          end:`${toDate}T23:59:59.999Z`,
+          triggered_by:'logbook-period',
+          sync_wages:false,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.ok === false) throw new Error(result.error || '7shifts sync failed');
+      const url=`/api/employees/${selected.seven_shifts_user_id||selected.id}/punches?from=${fromDate}&to=${toDate}`;
+      invalidateClientCache([url, '/api/payroll']);
+      setPunchRefresh(value=>value+1);
+      setPeriodSyncMessage(`Updated ${result.synced?.punches || 0} punches and breaks`);
+    } catch (error:any) {
+      setPeriodSyncMessage(`Update failed: ${error.message}`);
+    } finally {
+      setPeriodSyncing(false);
+    }
+  };
 
   // Ongoing shift — show elapsed
   const elapsed = (iso: string) => {
@@ -114,14 +148,15 @@ export default function EmployeesPage() {
       [`Location: ${selected.location||'—'} | Role: ${selected.role||'—'} | Wage: $${selected.wage}/hr`],
       [`Period: ${fromDate} to ${toDate}`],
       [],
-      ['Date','Clock In','Clock Out','Break (min)','Payroll Hours','Location','Role','Pay'],
+      ['Date','Clock In','Clock Out','Break (min)','Actual Hours','Payroll Hours','Location','Role','Pay'],
       ...[...punches].sort((a,b)=>new Date(b.clocked_in).getTime()-new Date(a.clocked_in).getTime()).map(p=>{
-        const ph = Number(p.payroll_hours)>0?Number(p.payroll_hours):Number(p.hours)||0;
+        const ph = Number(p.payroll_hours||0);
         return [
           fmtDate(p.clocked_in),
           fmtTime(p.clocked_in),
           p.clocked_out ? fmtTime(p.clocked_out) : 'Still In',
           p.break_minutes||0,
+          Number(p.gross_hours||0).toFixed(2),
           ph.toFixed(2),
           p.location,
           p.role||p.department||'—',
@@ -129,7 +164,7 @@ export default function EmployeesPage() {
         ];
       }),
       [],
-      ['TOTAL','','','',payrollHours.toFixed(2),'','',estPay?cad(estPay):'—'],
+      ['TOTAL','','',Math.round(totalBreakMinutes),actualHours.toFixed(2),payrollHours.toFixed(2),'','',estPay?cad(estPay):'—'],
     ];
     const csv = rows.map(r=>r.map(c=>JSON.stringify(c??'')).join(',')).join('\n');
     const blob = new Blob([csv],{type:'text/csv'});
@@ -231,14 +266,20 @@ export default function EmployeesPage() {
                 }} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:'#22d3ee',borderRadius:6,padding:'5px 12px',fontSize:11,cursor:'pointer'}}>
                   Apply →
                 </button>
+                <button onClick={syncSelectedPeriod} disabled={periodSyncing} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:periodSyncing?'#6b7280':'#34d399',borderRadius:6,padding:'5px 12px',fontSize:11,cursor:periodSyncing?'wait':'pointer'}}>
+                  {periodSyncing?'Updating 7shifts…':'↻ Update selected period'}
+                </button>
               </div>
+              {periodSyncMessage&&<div role="status" style={{fontSize:10,color:periodSyncMessage.startsWith('Updated')?'#34d399':'#f87171',marginTop:8}}>{periodSyncMessage}</div>}
             </div>
 
             {/* Stats */}
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:8,marginBottom:16}}>
               {[
                 {l:'Shifts',v:punches.length,c:'#22d3ee'},
+                {l:'Actual Hours',v:`${actualHours.toFixed(2)}h`,c:'#60a5fa'},
                 {l:'Payroll Hours',v:`${payrollHours.toFixed(2)}h`,c:'#a78bfa'},
+                {l:'Break Time',v:`${Math.round(totalBreakMinutes)}m`,c:'#fbbf24'},
                 {l:'Wage',v:`$${(+selected.wage||0).toFixed(2)}/hr`,c:'#34d399'},
                 {l:'Est. Pay',v:estPay?`$${estPay.toFixed(0)}`:'—',c:'#fbbf24'},
                 {l:'Still Clocked In',v:punches.filter(p=>!p.clocked_out).length,c:'#f97316'},
@@ -272,7 +313,7 @@ export default function EmployeesPage() {
                     </tr></thead>
                     <tbody>
                       {[...punches].sort((a,b)=>new Date(b.clocked_in).getTime()-new Date(a.clocked_in).getTime()).map((p,i)=>{
-                        const ph = Number(p.payroll_hours)>0?Number(p.payroll_hours):Number(p.hours)||0;
+                        const ph = Number(p.payroll_hours||0);
                         const gh = +p.gross_hours||ph;
                         const isLive = !p.clocked_out;
                         const pay = ph*Number(p.wage||0);

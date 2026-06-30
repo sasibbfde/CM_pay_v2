@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
 
 type DaySales = {
@@ -49,10 +49,12 @@ export default function BudgetPage() {
   const [syncing, setSyncing]   = useState(false);
   const [syncMsg, setSyncMsg]   = useState('');
   const [locFilter, setLocFilter] = useState('ALL');
+  const autoSyncAttempted = useRef(new Set<string>());
 
   const weekDates = useMemo(() => getWeekDates(weekAnchor), [weekAnchor]);
   const fromDate  = isoDate(weekDates[0]);
   const toDate    = isoDate(weekDates[6]);
+  const today = isoDate(new Date());
 
   const loadData = useCallback(async (force = false) => {
     const salesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
@@ -78,7 +80,7 @@ export default function BudgetPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const syncSales = async () => {
+  const syncSales = useCallback(async (automatic = false) => {
     setSyncing(true); setSyncMsg('');
     try {
       const res = await fetch('/api/sales-sync', {
@@ -88,9 +90,9 @@ export default function BudgetPage() {
       const d = await res.json();
       if (res.ok && d.ok) {
         const warning = d.warnings?.length ? ` · ${d.warnings.length} location warnings` : '';
-        setSyncMsg(`✓ Synced ${d.synced} sales records${warning}`);
+        if (!automatic) setSyncMsg(`✓ Synced ${d.synced} sales records${warning}`);
         invalidateClientCache(['/api/sales']);
-        loadData(true);
+        await loadData(true);
       } else {
         const detail = d.errors?.join(' · ') || d.error || `Sales sync failed (${res.status})`;
         setSyncMsg(`✗ ${detail}`);
@@ -100,8 +102,17 @@ export default function BudgetPage() {
     } finally {
       setSyncing(false);
     }
-    setTimeout(() => setSyncMsg(''), 5000);
-  };
+    if (!automatic) setTimeout(() => setSyncMsg(''), 5000);
+  }, [fromDate, toDate, loadData]);
+
+  // If the scheduled job was delayed, repair a blank current/historical week
+  // automatically once instead of leaving the whole Budget page empty.
+  useEffect(() => {
+    const key = `${fromDate}|${toDate}`;
+    if (loading || syncing || sales.length > 0 || fromDate > today || autoSyncAttempted.current.has(key)) return;
+    autoSyncAttempted.current.add(key);
+    syncSales(true);
+  }, [fromDate, toDate, today, loading, syncing, sales.length, syncSales]);
 
   // Build day-location matrix
   const matrix = useMemo(() => {
@@ -150,8 +161,6 @@ export default function BudgetPage() {
   const noData = sales.length === 0 && dailyLabour.length === 0;
 
   const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const today = isoDate(new Date());
-
   const availableLocs = Array.from(new Set([...LOCATIONS, ...Object.keys(matrix)]));
   const filteredLocs = locFilter === 'ALL' ? availableLocs : [locFilter];
 
@@ -177,7 +186,7 @@ export default function BudgetPage() {
             <option value="ALL">All locations</option>
             {LOCATIONS.map(l=><option key={l}>{l}</option>)}
           </select>
-          <button onClick={syncSales} disabled={syncing} style={{
+          <button onClick={()=>syncSales(false)} disabled={syncing} style={{
             background:'rgba(52,211,153,0.12)',border:'1px solid rgba(52,211,153,0.3)',color:'#34d399',
             borderRadius:7,padding:'6px 14px',fontSize:12,fontWeight:500,cursor:syncing?'wait':'pointer'
           }}>

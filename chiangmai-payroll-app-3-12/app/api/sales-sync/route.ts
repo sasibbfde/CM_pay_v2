@@ -13,6 +13,8 @@ const LOCATION_MAP: Record<string, string> = {
   '500371': 'Chiang Mai Mississauga',
 };
 
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));

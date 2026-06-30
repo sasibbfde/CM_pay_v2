@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+export const maxDuration = 300;
+
 export async function GET(req: Request) {
   const authHeader = req.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
@@ -10,14 +12,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
-    const today     = new Date();
+    const today = new Date();
     // Re-sync a rolling window so breaks edited or approved after the shift
     // are corrected automatically instead of being frozen after one day.
-    const lookback = new Date(today); lookback.setDate(today.getDate()-14);
+    // On the first day of each month, run a deeper historical repair as well.
+    const lookbackDays = today.getUTCDate() === 1 ? 120 : 35;
+    const lookback = new Date(today); lookback.setUTCDate(today.getUTCDate()-lookbackDays);
     const fmt = (d: Date) => d.toISOString().split('T')[0];
     const yDate = fmt(lookback);
     const tDate = fmt(today);
-    const base  = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cm-pay-v2.vercel.app';
+    const base = new URL(req.url).origin;
     const parseSyncResponse = async (response: Response) => {
       const payload = await response.json();
       if (!response.ok || payload.ok === false) {

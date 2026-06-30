@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { fetchUsers, fetchTimePunches, fetchDepartments, fetchRoles, fetchUserWages } from '@/lib/7shifts';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { resolveEmployeeWage, selectHourlyWage, SevenShiftsWage } from '@/lib/wages';
+import { calculateBreaks, calculateGrossHours, calculatePayrollHours } from '@/lib/time-punch';
+
+export const maxDuration = 300;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 function fullName(u: any): string {
@@ -32,22 +35,6 @@ function mapLoc(id: any): string {
  * paid=false → deduct from payroll
  * paid=true  → do NOT deduct (employee is paid for that break)
  */
-function calcBreaks(breaks: any[]): { breakMinutes: number; unpaidMinutes: number; paidMinutes: number } {
-  let unpaid = 0, paid = 0;
-  for (const b of breaks || []) {
-    if (!b.in || !b.out) continue;
-    const mins = (new Date(b.out).getTime() - new Date(b.in).getTime()) / 60000;
-    if (mins <= 0 || mins > 120) continue; // sanity check
-    if (b.paid) { paid += mins; } else { unpaid += mins; }
-  }
-  return { breakMinutes: unpaid + paid, unpaidMinutes: unpaid, paidMinutes: paid };
-}
-
-function calcPayrollHours(grossHours: number, unpaidMinutes: number): number {
-  const payroll = grossHours - (unpaidMinutes / 60);
-  return Math.max(0, Math.round(payroll * 100) / 100);
-}
-
 // ─── main sync ───────────────────────────────────────────────────────────────
 async function runSync(body: any): Promise<NextResponse> {
   const t0 = Date.now();
@@ -188,18 +175,15 @@ async function runSync(body: any): Promise<NextResponse> {
     const clockOut = p.clocked_out || p.clock_out || null;
 
     // Gross hours = raw clock diff (no breaks)
-    let grossHours = 0;
-    if (clockIn && clockOut) {
-      grossHours = Math.round((new Date(clockOut).getTime() - new Date(clockIn).getTime()) / 36000) / 100;
-    }
+    const grossHours = calculateGrossHours(clockIn, clockOut);
 
     // ── CORRECT BREAK CALCULATION ──────────────────────────────────────────
     // 7shifts returns breaks as: p.breaks = [{ in: "...", out: "...", paid: bool }]
     const breaks = Array.isArray(p.breaks) ? p.breaks : [];
-    const { unpaidMinutes, breakMinutes } = calcBreaks(breaks);
+    const { unpaidMinutes, breakMinutes } = calculateBreaks(breaks);
 
     // Payroll hours = gross - unpaid breaks (matching 7shifts payroll export exactly)
-    const payrollHours = clockOut ? calcPayrollHours(grossHours, unpaidMinutes) : 0;
+    const payrollHours = clockOut ? calculatePayrollHours(grossHours, unpaidMinutes) : 0;
 
     if (location && location !== 'Unknown') {
       locBreakdown[location] = (locBreakdown[location] || 0) + payrollHours;

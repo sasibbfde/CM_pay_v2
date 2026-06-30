@@ -51,17 +51,23 @@ export async function GET(
     const punches = (data || []).filter(p => {
       const date = getPayrollDate(p.clocked_in);
       return date >= startDate && date <= endDate;
-    }).map(p => ({
-      ...p,
-      payroll_hours: Number(p.payroll_hours) > 0 ? Number(p.payroll_hours) : Number(p.hours || 0),
-      gross_hours:   Number(p.gross_hours) > 0 ? Number(p.gross_hours) : Number(p.hours || 0),
-      break_minutes: Number(p.break_minutes || 0),
-      hours:         Number(p.hours         || 0),
-      // Older imported punches may not have stored wage data. Use the employee
-      // wage only as a fallback; synced historical punch wages remain preferred.
-      wage:          Number(p.wage) > 0 ? Number(p.wage) : Number(employee?.wage || 0),
-      cash_wage:     Number(p.cash_wage) > 0 ? Number(p.cash_wage) : Number(employee?.cash_wage || 0),
-    }));
+    }).map(p => {
+      const storedHours = Number(p.hours || 0);
+      const timestampGross = p.clocked_out
+        ? Math.max(0, Math.round((new Date(p.clocked_out).getTime() - new Date(p.clocked_in).getTime()) / 36000) / 100)
+        : 0;
+      return {
+        ...p,
+        payroll_hours: p.payroll_hours == null ? storedHours : Number(p.payroll_hours),
+        gross_hours:   Number(p.gross_hours) > 0 ? Number(p.gross_hours) : timestampGross,
+        break_minutes: Number(p.break_minutes || 0),
+        hours:         storedHours,
+        // Older imported punches may not have stored wage data. Use the employee
+        // wage only as a fallback; synced historical punch wages remain preferred.
+        wage:          Number(p.wage) > 0 ? Number(p.wage) : Number(employee?.wage || 0),
+        cash_wage:     Number(p.cash_wage) > 0 ? Number(p.cash_wage) : Number(employee?.cash_wage || 0),
+      };
+    });
 
     // Total = sum of PAYROLL hours (break-deducted, 7shifts approved) only for completed shifts
     const totalPayrollHours = punches
