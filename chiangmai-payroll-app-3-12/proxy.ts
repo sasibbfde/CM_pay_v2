@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
-const PUBLIC_PATHS = ['/login', '/signup', '/auth/callback', '/auth/confirm', '/auth/error'];
+const PUBLIC_PATHS = ['/login', '/signup', '/forgot-password', '/update-password', '/auth/callback', '/auth/confirm', '/auth/error'];
 
 function safeEqual(left: string, right: string) {
   const a = Buffer.from(left);

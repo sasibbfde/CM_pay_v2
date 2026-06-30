@@ -9,6 +9,7 @@ export default function AuthForm({ mode }: { mode:'login'|'signup' }) {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const requestedNext = searchParams.get('next');
@@ -26,6 +27,8 @@ export default function AuthForm({ mode }: { mode:'login'|'signup' }) {
         window.location.assign(next);
         return;
       }
+
+      if (password !== confirmPassword) throw new Error('Passwords do not match');
 
       const callback = new URL('/auth/callback', window.location.origin);
       callback.searchParams.set('next', next);
@@ -66,6 +69,14 @@ export default function AuthForm({ mode }: { mode:'login'|'signup' }) {
             <input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={8} value={password} onChange={event=>setPassword(event.target.value)}
               style={{background:'#0d1117',border:'1px solid rgba(255,255,255,0.12)',borderRadius:8,color:'#f9fafb',padding:'11px 12px',fontSize:14,outline:'none'}} />
           </label>
+          {mode === 'signup' && <label style={{display:'grid',gap:6,fontSize:12,color:'#9ca3af'}}>
+            Confirm password
+            <input type="password" autoComplete="new-password" required minLength={8} value={confirmPassword} onChange={event=>setConfirmPassword(event.target.value)}
+              style={{background:'#0d1117',border:'1px solid rgba(255,255,255,0.12)',borderRadius:8,color:'#f9fafb',padding:'11px 12px',fontSize:14,outline:'none'}} />
+          </label>}
+          {mode === 'login' && <div style={{textAlign:'right',marginTop:-6}}>
+            <Link href="/forgot-password" style={{color:'#22d3ee',fontSize:12}}>Forgot password?</Link>
+          </div>}
           {message && <div role="status" style={{fontSize:12,color:message.startsWith('Account created')?'#34d399':'#f87171',background:'rgba(255,255,255,0.04)',borderRadius:7,padding:'9px 10px'}}>{message}</div>}
           <button disabled={loading} type="submit" style={{marginTop:4,background:'#22d3ee',border:0,borderRadius:8,color:'#071014',padding:'11px 14px',fontWeight:700,fontSize:14,cursor:loading?'wait':'pointer',opacity:loading?0.6:1}}>
             {loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}

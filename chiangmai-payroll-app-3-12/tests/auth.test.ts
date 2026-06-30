@@ -14,6 +14,8 @@ globalThis.fetch = async () => new Response(JSON.stringify({ message:'No session
 test('public auth pages remain accessible without a session', async () => {
   assert.equal((await proxy(new NextRequest('https://example.test/login'))).status, 200);
   assert.equal((await proxy(new NextRequest('https://example.test/signup'))).status, 200);
+  assert.equal((await proxy(new NextRequest('https://example.test/forgot-password'))).status, 200);
+  assert.equal((await proxy(new NextRequest('https://example.test/update-password'))).status, 200);
 });
 
 test('protected pages and APIs reject requests without a session', async () => {
