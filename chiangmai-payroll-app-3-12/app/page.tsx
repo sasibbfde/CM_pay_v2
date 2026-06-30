@@ -182,7 +182,7 @@ export default function Home() {
     setSyncing(true);
     setSyncResult(null);
     try {
-      const body: Record<string, string> = {};
+      const body: Record<string, string | boolean> = { sync_wages:false };
       if (syncStart) body.start = new Date(syncStart).toISOString();
       if (syncEnd)   body.end   = new Date(syncEnd + 'T23:59:59').toISOString();
       const res = await fetch('/api/7shifts/sync', {

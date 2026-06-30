@@ -94,7 +94,7 @@ export default function WagesPage() {
       const today = new Date().toISOString().slice(0,10);
       const response = await fetch('/api/7shifts/sync', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({start:`${today}T00:00:00.000Z`,end:`${today}T23:59:59.999Z`,triggered_by:'wages-page'}),
+        body:JSON.stringify({start:`${today}T00:00:00.000Z`,end:`${today}T23:59:59.999Z`,triggered_by:'wages-page',sync_wages:true}),
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || '7shifts sync failed');

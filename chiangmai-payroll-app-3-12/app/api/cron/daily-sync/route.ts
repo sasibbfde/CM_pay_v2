@@ -11,9 +11,11 @@ export async function GET(req: Request) {
   }
   try {
     const today     = new Date();
-    const yesterday = new Date(today); yesterday.setDate(today.getDate()-1);
+    // Re-sync a rolling window so breaks edited or approved after the shift
+    // are corrected automatically instead of being frozen after one day.
+    const lookback = new Date(today); lookback.setDate(today.getDate()-14);
     const fmt = (d: Date) => d.toISOString().split('T')[0];
-    const yDate = fmt(yesterday);
+    const yDate = fmt(lookback);
     const tDate = fmt(today);
     const base  = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cm-pay-v2.vercel.app';
     const parseSyncResponse = async (response: Response) => {
@@ -28,7 +30,7 @@ export async function GET(req: Request) {
     const [punchRes, salesRes] = await Promise.all([
       fetch(`${base}/api/7shifts/sync`, {
         method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${cronSecret}`},
-        body: JSON.stringify({ start:`${yDate}T00:00:00.000Z`, end:`${tDate}T23:59:59.999Z`, triggered_by:'cron-daily' }),
+        body: JSON.stringify({ start:`${yDate}T00:00:00.000Z`, end:`${tDate}T23:59:59.999Z`, triggered_by:'cron-daily', sync_wages:false }),
       }).then(parseSyncResponse),
       fetch(`${base}/api/sales-sync`, {
         method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${cronSecret}`},

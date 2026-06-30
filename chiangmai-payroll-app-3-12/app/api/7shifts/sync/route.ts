@@ -56,6 +56,7 @@ async function runSync(body: any): Promise<NextResponse> {
   const startIso = body.start || new Date(new Date().setDate(new Date().getDate() - 1)).toISOString().replace(/T.*/, 'T00:00:00.000Z');
   const endIso   = body.end   || new Date().toISOString().replace(/T.*/, 'T23:59:59.999Z');
   const triggeredBy = body.triggered_by || 'manual';
+  const shouldSyncWages = body.sync_wages !== false;
 
   // ─── 1. Fetch reference data ───────────────────────────────────────────────
   const [usersRes, deptsRes, rolesRes] = await Promise.all([
@@ -84,7 +85,9 @@ async function runSync(body: any): Promise<NextResponse> {
   // bounded batches to avoid overwhelming the API.
   const wagesByUser = new Map<string, SevenShiftsWage[]>();
   const wageErrors: string[] = [];
-  const activeUsers = [...userById.values()].filter((user:any) => user.active !== false);
+  const activeUsers = shouldSyncWages
+    ? [...userById.values()].filter((user:any) => user.active !== false)
+    : [];
   for (let index = 0; index < activeUsers.length; index += 10) {
     await Promise.all(activeUsers.slice(index, index + 10).map(async (user:any) => {
       try {

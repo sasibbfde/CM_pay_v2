@@ -22,12 +22,11 @@ export async function POST(req: NextRequest) {
     const endDate   = body.end_date   || today;
 
     const supabase = getSupabaseAdmin();
-    const rows: any[] = [];
+    const rowsByDateLocation = new Map<string, any>();
     const errors: string[] = [];
 
     // Fetch per location so we get per-location breakdown
     for (const [locId, locName] of Object.entries(LOCATION_MAP)) {
-      if (locId === '500371') continue; // duplicate of Mississauga
       try {
         const data = await fetchDailySalesAndLabor(startDate, endDate, locId);
         for (const d of data?.data || []) {
@@ -39,7 +38,7 @@ export async function POST(req: NextRequest) {
           const splh           = d.sales_per_labor_hour ? d.sales_per_labor_hour / 100 : null;
 
           if (actualSales > 0 || projSales > 0) {
-            rows.push({
+            const row = {
               sale_date:          d.date,
               location:           locName,
               gross_sales:        actualSales,
@@ -50,13 +49,20 @@ export async function POST(req: NextRequest) {
               sales_per_labor_hr: splh,
               source:             '7shifts-snappy',
               updated_at:         new Date().toISOString(),
-            });
+            };
+            const key = `${row.sale_date}|${row.location}`;
+            const existing = rowsByDateLocation.get(key);
+            // Mississauga has legacy and current 7shifts IDs. Keep one record
+            // per date/location and prefer the ID that actually reports sales.
+            if (!existing || row.net_sales > existing.net_sales) rowsByDateLocation.set(key, row);
           }
         }
       } catch (e: any) {
         errors.push(`${locName}: ${e.message}`);
       }
     }
+
+    const rows = [...rowsByDateLocation.values()];
 
     // Upsert into daily_sales
     if (rows.length > 0) {
