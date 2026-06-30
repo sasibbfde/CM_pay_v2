@@ -66,12 +66,14 @@ export async function POST(req: NextRequest) {
       if (error) throw error;
     }
 
+    const hasData = rows.length > 0;
     return NextResponse.json({
-      ok: errors.length === 0,
+      ok: errors.length === 0 || hasData,
       synced: rows.length,
       date_range: `${startDate} to ${endDate}`,
-      errors: errors.length ? errors : undefined,
-    }, { status: errors.length ? 502 : 200 });
+      warnings: hasData && errors.length ? errors : undefined,
+      errors: !hasData && errors.length ? errors : undefined,
+    }, { status: !hasData && errors.length ? 502 : 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }

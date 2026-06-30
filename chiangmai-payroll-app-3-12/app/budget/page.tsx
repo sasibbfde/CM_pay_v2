@@ -80,19 +80,26 @@ export default function BudgetPage() {
 
   const syncSales = async () => {
     setSyncing(true); setSyncMsg('');
-    const res = await fetch('/api/sales-sync', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ start_date: fromDate, end_date: toDate }),
-    });
-    const d = await res.json();
-    if (d.ok) {
-      setSyncMsg(`✓ Synced ${d.synced} days from Snappy`);
-      invalidateClientCache(['/api/sales']);
-      loadData(true);
-    } else {
-      setSyncMsg(`✗ ${d.error}`);
+    try {
+      const res = await fetch('/api/sales-sync', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ start_date: fromDate, end_date: toDate }),
+      });
+      const d = await res.json();
+      if (res.ok && d.ok) {
+        const warning = d.warnings?.length ? ` · ${d.warnings.length} location warnings` : '';
+        setSyncMsg(`✓ Synced ${d.synced} sales records${warning}`);
+        invalidateClientCache(['/api/sales']);
+        loadData(true);
+      } else {
+        const detail = d.errors?.join(' · ') || d.error || `Sales sync failed (${res.status})`;
+        setSyncMsg(`✗ ${detail}`);
+      }
+    } catch (error:any) {
+      setSyncMsg(`✗ ${error.message || 'Sales sync request failed'}`);
+    } finally {
+      setSyncing(false);
     }
-    setSyncing(false);
     setTimeout(() => setSyncMsg(''), 5000);
   };
 

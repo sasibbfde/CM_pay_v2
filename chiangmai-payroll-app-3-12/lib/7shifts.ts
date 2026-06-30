@@ -98,15 +98,16 @@ export async function fetchTimePunches(start: string, end: string) {
 }
 
 /** Fetch daily sales & labor report from 7shifts (powered by Snappy POS) */
+export function buildDailySalesAndLaborPath(companyId: string, startDate: string, endDate: string, locationId?: string) {
+  const params = new URLSearchParams({ company_id:companyId, start_date:startDate, end_date:endDate });
+  if (locationId) params.set('location_id', locationId);
+  return `/reports/daily_sales_and_labor?${params.toString()}`;
+}
+
 export async function fetchDailySalesAndLabor(startDate: string, endDate: string, locationId?: string) {
   const COMPANY = process.env.SEVENSHIFTS_COMPANY_ID;
-  let path = `/reports/daily_sales_and_labor?start_date=${startDate}&end_date=${endDate}`;
-  if (locationId) {
-    path += `&location_id=${locationId}`;
-  } else {
-    path += `&company_id=${COMPANY}`;
-  }
-  return sevenFetch(path);
+  if (!COMPANY) throw new Error('Missing SEVENSHIFTS_COMPANY_ID');
+  return sevenFetch(buildDailySalesAndLaborPath(COMPANY, startDate, endDate, locationId));
 }
 
 /** Fetch scheduled shifts for a date range */
