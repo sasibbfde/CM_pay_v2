@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchUsers, fetchTimePunches, fetchDepartments, fetchRoles, fetchUserWages } from '@/lib/7shifts';
 import { getSupabaseAdmin } from '@/lib/supabase';
-import { selectHourlyWage, SevenShiftsWage } from '@/lib/wages';
+import { resolveEmployeeWage, selectHourlyWage, SevenShiftsWage } from '@/lib/wages';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 function fullName(u: any): string {
@@ -69,6 +69,17 @@ async function runSync(body: any): Promise<NextResponse> {
   function mapDept(id: any) { return deptById.get(String(id)) || ''; }
   function mapRole(id: any) { return roleById.get(String(id)) || ''; }
 
+  // Roster and manually saved wages are authoritative. Load them before the
+  // 7shifts upsert so a routine sync cannot replace either cheque or cash rate.
+  const { data: existingEmployees, error: existingError } = await supabase
+    .from('employees')
+    .select('employee_id, seven_shifts_user_id, full_name, location, department, role, wage, cash_wage, wage_locked, wage_source');
+  if (existingError) throw new Error(`Employee lookup failed: ${existingError.message}`);
+  const existingBy7shiftsId = new Map<string, any>();
+  for (const employee of existingEmployees || []) {
+    if (employee.seven_shifts_user_id) existingBy7shiftsId.set(String(employee.seven_shifts_user_id), employee);
+  }
+
   // 7shifts stores wages in a separate endpoint. Fetch active-user wages in
   // bounded batches to avoid overwhelming the API.
   const wagesByUser = new Map<string, SevenShiftsWage[]>();
@@ -87,7 +98,9 @@ async function runSync(body: any): Promise<NextResponse> {
 
   // ─── 2. Upsert employees (never overwrite good wage/location with nulls) ───
   const userRows = [...userById.values()].map((u: any) => {
-    const wage = selectHourlyWage(wagesByUser.get(String(u.id)) || [], u.role_id);
+    const existing = existingBy7shiftsId.get(String(u.id));
+    const sevenShiftsWage = selectHourlyWage(wagesByUser.get(String(u.id)) || [], u.role_id);
+    const wage = resolveEmployeeWage(existing, sevenShiftsWage);
     const loc  = mapLoc(u.location_id ?? u.home_location_id ?? '');
     const dept = u.department_name || mapDept(u.department_id) || null;
     const role = u.role_name || mapRole(u.role_id) || null;
@@ -99,6 +112,8 @@ async function runSync(body: any): Promise<NextResponse> {
       full_name:            fullName(u),
       active:               Boolean(u.active),
       source:               '7shifts',
+      wage_locked:          Boolean(existing?.wage_locked),
+      wage_source:          existing?.wage_locked ? (existing.wage_source || 'manual') : '7shifts',
       updated_at:           new Date().toISOString(),
       // Only set these if 7shifts has a real value — never overwrite DB data with null
       ...(wage > 0                    ? { wage }        : {}),
@@ -118,7 +133,7 @@ async function runSync(body: any): Promise<NextResponse> {
   // ─── 3. Load DB employee map ───────────────────────────────────────────────
   const { data: dbEmps } = await supabase
     .from('employees')
-    .select('employee_id, seven_shifts_user_id, full_name, location, department, role, wage, cash_wage');
+    .select('employee_id, seven_shifts_user_id, full_name, location, department, role, wage, cash_wage, wage_locked, wage_source');
   const dbEmpMap = new Map<string, any>();
   for (const e of dbEmps || []) {
     if (e.seven_shifts_user_id) dbEmpMap.set(String(e.seven_shifts_user_id), e);
@@ -160,8 +175,10 @@ async function runSync(body: any): Promise<NextResponse> {
 
     // Match the authoritative 7shifts wage by punch role and effective date.
     const punchDate = String(p.clocked_in || p.clock_in || '').slice(0, 10);
-    const wage = selectHourlyWage(wagesByUser.get(userId) || [], p.role_id, punchDate)
-      || Number(dbEmp?.wage || 0);
+    const wage = resolveEmployeeWage(
+      dbEmp,
+      selectHourlyWage(wagesByUser.get(userId) || [], p.role_id, punchDate),
+    );
 
     // Times
     const clockIn  = p.clocked_in  || p.clock_in  || null;

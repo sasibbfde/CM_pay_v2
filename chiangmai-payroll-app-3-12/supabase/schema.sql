@@ -15,6 +15,8 @@ create table if not exists public.employees (
   role text,
   wage numeric default 0,
   cash_wage numeric default 0,
+  wage_locked boolean not null default false,
+  wage_source text not null default '7shifts',
   active boolean default true,
   source text default 'manual',
   created_at timestamptz default now(),
@@ -120,6 +122,8 @@ create table if not exists public.sync_log (
 
 create index if not exists punches_clocked_in_idx on public.punches (clocked_in);
 create index if not exists punches_employee_id_idx on public.punches (employee_id);
+create index if not exists punches_employee_id_clocked_in_idx on public.punches (employee_id, clocked_in desc);
+create index if not exists punches_ssid_clocked_in_idx on public.punches (seven_shifts_user_id, clocked_in desc);
 create index if not exists daily_sales_sale_date_idx on public.daily_sales (sale_date);
 
 create or replace function public.fill_employee_fields_from_punches()

@@ -7,7 +7,9 @@ async function fetchAllEmployees(supabase: any, activeOnly: boolean) {
   const all: any[] = [];
   let from = 0;
   while (true) {
-    let q = supabase.from('employees').select('*').range(from, from + PAGE - 1).order('full_name');
+    let q = supabase.from('employees')
+      .select('id, employee_id, seven_shifts_user_id, full_name, location, department, role, wage, cash_wage, wage_locked, wage_source, active')
+      .range(from, from + PAGE - 1).order('full_name');
     if (activeOnly) q = q.eq('active', true);
     const { data, error } = await q;
     if (error) throw error;
@@ -23,29 +25,9 @@ export async function GET(req: NextRequest) {
   try {
     const sp         = req.nextUrl.searchParams;
     const activeOnly = sp.get('active') !== 'false';
-    const withPunches = sp.get('with_punches') === 'true';
     const supabase   = getSupabaseAdmin();
 
-    let employees = await fetchAllEmployees(supabase, activeOnly);
-
-    if (withPunches) {
-      const since = new Date();
-      since.setDate(since.getDate() - 90);
-      let from = 0;
-      const activeIds = new Set<string>();
-      while (true) {
-        const { data } = await supabase
-          .from('punches')
-          .select('employee_id')
-          .gte('clocked_in', since.toISOString())
-          .range(from, from + PAGE - 1);
-        if (!data || data.length === 0) break;
-        data.forEach((p: any) => activeIds.add(p.employee_id));
-        if (data.length < PAGE) break;
-        from += PAGE;
-      }
-      employees = employees.filter((e: any) => activeIds.has(e.employee_id));
-    }
+    const employees = await fetchAllEmployees(supabase, activeOnly);
 
     return NextResponse.json({ employees });
   } catch (e: any) {
@@ -69,6 +51,9 @@ export async function PATCH(req: NextRequest) {
       updates.cash_wage = value;
     }
     if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'wage or cash_wage required' }, { status: 400 });
+    updates.wage_locked = true;
+    updates.wage_source = 'manual';
+    updates.updated_at = new Date().toISOString();
     let q = supabase.from('employees').update(updates);
     if (id)                   q = q.eq('id', id);
     else if (seven_shifts_user_id) q = q.eq('seven_shifts_user_id', String(seven_shifts_user_id));

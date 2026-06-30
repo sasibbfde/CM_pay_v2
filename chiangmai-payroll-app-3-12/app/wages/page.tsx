@@ -5,7 +5,7 @@ import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache'
 type Employee = {
   id: string; seven_shifts_user_id: string | null; full_name: string;
   location: string; department: string; role: string;
-  wage: number; cash_wage?: number; active: boolean;
+  wage: number; cash_wage?: number; wage_locked?: boolean; wage_source?: string; active: boolean;
 };
 
 const sel: React.CSSProperties = { background:'#1a1f2e',border:'1px solid rgba(255,255,255,0.1)',borderRadius:7,color:'#e5e7eb',padding:'7px 12px',fontSize:13,outline:'none',cursor:'pointer' };
@@ -64,7 +64,7 @@ export default function WagesPage() {
       const d = await res.json();
       if (d.ok) {
         invalidateClientCache(['/api/employees', '/api/payroll']);
-        setEmployees(p=>p.map(e=>e.id===emp.id?{...e,wage,cash_wage}:e));
+        setEmployees(p=>p.map(e=>e.id===emp.id?{...e,wage,cash_wage,wage_locked:true,wage_source:'manual'}:e));
         setSaved(p=>new Set([...p,emp.id]));
         setTimeout(()=>setSaved(p=>{const n=new Set(p);n.delete(emp.id);return n;}),2000);
       } else {
@@ -96,7 +96,7 @@ export default function WagesPage() {
       invalidateClientCache(['/api/employees','/api/payroll','/api/synclog']);
       load(true);
       const failed = result.wage_errors?.length || 0;
-      setMsg({text:failed ? `Updated ${result.wages_synced} wages; ${failed} failed` : `✓ Updated wages for ${result.wages_synced} employees`,ok:failed===0});
+      setMsg({text:failed ? `Synced employee data; ${failed} wage lookups failed` : '✓ Employee data synced; locked wages preserved',ok:failed===0});
     } catch (error:any) {
       setMsg({text:error.message,ok:false});
     } finally {
@@ -123,7 +123,7 @@ export default function WagesPage() {
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {msg&&<span style={{fontSize:12,color:msg.ok?'#34d399':'#f87171',background:msg.ok?'rgba(52,211,153,0.1)':'rgba(248,113,113,0.1)',padding:'5px 12px',borderRadius:6}}>{msg.text}</span>}
           <button onClick={syncFrom7shifts} disabled={syncing} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:'#34d399',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:syncing?'wait':'pointer'}}>
-            {syncing?'Syncing wages…':'↻ Sync wages from 7shifts'}
+            {syncing?'Syncing…':'↻ Sync employee data'}
           </button>
           {editCount>0&&(
             <button onClick={saveAll} style={{background:'rgba(34,211,238,0.12)',border:'1px solid rgba(34,211,238,0.3)',color:'#22d3ee',borderRadius:7,padding:'7px 16px',fontSize:13,fontWeight:600,cursor:'pointer'}}>
@@ -172,6 +172,7 @@ export default function WagesPage() {
                         {emp.full_name}
                         {noWage&&<span style={{fontSize:9,background:'rgba(248,113,113,0.2)',color:'#f87171',borderRadius:3,padding:'1px 5px'}}>$0</span>}
                         {hasEdit&&<span style={{fontSize:9,background:'rgba(251,191,36,0.2)',color:'#fbbf24',borderRadius:3,padding:'1px 5px'}}>edited</span>}
+                        {emp.wage_locked&&<span style={{fontSize:9,background:'rgba(52,211,153,0.14)',color:'#34d399',borderRadius:3,padding:'1px 5px'}}>{emp.wage_source==='roster-2026'?'roster locked':'saved'}</span>}
                       </div>
                     </td>
                     <td style={{padding:'10px 16px',color:'#6b7280',fontSize:12}}>{emp.location||'—'}</td>

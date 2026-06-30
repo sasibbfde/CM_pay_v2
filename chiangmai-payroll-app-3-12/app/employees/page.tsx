@@ -24,7 +24,7 @@ function cad(n: number) { return `$${n.toFixed(2)}`; }
 
 export default function EmployeesPage() {
   const today = new Date();
-  const initialEmployeeUrl = '/api/employees?active=true&with_punches=true';
+  const initialEmployeeUrl = '/api/employees?active=true';
   const initialEmployees = peekJson<{employees:Employee[]}>(initialEmployeeUrl);
   const [employees, setEmployees]  = useState<Employee[]>(() => initialEmployees?.employees || []);
   const [selected,  setSelected]   = useState<Employee | null>(null);
@@ -51,7 +51,7 @@ export default function EmployeesPage() {
   };
 
   useEffect(() => {
-    const url = showInactive ? '/api/employees?active=false' : '/api/employees?active=true&with_punches=true';
+    const url = showInactive ? '/api/employees?active=false' : '/api/employees?active=true';
     const cached = peekJson<{employees:Employee[]}>(url);
     if (cached) setEmployees(cached.employees || []);
     setLoading(!cached);

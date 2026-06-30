@@ -5,6 +5,14 @@ export type SevenShiftsWage = {
   wage_cents?: number | string;
 };
 
+type StoredWage = { wage?: number | string | null; wage_locked?: boolean } | null | undefined;
+
+export function resolveEmployeeWage(existing: StoredWage, sevenShiftsWage: number) {
+  const stored = Number(existing?.wage || 0);
+  if (existing?.wage_locked) return Number.isFinite(stored) ? stored : 0;
+  return sevenShiftsWage > 0 ? sevenShiftsWage : (Number.isFinite(stored) ? stored : 0);
+}
+
 const toDate = (value?: string) => value || '0000-00-00';
 
 export function selectHourlyWage(

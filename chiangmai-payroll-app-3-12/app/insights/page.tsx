@@ -30,7 +30,7 @@ export default function InsightsPage() {
 
   const initialYear = new Date(fromDate).getFullYear();
   const initialMonth = new Date(fromDate).getMonth() + 1;
-  const initialPayrollUrl = `/api/payroll?year=${initialYear}&month=${initialMonth}&period=month&from=${fromDate}&to=${toDate}`;
+  const initialPayrollUrl = `/api/payroll?year=${initialYear}&month=${initialMonth}&period=month&from=${fromDate}&to=${toDate}&include_trends=true`;
   const initialSalesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
   const initialPay = peekJson<{rows:Row[];monthly:any[]}>(initialPayrollUrl);
   const initialSales = peekJson<{sales:Sale[]}>(initialSalesUrl);
@@ -72,7 +72,7 @@ export default function InsightsPage() {
   useEffect(() => {
     const year = new Date(fromDate).getFullYear();
     const month = new Date(fromDate).getMonth() + 1;
-    const payrollUrl = `/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}`;
+    const payrollUrl = `/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}&include_trends=true`;
     const salesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
     const cachedPay = peekJson<{rows:Row[];monthly:any[]}>(payrollUrl);
     const cachedSales = peekJson<{sales:Sale[]}>(salesUrl);

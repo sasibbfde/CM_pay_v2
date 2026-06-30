@@ -23,12 +23,12 @@ function mapRule(r: any): EmployeeRule {
   };
 }
 
-async function fetchAll(supabase: any, table: string, filterFn?: (q: any) => any) {
+async function fetchAll(supabase: any, table: string, columns: string, filterFn?: (q: any) => any) {
   const PAGE = 1000;
   let from = 0;
   const all: any[] = [];
   while (true) {
-    let q = supabase.from(table).select('*').range(from, from + PAGE - 1);
+    let q = supabase.from(table).select(columns).range(from, from + PAGE - 1);
     if (filterFn) q = filterFn(q);
     const { data, error } = await q;
     if (error) throw error;
@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
   // Custom date range (used by Insights page)
   const fromDate = sp.get('from');
   const toDate   = sp.get('to');
+  const includeTrends = sp.get('include_trends') === 'true';
 
   if (!hasSupabaseEnv()) {
     return NextResponse.json({ source:'supabase not configured', summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], daily:[], monthly:[], yearly:[] });
@@ -57,19 +58,27 @@ export async function GET(req: NextRequest) {
     const supabase = getSupabaseAdmin();
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year}-12-31`;
-    const requestedStart = fromDate && fromDate < yearStart ? fromDate : yearStart;
-    const requestedEnd = toDate && toDate > yearEnd ? toDate : yearEnd;
+    const monthStart = `${year}-${String(month).padStart(2,'0')}-01`;
+    const monthEnd = `${year}-${String(month).padStart(2,'0')}-${String(new Date(year, month, 0).getDate()).padStart(2,'0')}`;
+    const periodStart = period === '16-end' ? `${year}-${String(month).padStart(2,'0')}-16` : monthStart;
+    const periodEnd = period === '1-15' ? `${year}-${String(month).padStart(2,'0')}-15` : monthEnd;
+    const requestedStart = includeTrends
+      ? (fromDate && fromDate < yearStart ? fromDate : yearStart)
+      : (fromDate || periodStart);
+    const requestedEnd = includeTrends
+      ? (toDate && toDate > yearEnd ? toDate : yearEnd)
+      : (toDate || periodEnd);
     const queryStart = new Date(`${requestedStart}T00:00:00Z`);
     queryStart.setUTCDate(queryStart.getUTCDate() - 1);
     const queryEnd = new Date(`${requestedEnd}T23:59:59Z`);
     queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
     const [punchData, ruleData, employeeData] = await Promise.all([
-      fetchAll(supabase, 'punches', query => query
+      fetchAll(supabase, 'punches', 'punch_id, employee_id, employee_name, location, department, role, clocked_in, clocked_out, hours, wage, cash_wage, source', query => query
         .gte('clocked_in', queryStart.toISOString())
         .lte('clocked_in', queryEnd.toISOString())
         .order('clocked_in')),
-      fetchAll(supabase, 'employee_rules', q => q.eq('active', true)),
-      fetchAll(supabase, 'employees'),
+      fetchAll(supabase, 'employee_rules', 'id, employee_id, employee_name, rule_type, rule_value, combined_locations, payroll_location, notes, active, effective_from, effective_to', q => q.eq('active', true)),
+      fetchAll(supabase, 'employees', 'employee_id, full_name, wage, cash_wage'),
     ]);
 
     const punches: Punch[]        = applyEmployeeWages(punchData.map(mapPunch), employeeData as Employee[]);
@@ -85,12 +94,12 @@ export async function GET(req: NextRequest) {
     const daily   = summarizeDailyLabour(periodPunches);
 
     // Monthly breakdown always uses year
-    const monthly = Array.from({ length: 12 }, (_, i) => {
+    const monthly = includeTrends ? Array.from({ length: 12 }, (_, i) => {
       const p = filterPunches(punches, year, i + 1, 'month');
       const r = calculatePayroll(p, rules);
       const s = summarize(r);
       return { month: new Date(year, i, 1).toLocaleString('en', { month: 'short' }), payrollAmount: s.payrollAmount, totalHours: s.totalHours };
-    });
+    }) : [];
 
     const yearly = [{ year, payrollAmount: monthly.reduce((s,m)=>s+m.payrollAmount,0), totalHours: monthly.reduce((s,m)=>s+m.totalHours,0) }];
 

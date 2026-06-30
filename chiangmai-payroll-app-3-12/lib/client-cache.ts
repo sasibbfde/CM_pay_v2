@@ -5,19 +5,15 @@ const memory = new Map<string, CacheEntry>();
 const pending = new Map<string, Promise<unknown>>();
 const STORAGE_PREFIX = 'cm-pay-cache:';
 
-function readEntry(key: string): CacheEntry | undefined {
+function readEntry(key: string, allowExpired = false): CacheEntry | undefined {
   const inMemory = memory.get(key);
-  if (inMemory && inMemory.expires > Date.now()) return inMemory;
-  if (inMemory) memory.delete(key);
+  if (inMemory && (allowExpired || inMemory.expires > Date.now())) return inMemory;
   if (typeof window === 'undefined') return undefined;
   try {
     const raw = sessionStorage.getItem(STORAGE_PREFIX + key);
     if (!raw) return undefined;
     const stored = JSON.parse(raw) as CacheEntry;
-    if (stored.expires <= Date.now()) {
-      sessionStorage.removeItem(STORAGE_PREFIX + key);
-      return undefined;
-    }
+    if (!allowExpired && stored.expires <= Date.now()) return undefined;
     memory.set(key, stored);
     return stored;
   } catch {
@@ -26,12 +22,14 @@ function readEntry(key: string): CacheEntry | undefined {
 }
 
 export function peekJson<T>(url: string): T | undefined {
-  return readEntry(url)?.data as T | undefined;
+  // Pages can paint stale session data immediately while cachedJson refreshes
+  // it in the background. Mutations explicitly invalidate affected entries.
+  return readEntry(url, true)?.data as T | undefined;
 }
 
 export async function cachedJson<T>(url: string, maxAgeMs = 120_000, force = false): Promise<T> {
   if (!force) {
-    const cached = peekJson<T>(url);
+    const cached = readEntry(url)?.data as T | undefined;
     if (cached !== undefined) return cached;
     const existing = pending.get(url);
     if (existing) return existing as Promise<T>;
