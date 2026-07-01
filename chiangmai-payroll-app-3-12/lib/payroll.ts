@@ -228,13 +228,15 @@ export function getLabourGroup(department?: string, role?: string): LabourGroup 
 }
 
 export function summarizeLabourGroups(punches: Punch[]) {
-  const grouped = new Map<string, { group:LabourGroup; location:string; hours:number; cost:number; employees:Set<string> }>();
+  const grouped = new Map<string, { date:string; group:LabourGroup; location:string; hours:number; cost:number; employees:Set<string> }>();
   for (const punch of punches) {
     if (!punch.clocked_out) continue;
+    const date = getPayrollDate(punch.clocked_in);
+    if (!date) continue;
     const group = getLabourGroup(punch.department, punch.role);
     const location = punch.location || 'Unknown';
-    const key = `${location}\u0000${group}`;
-    const row = grouped.get(key) || { group, location, hours:0, cost:0, employees:new Set<string>() };
+    const key = `${date}\u0000${location}\u0000${group}`;
+    const row = grouped.get(key) || { date, group, location, hours:0, cost:0, employees:new Set<string>() };
     const hours = getPunchHours(punch);
     row.hours += hours;
     row.cost += hours * Number(punch.wage || 0);
@@ -242,12 +244,13 @@ export function summarizeLabourGroups(punches: Punch[]) {
     grouped.set(key, row);
   }
   return [...grouped.values()].map(row => ({
+    date:row.date,
     group:row.group,
     location:row.location,
     hours:round(row.hours),
     cost:round(row.cost),
     employees:row.employees.size,
-  })).sort((a,b)=>a.location.localeCompare(b.location)||a.group.localeCompare(b.group));
+  })).sort((a,b)=>a.date.localeCompare(b.date)||a.location.localeCompare(b.location)||a.group.localeCompare(b.group));
 }
 
 export function summarize(rows: PayrollRow[]) {
