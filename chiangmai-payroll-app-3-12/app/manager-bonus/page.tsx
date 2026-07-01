@@ -7,6 +7,7 @@ type ManagerRow = {
   customer_service_leadership:number|null; notes?:string; approval?:string; totalPoints:number; scorePercent:number;
   maxExtraBonus:number; earnedExtraBonus:number; finalBonus:number;
 };
+type MissingEmployee = { id:string; employee_name:string; location:string; department:string; role:string; missing_location:boolean; missing_role:boolean };
 
 const categories = [
   ['Attendance','attendance'],['Inventory','inventory'],['Cleaning','cleaning'],['Labour Control','labour_control'],['Customer Service / Leadership','customer_service_leadership'],
@@ -34,12 +35,12 @@ function Rating({value,onChange}:{value:number|null;onChange:(value:number)=>voi
 
 export default function ManagerBonusPage(){
   const now=new Date(); const [month,setMonth]=useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`);
-  const [period,setPeriod]=useState('month'); const [location,setLocation]=useState('ALL'); const [rows,setRows]=useState<ManagerRow[]>([]);
+  const [period,setPeriod]=useState('month'); const [location,setLocation]=useState('ALL'); const [rows,setRows]=useState<ManagerRow[]>([]); const [missingDetails,setMissingDetails]=useState<MissingEmployee[]>([]);
   const [loading,setLoading]=useState(true); const [message,setMessage]=useState(''); const [saving,setSaving]=useState('');
   const dates=useMemo(()=>periodDates(month,period),[month,period]);
 
   useEffect(()=>{let active=true;setLoading(true);setMessage('');fetch(`/api/manager-bonus?start=${dates.start}&end=${dates.end}`)
-    .then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to load manager bonuses');if(active)setRows((data.rows||[]).map(calculate));})
+    .then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to load manager bonuses');if(active){setRows((data.rows||[]).map(calculate));setMissingDetails(data.missingDetails||[]);}})
     .catch(error=>active&&setMessage(error.message)).finally(()=>active&&setLoading(false));return()=>{active=false};},[dates.start,dates.end]);
 
   const locations=useMemo(()=>[...new Set(rows.map(row=>row.location))].sort(),[rows]);
@@ -59,6 +60,14 @@ export default function ManagerBonusPage(){
       <span style={{fontSize:11,color:'#6b7280',marginLeft:'auto'}}>{dates.start} → {dates.end}</span>
     </section>
     {message&&<div role="status" style={{fontSize:12,color:message.startsWith('Saved')?'#34d399':'#f87171',marginBottom:12}}>{message}</div>}
+    {missingDetails.length>0&&<details style={{background:'rgba(251,191,36,.07)',border:'1px solid rgba(251,191,36,.22)',borderRadius:10,marginBottom:14}}>
+      <summary style={{padding:'11px 14px',cursor:'pointer',color:'#fbbf24',fontSize:12,fontWeight:600}}>{missingDetails.length} active employee{missingDetails.length===1?'':'s'} missing location or role</summary>
+      <div style={{padding:'0 14px 14px'}}>
+        <p style={{fontSize:11,color:'#9ca3af',margin:'0 0 10px'}}>These records come from the same employee list used by Wages and Logbook. Employees without a role cannot be identified as managers.</p>
+        <div style={{display:'flex',gap:7,marginBottom:10}}><a href="/wages" style={{...buttonStyle,textDecoration:'none'}}>Open Wages</a><a href="/employees" style={{...buttonStyle,textDecoration:'none'}}>Open Logbook</a></div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:6}}>{missingDetails.map(employee=><div key={employee.id} style={{background:'#0d1117',borderRadius:7,padding:'8px 10px',display:'flex',justifyContent:'space-between',gap:8}}><div><div style={{fontSize:12,color:'#f9fafb'}}>{employee.employee_name}</div><div style={{fontSize:10,color:'#6b7280',marginTop:2}}>{employee.location||'No location'} · {employee.role||employee.department||'No role'}</div></div><div style={{display:'flex',gap:4,alignItems:'flex-start',flexWrap:'wrap',justifyContent:'flex-end'}}>{employee.missing_location&&<span style={{fontSize:9,color:'#f87171',background:'rgba(248,113,113,.12)',padding:'2px 5px',borderRadius:4}}>Location</span>}{employee.missing_role&&<span style={{fontSize:9,color:'#f87171',background:'rgba(248,113,113,.12)',padding:'2px 5px',borderRadius:4}}>Role</span>}</div></div>)}</div>
+      </div>
+    </details>}
     <section style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(150px,1fr))',gap:8,marginBottom:14}}>{[['Manager hours',totals.hours.toFixed(1)],['Original bonus',currency.format(totals.original)],['Earned extra',currency.format(totals.extra)],['Final payout',currency.format(totals.final)]].map(([label,value])=><div key={label} style={{background:'#131720',border:'1px solid rgba(255,255,255,.07)',borderRadius:10,padding:'12px 14px'}}><div style={{fontSize:10,color:'#6b7280',textTransform:'uppercase'}}>{label}</div><div style={{fontSize:20,fontWeight:700,marginTop:4,color:'#f9fafb'}}>{value}</div></div>)}</section>
     {loading?<div style={{padding:40,textAlign:'center',color:'#6b7280'}}>Loading manager hours…</div>:visible.length===0?<div style={{padding:40,textAlign:'center',color:'#6b7280'}}>No managers found for this selection. Check manager roles in 7shifts and sync again.</div>:
       <div style={{display:'grid',gap:12}}>{visible.map(row=>{const key=`${row.employee_id}\u0000${row.location}`;return <article key={key} style={{background:'#131720',border:'1px solid rgba(255,255,255,.07)',borderRadius:11,overflow:'hidden'}}>

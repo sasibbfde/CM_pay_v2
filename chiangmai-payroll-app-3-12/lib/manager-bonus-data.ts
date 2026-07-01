@@ -31,6 +31,18 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
     if (employee.employee_id) employeeById.set(String(employee.employee_id), employee);
     if (employee.seven_shifts_user_id) employeeById.set(String(employee.seven_shifts_user_id), employee);
   }
+  const missingDetails = employees
+    .filter(employee => !String(employee.location || '').trim() || !String(employee.role || '').trim())
+    .map(employee => ({
+      id:employee.employee_id || employee.seven_shifts_user_id || employee.full_name,
+      employee_name:employee.full_name,
+      location:employee.location || '',
+      department:employee.department || '',
+      role:employee.role || '',
+      missing_location:!String(employee.location || '').trim(),
+      missing_role:!String(employee.role || '').trim(),
+    }))
+    .sort((a,b) => a.employee_name.localeCompare(b.employee_name));
 
   const managers = new Map<string, any>();
   for (const employee of employees) {
@@ -81,5 +93,5 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
     return { ...manager, ...review, ...scores, worked_hours:Math.round(manager.worked_hours * 100) / 100, original_bonus:Number(review.original_bonus || 0), ...calculateManagerBonus(Number(review.original_bonus || 0), scores) };
   }).sort((a,b) => a.location.localeCompare(b.location) || a.employee_name.localeCompare(b.employee_name));
 
-  return { rows, tableReady, storageMode:tableReady?'manager_bonus_reviews':'settings_fallback' };
+  return { rows, missingDetails, tableReady, storageMode:tableReady?'manager_bonus_reviews':'settings_fallback' };
 }
