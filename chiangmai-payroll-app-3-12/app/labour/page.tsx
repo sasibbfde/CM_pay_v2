@@ -6,8 +6,7 @@ import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache'
 type PayrollRow = { employee_name:string; location:string; department:string; role:string;
   actual_hours:number; payroll_hours:number; cash_hours:number;
   wage:number; payroll_amount:number; cash_amount:number; rule_applied:string; };
-type LabourGroupRow = { date:string; group:'Back of House'|'Front of House'|'Managers'|'Other'; location:string; hours:number; cost:number; employees:number };
-type SaleRow = { sale_date:string; location:string; net_sales:number; projected_sales:number };
+type LabourGroupRow = { group:'Back of House'|'Front of House'|'Managers'|'Other'; location:string; hours:number; cost:number; employees:number };
 
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const cad=(n:number)=>new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:0}).format(n||0);
@@ -21,7 +20,7 @@ export default function LabourPage() {
   const [preset,setPreset]=useState('month');
   const [fromDate,setFromDate]=useState(isoDate(new Date(today.getFullYear(),today.getMonth(),1)));
   const [toDate,setToDate]=useState(isoDate(new Date(today.getFullYear(),today.getMonth()+1,0)));
-  const initialUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&from=${fromDate}&to=${toDate}&breakdown=daily-departments-v2`;
+  const initialUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&from=${fromDate}&to=${toDate}&breakdown=departments-v3`;
   const initialTrendsUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&trends_only=true`;
   const initial=peekJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(initialUrl);
   const initialTrends=peekJson<{monthly:any[]}>(initialTrendsUrl);
@@ -30,7 +29,6 @@ export default function LabourPage() {
   const [monthly,setMonthly]=useState<any[]>(()=>initialTrends?.monthly||[]);
   const [loading,setLoading]=useState(()=>!initial);
   const [locationFilter,setLocationFilter]=useState('ALL');
-  const [dailySales,setDailySales]=useState<SaleRow[]>([]);
   const [syncing,setSyncing]=useState(false);
   const [syncMessage,setSyncMessage]=useState('');
   const [refresh,setRefresh]=useState(0);
@@ -53,20 +51,16 @@ export default function LabourPage() {
   useEffect(()=>{
     const year=new Date(fromDate).getFullYear();
     const month=new Date(fromDate).getMonth()+1;
-    const url=`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}&breakdown=daily-departments-v2`;
+    const url=`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}&breakdown=departments-v3`;
     const trendsUrl=`/api/payroll?year=${year}&month=${month}&period=month&trends_only=true`;
-    const salesUrl=`/api/sales?from=${fromDate}&to=${toDate}`;
     const cached=peekJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url);
     const cachedTrends=peekJson<{monthly:any[]}>(trendsUrl);
     if(cached){setRows(cached.rows||[]);setLabourGroups(cached.labourGroups||[]);}
     if(cachedTrends)setMonthly(cachedTrends.monthly||[]);
     setLoading(!cached);
-    const cachedSales=peekJson<{sales:SaleRow[]}>(salesUrl);
-    if(cachedSales)setDailySales(cachedSales.sales||[]);
-    const periodRequest=Promise.all([
-      cachedJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url,600_000),
-      cachedJson<{sales:SaleRow[]}>(salesUrl,600_000),
-    ]).then(([d,salesData])=>{setRows(d.rows||[]);setLabourGroups(d.labourGroups||[]);setDailySales(salesData.sales||[]);}).finally(()=>setLoading(false));
+    const periodRequest=cachedJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url,600_000)
+      .then(d=>{setRows(d.rows||[]);setLabourGroups(d.labourGroups||[]);})
+      .finally(()=>setLoading(false));
     periodRequest.then(()=>cachedJson<{monthly:any[]}>(trendsUrl,600_000).then(d=>setMonthly(d.monthly||[]))).catch(()=>{});
   },[fromDate,toDate,refresh]);
 
@@ -106,31 +100,6 @@ export default function LabourPage() {
     });
   },[labourGroups,locationFilter]);
   const groupedLabourCost=groupedLabour.reduce((sum,row)=>sum+row.cost,0);
-
-  const dayDates=useMemo(()=>{
-    const dates:string[]=[];
-    const cursor=new Date(`${fromDate}T12:00:00`);
-    const end=new Date(`${toDate}T12:00:00`);
-    while(cursor<=end&&dates.length<366){dates.push(isoDate(cursor));cursor.setDate(cursor.getDate()+1);}
-    return dates;
-  },[fromDate,toDate]);
-
-  const dailyGrid=useMemo(()=>dayDates.map(date=>{
-    const salesRows=dailySales.filter(row=>row.sale_date===date&&(locationFilter==='ALL'||row.location===locationFilter));
-    const groupRows=labourGroups.filter(row=>row.date===date&&(locationFilter==='ALL'||row.location===locationFilter));
-    const groups=Object.fromEntries(['Back of House','Front of House','Managers'].map(group=>{
-      const matches=groupRows.filter(row=>row.group===group);
-      return [group,{hours:matches.reduce((sum,row)=>sum+row.hours,0),cost:matches.reduce((sum,row)=>sum+row.cost,0)}];
-    }));
-    return {
-      date,
-      sales:salesRows.reduce((sum,row)=>sum+Number(row.net_sales||0),0),
-      projected:salesRows.reduce((sum,row)=>sum+Number(row.projected_sales||0),0),
-      groups,
-      labour:groupRows.reduce((sum,row)=>sum+row.cost,0),
-      hours:groupRows.reduce((sum,row)=>sum+row.hours,0),
-    };
-  }),[dayDates,dailySales,labourGroups,locationFilter]);
 
   const syncSelectedRange=async()=>{
     if(syncing)return;
@@ -204,41 +173,6 @@ export default function LabourPage() {
             <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} style={{...inp,width:130}}/>
           </div>
         )}
-      </div>
-
-      {/* Daily 7shifts budget-style grid */}
-      <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:12,overflow:'hidden',marginBottom:20}}>
-        <div style={{padding:'12px 16px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}>
-          <div style={{fontSize:13,fontWeight:600,color:'#f9fafb'}}>Daily sales and labour actuals</div>
-          <div style={{fontSize:10,color:'#6b7280',marginTop:2}}>Snappy sales + 7shifts completed punches · scroll horizontally for the selected period</div>
-        </div>
-        <div style={{overflowX:'auto'}}>
-          <table style={{width:'100%',minWidth:180+dayDates.length*125,borderCollapse:'collapse',fontSize:11}}>
-            <thead><tr style={{background:'rgba(0,0,0,0.2)'}}>
-              <th style={{position:'sticky',left:0,zIndex:2,background:'#10141c',padding:'9px 14px',textAlign:'left',color:'#9ca3af',minWidth:150}}>Actuals</th>
-              {dailyGrid.map(day=><th key={day.date} style={{padding:'8px 10px',textAlign:'center',color:'#9ca3af',borderLeft:'1px solid rgba(255,255,255,0.05)',minWidth:105}}>{new Date(`${day.date}T12:00:00`).toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})}</th>)}
-              <th style={{padding:'8px 12px',textAlign:'right',color:'#9ca3af'}}>Period</th>
-            </tr></thead>
-            <tbody>
-              <tr style={{borderTop:'1px solid rgba(255,255,255,0.05)'}}><td style={{position:'sticky',left:0,background:'#131720',padding:'10px 14px',fontWeight:600,color:'#34d399'}}>Sales</td>
-                {dailyGrid.map(day=><td key={day.date} style={{padding:'8px 10px',textAlign:'right',borderLeft:'1px solid rgba(255,255,255,0.04)'}}><div style={{color:'#34d399',fontWeight:600}}>{day.sales?cad(day.sales):'—'}</div>{day.projected>0&&<div style={{color:'#6b7280',fontSize:9}}>Proj. {cad(day.projected)}</div>}</td>)}
-                <td style={{padding:'8px 12px',textAlign:'right',color:'#34d399',fontWeight:700}}>{cad(dailyGrid.reduce((sum,day)=>sum+day.sales,0))}</td></tr>
-              {[
-                {label:'Total Labour',key:'TOTAL',color:'#a78bfa'},
-                {label:'Back of House',key:'Back of House',color:'#f97316'},
-                {label:'Front of House',key:'Front of House',color:'#22d3ee'},
-                {label:'Managers',key:'Managers',color:'#a78bfa'},
-              ].map(row=>{
-                const values=dailyGrid.map(day=>row.key==='TOTAL'?{cost:day.labour,hours:day.hours}:day.groups[row.key]);
-                const totalCost=values.reduce((sum,value)=>sum+(value?.cost||0),0);const totalHours=values.reduce((sum,value)=>sum+(value?.hours||0),0);
-                const periodSales=dailyGrid.reduce((sum,day)=>sum+day.sales,0);
-                return <tr key={row.key} style={{borderTop:'1px solid rgba(255,255,255,0.05)'}}><td style={{position:'sticky',left:0,background:'#131720',padding:'10px 14px',fontWeight:600,color:row.color}}>{row.label}</td>
-                  {values.map((value,index)=>{const sales=dailyGrid[index].sales;const cost=value?.cost||0;return <td key={dailyGrid[index].date} style={{padding:'7px 10px',textAlign:'right',borderLeft:'1px solid rgba(255,255,255,0.04)'}}>{cost>0?<><div style={{color:row.color,fontWeight:600}}>{sales?`${(cost/sales*100).toFixed(1)}%`:'—'}</div><div style={{color:'#9ca3af',fontSize:9}}>{(value?.hours||0).toFixed(1)}h · {cad(cost)}</div></>:<span style={{color:'#374151'}}>—</span>}</td>;})}
-                  <td style={{padding:'7px 12px',textAlign:'right'}}><div style={{color:row.color,fontWeight:700}}>{periodSales?`${(totalCost/periodSales*100).toFixed(1)}%`:'—'}</div><div style={{color:'#9ca3af',fontSize:9}}>{totalHours.toFixed(1)}h · {cad(totalCost)}</div></td></tr>;
-              })}
-            </tbody>
-          </table>
-        </div>
       </div>
 
       {/* 7shifts department breakdown */}
