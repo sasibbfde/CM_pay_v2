@@ -62,6 +62,11 @@ export function payrollLocationView(row:PayrollReportRow, location:string):Payro
   const breaks = Number(row.location_break_hours[location] || 0);
   const payable = Number(row.location_hours[location] || 0);
   const unpaidBreak = Math.max(0, gross - payable);
+  const share = row.payable_hours > 0 ? payable / row.payable_hours : 0;
+  const chequeHours = round2(row.cheque_hours * share);
+  const cashHours = round2(row.cash_hours * share);
+  const chequePay = round2(row.cheque_pay * share);
+  const cashPay = round2(row.cash_pay * share);
   return {
     ...row,
     gross_hours:round2(gross),
@@ -70,7 +75,12 @@ export function payrollLocationView(row:PayrollReportRow, location:string):Payro
     paid_break_hours:round2(Math.max(0,breaks-unpaidBreak)),
     payable_hours:round2(payable),
     rounded_hours:roundQuarterHour(payable),
+    cheque_hours:chequeHours,
+    cash_hours:cashHours,
+    cheque_pay:chequePay,
+    cash_pay:cashPay,
+    total_pay:round2(chequePay+cashPay),
     status:`${row.status ? `${row.status} · ` : ''}Location hours`,
-    notes:`Showing ${location} hours only. Cheque/cash allocation remains the combined all-location payroll result. ${row.notes || ''}`.trim(),
+    notes:`Showing ${location} hours and its proportional share of the combined cheque/cash allocation. ${row.notes || ''}`.trim(),
   };
 }

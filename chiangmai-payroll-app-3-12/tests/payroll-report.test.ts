@@ -45,4 +45,6 @@ test('location-filtered payroll shows only hours worked at that location',()=>{
   assert.equal(imm.gross_hours,17.99);
   assert.equal(imm.payable_hours,17.99);
   assert.equal(imm.rounded_hours,18);
+  assert.equal(imm.cheque_hours,18);
+  assert.equal(imm.cash_hours,0);
 });
