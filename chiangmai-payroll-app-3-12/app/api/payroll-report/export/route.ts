@@ -7,11 +7,11 @@ const green='FF087866',light='FFD7F0EC',orange='FFFFE0B2',yellow='FFFFF176',red=
 function header(row:ExcelJS.Row){row.font={bold:true,color:{argb:'FFFFFFFF'}};row.fill={type:'pattern',pattern:'solid',fgColor:{argb:green}};row.alignment={vertical:'middle',wrapText:true};row.height=34;}
 function addMerged(workbook:ExcelJS.Workbook,rows:any[],start:string,end:string){
   const sheet=workbook.addWorksheet('ALL (Merged)');sheet.mergeCells('A1:U1');sheet.getCell('A1').value=`ALL LOCATIONS MERGED — ${start} to ${end}`;sheet.getCell('A1').font={bold:true,size:15};
-  sheet.mergeCells('A2:U2');sheet.getCell('A2').value='Payroll authority: completed 7shifts punches only. Payable hours deduct unpaid breaks; combined hours are rounded UP to the next whole hour once per employee before cheque/cash rules.';sheet.getCell('A2').font={italic:true,color:{argb:'FF666666'}};
-  const labels=['#','Employee','Location(s)','Role(s)','Rate ($/hr)','Gross Clock Hours','Break Hours (all)','Unpaid Break Hours','Payable Hours','Rounded-Up Hours','Cheque Hours','Cash Hours','Cheque Pay ($)','Cash Pay ($)','Total Pay ($)','Status','Notes','Rule Type','Cheque Cap','Rule Value','Cash Rate'];
+  sheet.mergeCells('A2:U2');sheet.getCell('A2').value='Payroll authority: completed 7shifts punches only. Payable hours deduct unpaid breaks; combined hours are rounded UP to the next half hour once per employee before cheque/cash rules.';sheet.getCell('A2').font={italic:true,color:{argb:'FF666666'}};
+  const labels=['#','Employee','Location(s)','Role(s)','Rate ($/hr)','Gross Clock Hours','Break Hours (all)','Unpaid Break Hours','Payable Hours','Rounded Hours (0.5h)','Cheque Hours','Cash Hours','Cheque Pay ($)','Cash Pay ($)','Total Pay ($)','Status','Notes','Rule Type','Cheque Cap','Rule Value','Cash Rate'];
   sheet.addRow([]);const top=sheet.addRow(labels);header(top);
   rows.forEach((row,index)=>{const excelRow=sheet.addRow([index+1,row.employee_name,row.locations.join('; '),row.roles.join(', '),row.wage,row.gross_hours,row.break_hours,row.unpaid_break_hours,row.payable_hours,null,null,null,null,null,null,row.status,row.notes,row.rule_type,row.cheque_cap,row.rule_value,row.cash_wage]);const n=excelRow.number;
-    excelRow.getCell(10).value={formula:`ROUNDUP(I${n},0)`,result:row.rounded_hours};
+    excelRow.getCell(10).value={formula:`CEILING(I${n},0.5)`,result:row.rounded_hours};
     excelRow.getCell(11).value={formula:`IF(OR(R${n}="CASH_ONLY",R${n}="HOLD_PAYROLL"),0,IF(R${n}="SALARY_FIXED",J${n},MIN(J${n},S${n})))`,result:row.cheque_hours};
     excelRow.getCell(12).value={formula:`IF(OR(R${n}="HOLD_PAYROLL",R${n}="SALARY_FIXED"),0,J${n}-K${n})`,result:row.cash_hours};
     excelRow.getCell(13).value={formula:`IF(R${n}="SALARY_FIXED",T${n},ROUND(K${n}*E${n},2))`,result:row.cheque_pay};
