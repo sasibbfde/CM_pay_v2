@@ -7,6 +7,9 @@ type PayrollRow = { employee_name:string; location:string; department:string; ro
   actual_hours:number; payroll_hours:number; cash_hours:number;
   wage:number; payroll_amount:number; cash_amount:number; rule_applied:string; };
 type LabourGroupRow = { group:'Back of House'|'Front of House'|'Managers'|'Other'; location:string; hours:number; cost:number; employees:number };
+type DailyGroupRow = LabourGroupRow & { date:string };
+type SaleRow = { sale_date:string; location:string; net_sales:number; projected_sales:number };
+type ManagementDay={date:string;actualSales:number;projectedSales:number;hours:number;cost:number;boh:{hours:number;cost:number};foh:{hours:number;cost:number};managers:{hours:number;cost:number}};
 
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const cad=(n:number)=>new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:0}).format(n||0);
@@ -14,6 +17,7 @@ const cadFull=(n:number)=>new Intl.NumberFormat('en-CA',{style:'currency',curren
 const sel:React.CSSProperties={background:'#1a1f2e',border:'1px solid rgba(255,255,255,0.1)',borderRadius:7,color:'#e5e7eb',padding:'7px 12px',fontSize:13,outline:'none',cursor:'pointer'};
 const inp:React.CSSProperties={background:'#0d1117',border:'1px solid rgba(255,255,255,0.12)',borderRadius:6,color:'#f9fafb',padding:'6px 10px',fontSize:13,outline:'none'};
 function isoDate(d:Date){return d.toISOString().split('T')[0];}
+function ManagementMatrix({days}:{days:ManagementDay[]}){const totals=days.reduce((sum,day)=>({actualSales:sum.actualSales+day.actualSales,projectedSales:sum.projectedSales+day.projectedSales,hours:sum.hours+day.hours,cost:sum.cost+day.cost,boh:{hours:sum.boh.hours+day.boh.hours,cost:sum.boh.cost+day.boh.cost},foh:{hours:sum.foh.hours+day.foh.hours,cost:sum.foh.cost+day.foh.cost},managers:{hours:sum.managers.hours+day.managers.hours,cost:sum.managers.cost+day.managers.cost}}),{actualSales:0,projectedSales:0,hours:0,cost:0,boh:{hours:0,cost:0},foh:{hours:0,cost:0},managers:{hours:0,cost:0}});const moneyCell=(value:number,color:string)=><span style={{color,fontWeight:600}}>{value?cadFull(value):'—'}</span>;const groupCell=(group:{hours:number;cost:number},sales:number,color:string)=><div><div style={{color,fontWeight:650}}>{sales?`${(group.cost/sales*100).toFixed(1)}%`:'—'}</div><div style={{fontSize:10,color:'#9ca3af'}}>{group.hours.toFixed(2)}h</div><div style={{fontSize:10,color:'#6b7280'}}>{cadFull(group.cost)}</div></div>;const labelStyle:React.CSSProperties={padding:'9px 12px',position:'sticky',left:0,background:'#131720',zIndex:1,fontWeight:600,color:'#e5e7eb',minWidth:145};const cellStyle:React.CSSProperties={padding:'9px 12px',textAlign:'center',borderLeft:'1px solid rgba(255,255,255,.05)',minWidth:112};return <div style={{background:'#131720',border:'1px solid rgba(255,255,255,.07)',borderRadius:12,overflow:'hidden',marginBottom:20}}><div style={{padding:'12px 16px',borderBottom:'1px solid rgba(255,255,255,.07)'}}><div style={{fontSize:13,fontWeight:700,color:'#f9fafb'}}>Management Daily Labour Matrix</div><div style={{fontSize:10,color:'#6b7280',marginTop:2}}>Sales, labour, hours and department performance · scroll horizontally for longer periods</div></div><div style={{overflowX:'auto'}}><table style={{borderCollapse:'collapse',fontSize:11,minWidth:'100%'}}><thead><tr style={{background:'rgba(0,0,0,.2)'}}><th style={{...labelStyle,fontSize:9,color:'#6b7280',textTransform:'uppercase'}}>Metric</th>{days.map(day=><th key={day.date} style={{...cellStyle,color:'#9ca3af'}}><div>{new Date(`${day.date}T12:00:00`).toLocaleDateString('en-CA',{weekday:'short'})}</div><div style={{fontSize:9,color:'#6b7280'}}>{day.date.slice(5)}</div></th>)}<th style={{...cellStyle,color:'#22d3ee'}}>Period Total</th></tr></thead><tbody><tr style={{borderTop:'1px solid rgba(255,255,255,.05)'}}><td style={labelStyle}>Actual Sales</td>{days.map(day=><td key={day.date} style={cellStyle}>{moneyCell(day.actualSales,'#34d399')}</td>)}<td style={cellStyle}>{moneyCell(totals.actualSales,'#34d399')}</td></tr><tr style={{borderTop:'1px solid rgba(255,255,255,.05)'}}><td style={labelStyle}>Projected Sales</td>{days.map(day=><td key={day.date} style={cellStyle}>{moneyCell(day.projectedSales,'#9ca3af')}</td>)}<td style={cellStyle}>{moneyCell(totals.projectedSales,'#9ca3af')}</td></tr><tr style={{borderTop:'1px solid rgba(255,255,255,.05)'}}><td style={labelStyle}>Total Labour</td>{days.map(day=><td key={day.date} style={cellStyle}>{moneyCell(day.cost,'#a78bfa')}</td>)}<td style={cellStyle}>{moneyCell(totals.cost,'#a78bfa')}</td></tr><tr style={{borderTop:'1px solid rgba(255,255,255,.05)'}}><td style={labelStyle}>Labour %</td>{days.map(day=><td key={day.date} style={{...cellStyle,color:day.actualSales&&day.cost/day.actualSales>.35?'#f87171':'#fbbf24',fontWeight:700}}>{day.actualSales?`${(day.cost/day.actualSales*100).toFixed(1)}%`:'—'}</td>)}<td style={{...cellStyle,color:'#fbbf24',fontWeight:700}}>{totals.actualSales?`${(totals.cost/totals.actualSales*100).toFixed(1)}%`:'—'}</td></tr><tr style={{borderTop:'1px solid rgba(255,255,255,.05)'}}><td style={labelStyle}>Total Hours</td>{days.map(day=><td key={day.date} style={{...cellStyle,color:'#22d3ee'}}>{day.hours.toFixed(2)}h</td>)}<td style={{...cellStyle,color:'#22d3ee',fontWeight:700}}>{totals.hours.toFixed(2)}h</td></tr>{([['Back of House','boh','#f97316'],['Front of House','foh','#22d3ee'],['Managers','managers','#a78bfa']] as const).map(([label,key,color])=><tr key={key} style={{borderTop:'1px solid rgba(255,255,255,.06)'}}><td style={{...labelStyle,color}}>{label}<div style={{fontSize:9,color:'#6b7280',fontWeight:400}}>% · hours · cost</div></td>{days.map(day=><td key={day.date} style={cellStyle}>{groupCell(day[key],day.actualSales,color)}</td>)}<td style={cellStyle}>{groupCell(totals[key],totals.actualSales,color)}</td></tr>)}</tbody></table></div></div>}
 
 export default function LabourPage() {
   const today=new Date();
@@ -22,10 +26,12 @@ export default function LabourPage() {
   const [toDate,setToDate]=useState(isoDate(new Date(today.getFullYear(),today.getMonth()+1,0)));
   const initialUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&from=${fromDate}&to=${toDate}&breakdown=departments-v3`;
   const initialTrendsUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&trends_only=true`;
-  const initial=peekJson<{rows:PayrollRow[];locationRows:PayrollRow[];labourGroups:LabourGroupRow[]}>(initialUrl);
+  const initial=peekJson<{rows:PayrollRow[];locationRows:PayrollRow[];labourGroups:LabourGroupRow[];dailyLabourGroups:DailyGroupRow[]}>(initialUrl);
   const initialTrends=peekJson<{monthly:any[]}>(initialTrendsUrl);
   const [rows,setRows]=useState<PayrollRow[]>(()=>initial?.locationRows||initial?.rows||[]);
   const [labourGroups,setLabourGroups]=useState<LabourGroupRow[]>(()=>initial?.labourGroups||[]);
+  const [dailyLabourGroups,setDailyLabourGroups]=useState<DailyGroupRow[]>(()=>initial?.dailyLabourGroups||[]);
+  const [dailySales,setDailySales]=useState<SaleRow[]>([]);
   const [monthly,setMonthly]=useState<any[]>(()=>initialTrends?.monthly||[]);
   const [loading,setLoading]=useState(()=>!initial);
   const [locationFilter,setLocationFilter]=useState('ALL');
@@ -53,15 +59,16 @@ export default function LabourPage() {
     const month=new Date(fromDate).getMonth()+1;
     const url=`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}&breakdown=departments-v3`;
     const trendsUrl=`/api/payroll?year=${year}&month=${month}&period=month&trends_only=true`;
-    const cached=peekJson<{rows:PayrollRow[];locationRows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url);
+    const cached=peekJson<{rows:PayrollRow[];locationRows:PayrollRow[];labourGroups:LabourGroupRow[];dailyLabourGroups:DailyGroupRow[]}>(url);
     const cachedTrends=peekJson<{monthly:any[]}>(trendsUrl);
-    if(cached){setRows(cached.locationRows||cached.rows||[]);setLabourGroups(cached.labourGroups||[]);}
+    if(cached){setRows(cached.locationRows||cached.rows||[]);setLabourGroups(cached.labourGroups||[]);setDailyLabourGroups(cached.dailyLabourGroups||[]);}
     if(cachedTrends)setMonthly(cachedTrends.monthly||[]);
     setLoading(!cached);
-    const periodRequest=cachedJson<{rows:PayrollRow[];locationRows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url,600_000)
-      .then(d=>{setRows(d.locationRows||d.rows||[]);setLabourGroups(d.labourGroups||[]);})
+    const periodRequest=cachedJson<{rows:PayrollRow[];locationRows:PayrollRow[];labourGroups:LabourGroupRow[];dailyLabourGroups:DailyGroupRow[]}>(url,600_000)
+      .then(d=>{setRows(d.locationRows||d.rows||[]);setLabourGroups(d.labourGroups||[]);setDailyLabourGroups(d.dailyLabourGroups||[]);})
       .finally(()=>setLoading(false));
     periodRequest.then(()=>cachedJson<{monthly:any[]}>(trendsUrl,600_000).then(d=>setMonthly(d.monthly||[]))).catch(()=>{});
+    cachedJson<{sales:SaleRow[]}>(`/api/sales?from=${fromDate}&to=${toDate}`,120_000).then(d=>setDailySales(d.sales||[])).catch(()=>setDailySales([]));
   },[fromDate,toDate,refresh]);
 
   const locations=useMemo(()=>[...new Set(rows.map(row=>row.location).filter(Boolean))].sort(),[rows]);
@@ -100,6 +107,8 @@ export default function LabourPage() {
     });
   },[labourGroups,locationFilter]);
   const groupedLabourCost=groupedLabour.reduce((sum,row)=>sum+row.cost,0);
+  const managementDays=useMemo(()=>{const days:string[]=[];const current=new Date(`${fromDate}T12:00:00`);const end=new Date(`${toDate}T12:00:00`);while(current<=end&&days.length<31){days.push(isoDate(current));current.setDate(current.getDate()+1);}return days;},[fromDate,toDate]);
+  const management=useMemo(()=>managementDays.map(date=>{const groups=dailyLabourGroups.filter(row=>row.date===date&&(locationFilter==='ALL'||row.location===locationFilter));const salesRows=dailySales.filter(row=>row.sale_date===date&&(locationFilter==='ALL'||row.location===locationFilter));const byGroup=(group:string)=>groups.filter(row=>row.group===group).reduce((sum,row)=>({hours:sum.hours+row.hours,cost:sum.cost+row.cost}),{hours:0,cost:0});const actualSales=salesRows.reduce((sum,row)=>sum+Number(row.net_sales||0),0);const projectedSales=salesRows.reduce((sum,row)=>sum+Number(row.projected_sales||0),0);const hours=groups.reduce((sum,row)=>sum+row.hours,0);const cost=groups.reduce((sum,row)=>sum+row.cost,0);return{date,actualSales,projectedSales,hours,cost,boh:byGroup('Back of House'),foh:byGroup('Front of House'),managers:byGroup('Managers')};}),[managementDays,dailyLabourGroups,dailySales,locationFilter]);
 
   const syncSelectedRange=async()=>{
     if(syncing)return;
@@ -206,6 +215,8 @@ export default function LabourPage() {
           </tr>)}</tbody>
         </table>
       </div>
+
+      <ManagementMatrix days={management}/>
 
       {/* Sales modal */}
       {editSales&&(

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { applyEmployeeWages, calculatePayroll, filterPunches, filterPunchesByDateRange, summarize, summarizeDailyLabour, summarizeEmployeeLabourByLocation, summarizeLabourGroups } from '@/lib/payroll';
+import { applyEmployeeWages, calculatePayroll, filterPunches, filterPunchesByDateRange, summarize, summarizeDailyLabour, summarizeDailyLabourGroups, summarizeEmployeeLabourByLocation, summarizeLabourGroups } from '@/lib/payroll';
 import { getSupabaseAdmin, hasSupabaseEnv } from '@/lib/supabase';
 import { Employee, EmployeeRule, Punch } from '@/lib/types';
 
@@ -94,6 +94,7 @@ export async function GET(req: NextRequest) {
     const summary = summarize(rows);
     const daily   = summarizeDailyLabour(periodPunches);
     const labourGroups = summarizeLabourGroups(periodPunches);
+    const dailyLabourGroups = summarizeDailyLabourGroups(periodPunches);
     const locationRows = summarizeEmployeeLabourByLocation(periodPunches);
 
     // Monthly breakdown always uses year
@@ -106,7 +107,7 @@ export async function GET(req: NextRequest) {
 
     const yearly = [{ year, payrollAmount: monthly.reduce((s,m)=>s+m.payrollAmount,0), totalHours: monthly.reduce((s,m)=>s+m.totalHours,0) }];
 
-    return NextResponse.json({ source:'supabase', summary, rows, locationRows, daily, labourGroups, monthly, yearly, counts:{ punches: punches.length, rules: rules.length } });
+    return NextResponse.json({ source:'supabase', summary, rows, locationRows, daily, labourGroups, dailyLabourGroups, monthly, yearly, counts:{ punches: punches.length, rules: rules.length } });
 
   } catch (error: any) {
     return NextResponse.json({ source:'supabase error', error:error.message, summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], daily:[], labourGroups:[], monthly:[], yearly:[] }, { status:500 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyEmployeeWages, calculatePayroll, filterPunches, getLabourGroup, summarizeDailyLabour, summarizeEmployeeLabourByLocation, summarizeLabourGroups } from '../lib/payroll';
+import { applyEmployeeWages, calculatePayroll, filterPunches, getLabourGroup, summarizeDailyLabour, summarizeDailyLabourGroups, summarizeEmployeeLabourByLocation, summarizeLabourGroups } from '../lib/payroll';
 import { EmployeeRule, Punch } from '../lib/types';
 
 function punch(overrides: Partial<Punch> = {}): Punch {
@@ -96,4 +96,12 @@ test('attributes a multi-location employee labour hours to each actual punch loc
     ['Chiang Mai York Mills',8.5,8,160],
     ['Imm Thai Kitchen',5.5,5,100],
   ]);
+});
+
+test('builds daily department labour for the management matrix',()=>{
+  const rows=summarizeDailyLabourGroups([
+    punch({employee_id:'boh',department:'Back of House',role:'Wok',hours:8,wage:20}),
+    punch({employee_id:'foh',department:'Front of House',role:'Server',hours:5,wage:18}),
+  ]);
+  assert.deepEqual(rows.map(row=>[row.date,row.group,row.hours,row.cost]),[['2026-06-01','Back of House',8,160],['2026-06-01','Front of House',5,90]]);
 });
