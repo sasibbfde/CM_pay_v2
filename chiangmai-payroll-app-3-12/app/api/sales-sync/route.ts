@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
           const laborPercent   = actualSales > 0 ? actualLabor / actualSales : null;
           const splh           = d.sales_per_labor_hour ? d.sales_per_labor_hour / 100 : null;
 
-          if (actualSales > 0 || projSales > 0) {
+          if (actualSales > 0 || projSales > 0 || actualLabor > 0) {
             const row = {
               sale_date:          d.date,
               location:           locName,
