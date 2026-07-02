@@ -73,9 +73,11 @@ async function runSync(body: any): Promise<NextResponse> {
   // bounded batches to avoid overwhelming the API.
   const wagesByUser = new Map<string, SevenShiftsWage[]>();
   const wageErrors: string[] = [];
-  const activeUsers = shouldSyncWages
-    ? [...userById.values()].filter((user:any) => user.active !== false)
-    : [];
+  const activeUsers = [...userById.values()].filter((user:any) => {
+    if (user.active === false) return false;
+    const existing = existingBy7shiftsId.get(String(user.id));
+    return shouldSyncWages || Number(existing?.wage || 0) <= 0;
+  });
   for (let index = 0; index < activeUsers.length; index += 10) {
     await Promise.all(activeUsers.slice(index, index + 10).map(async (user:any) => {
       try {

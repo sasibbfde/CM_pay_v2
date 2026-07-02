@@ -22,9 +22,9 @@ export default function LabourPage() {
   const [toDate,setToDate]=useState(isoDate(new Date(today.getFullYear(),today.getMonth()+1,0)));
   const initialUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&from=${fromDate}&to=${toDate}&breakdown=departments-v3`;
   const initialTrendsUrl=`/api/payroll?year=${today.getFullYear()}&month=${today.getMonth()+1}&period=month&trends_only=true`;
-  const initial=peekJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(initialUrl);
+  const initial=peekJson<{rows:PayrollRow[];locationRows:PayrollRow[];labourGroups:LabourGroupRow[]}>(initialUrl);
   const initialTrends=peekJson<{monthly:any[]}>(initialTrendsUrl);
-  const [rows,setRows]=useState<PayrollRow[]>(()=>initial?.rows||[]);
+  const [rows,setRows]=useState<PayrollRow[]>(()=>initial?.locationRows||initial?.rows||[]);
   const [labourGroups,setLabourGroups]=useState<LabourGroupRow[]>(()=>initial?.labourGroups||[]);
   const [monthly,setMonthly]=useState<any[]>(()=>initialTrends?.monthly||[]);
   const [loading,setLoading]=useState(()=>!initial);
@@ -53,13 +53,13 @@ export default function LabourPage() {
     const month=new Date(fromDate).getMonth()+1;
     const url=`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}&breakdown=departments-v3`;
     const trendsUrl=`/api/payroll?year=${year}&month=${month}&period=month&trends_only=true`;
-    const cached=peekJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url);
+    const cached=peekJson<{rows:PayrollRow[];locationRows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url);
     const cachedTrends=peekJson<{monthly:any[]}>(trendsUrl);
-    if(cached){setRows(cached.rows||[]);setLabourGroups(cached.labourGroups||[]);}
+    if(cached){setRows(cached.locationRows||cached.rows||[]);setLabourGroups(cached.labourGroups||[]);}
     if(cachedTrends)setMonthly(cachedTrends.monthly||[]);
     setLoading(!cached);
-    const periodRequest=cachedJson<{rows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url,600_000)
-      .then(d=>{setRows(d.rows||[]);setLabourGroups(d.labourGroups||[]);})
+    const periodRequest=cachedJson<{rows:PayrollRow[];locationRows:PayrollRow[];labourGroups:LabourGroupRow[]}>(url,600_000)
+      .then(d=>{setRows(d.locationRows||d.rows||[]);setLabourGroups(d.labourGroups||[]);})
       .finally(()=>setLoading(false));
     periodRequest.then(()=>cachedJson<{monthly:any[]}>(trendsUrl,600_000).then(d=>setMonthly(d.monthly||[]))).catch(()=>{});
   },[fromDate,toDate,refresh]);
@@ -106,7 +106,7 @@ export default function LabourPage() {
     setSyncing(true);setSyncMessage('');
     try{
       const [punchResponse,salesResponse]=await Promise.all([
-        fetch('/api/7shifts/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start:`${fromDate}T00:00:00.000Z`,end:`${toDate}T23:59:59.999Z`,triggered_by:'labour-cost',sync_wages:false})}),
+        fetch('/api/7shifts/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start:`${fromDate}T00:00:00.000Z`,end:`${toDate}T23:59:59.999Z`,triggered_by:'labour-cost',sync_wages:true})}),
         fetch('/api/sales-sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start_date:fromDate,end_date:toDate})}),
       ]);
       const [punchResult,salesResult]=await Promise.all([punchResponse.json(),salesResponse.json()]);

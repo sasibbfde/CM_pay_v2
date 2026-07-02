@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { applyEmployeeWages, calculatePayroll, filterPunches, filterPunchesByDateRange, summarize, summarizeDailyLabour, summarizeLabourGroups } from '@/lib/payroll';
+import { applyEmployeeWages, calculatePayroll, filterPunches, filterPunchesByDateRange, summarize, summarizeDailyLabour, summarizeEmployeeLabourByLocation, summarizeLabourGroups } from '@/lib/payroll';
 import { getSupabaseAdmin, hasSupabaseEnv } from '@/lib/supabase';
 import { Employee, EmployeeRule, Punch } from '@/lib/types';
 
@@ -10,7 +10,7 @@ function mapPunch(r: any): Punch {
     punch_id: r.punch_id, employee_id: r.employee_id, employee_name: r.employee_name,
     location: r.location, department: r.department, role: r.role,
     clocked_in: r.clocked_in, clocked_out: r.clocked_out,
-    hours: toNum(r.hours), wage: toNum(r.wage), cash_wage: toNum(r.cash_wage), source: r.source || 'supabase'
+    hours: toNum(r.hours), payroll_hours:toNum(r.payroll_hours ?? r.hours), gross_hours:toNum(r.gross_hours), break_minutes:toNum(r.break_minutes), wage: toNum(r.wage), cash_wage: toNum(r.cash_wage), source: r.source || 'supabase'
   };
 }
 
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
     const queryEnd = new Date(`${requestedEnd}T23:59:59Z`);
     queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
     const [punchData, ruleData, employeeData] = await Promise.all([
-      fetchAll(supabase, 'punches', 'punch_id, employee_id, employee_name, location, department, role, clocked_in, clocked_out, hours, wage, cash_wage, source', query => query
+      fetchAll(supabase, 'punches', 'punch_id, employee_id, employee_name, location, department, role, clocked_in, clocked_out, hours, payroll_hours, gross_hours, break_minutes, wage, cash_wage, source', query => query
         .gte('clocked_in', queryStart.toISOString())
         .lte('clocked_in', queryEnd.toISOString())
         .order('clocked_in')),
@@ -94,6 +94,7 @@ export async function GET(req: NextRequest) {
     const summary = summarize(rows);
     const daily   = summarizeDailyLabour(periodPunches);
     const labourGroups = summarizeLabourGroups(periodPunches);
+    const locationRows = summarizeEmployeeLabourByLocation(periodPunches);
 
     // Monthly breakdown always uses year
     const monthly = (includeTrends || trendsOnly) ? Array.from({ length: 12 }, (_, i) => {
@@ -105,7 +106,7 @@ export async function GET(req: NextRequest) {
 
     const yearly = [{ year, payrollAmount: monthly.reduce((s,m)=>s+m.payrollAmount,0), totalHours: monthly.reduce((s,m)=>s+m.totalHours,0) }];
 
-    return NextResponse.json({ source:'supabase', summary, rows, daily, labourGroups, monthly, yearly, counts:{ punches: punches.length, rules: rules.length } });
+    return NextResponse.json({ source:'supabase', summary, rows, locationRows, daily, labourGroups, monthly, yearly, counts:{ punches: punches.length, rules: rules.length } });
 
   } catch (error: any) {
     return NextResponse.json({ source:'supabase error', error:error.message, summary:{totalHours:0,payrollHours:0,cashHours:0,payrollAmount:0,cashAmount:0,exceptions:0}, rows:[], daily:[], labourGroups:[], monthly:[], yearly:[] }, { status:500 });

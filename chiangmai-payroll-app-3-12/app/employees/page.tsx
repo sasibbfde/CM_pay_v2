@@ -130,7 +130,7 @@ export default function EmployeesPage() {
           start:`${fromDate}T00:00:00.000Z`,
           end:`${toDate}T23:59:59.999Z`,
           triggered_by:'logbook-period',
-          sync_wages:false,
+          sync_wages:true,
         }),
       });
       const result = await response.json();

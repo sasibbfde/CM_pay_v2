@@ -25,10 +25,12 @@ export async function PUT(request: NextRequest) {
     }
     const originalBonus = Number(body.original_bonus || 0);
     if (!Number.isFinite(originalBonus) || originalBonus < 0) return NextResponse.json({ error:'Original bonus must be zero or greater' }, { status:400 });
+    const manualHours = Number(body.manual_hours || 0);
+    if (!Number.isFinite(manualHours)) return NextResponse.json({ error:'Additional hours must be a number' }, { status:400 });
     const scores = Object.fromEntries(BONUS_CATEGORIES.map(category => [category, normalizeRating(body[category]) ]));
     const payload = {
       employee_id:String(body.employee_id), employee_name:String(body.employee_name), location:String(body.location),
-      period_start:body.period_start, period_end:body.period_end, original_bonus:originalBonus, ...scores,
+      period_start:body.period_start, period_end:body.period_end, original_bonus:originalBonus, manual_hours:manualHours, ...scores,
       notes:String(body.notes || ''), approval:String(body.approval || ''), updated_at:new Date().toISOString(),
     };
     const supabase = getSupabaseAdmin();

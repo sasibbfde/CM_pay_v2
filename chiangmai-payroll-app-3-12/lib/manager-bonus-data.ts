@@ -80,7 +80,9 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
       labour_control: review.labour_control ?? null,
       customer_service_leadership: review.customer_service_leadership ?? null,
     };
-    return { ...manager, ...review, ...scores, worked_hours:Math.round(manager.worked_hours * 100) / 100, original_bonus:Number(review.original_bonus || 0), ...calculateManagerBonus(Number(review.original_bonus || 0), scores) };
+    const seven_shifts_hours = Math.round(manager.worked_hours * 100) / 100;
+    const manual_hours = Number(review.manual_hours || 0);
+    return { ...manager, ...review, ...scores, seven_shifts_hours, manual_hours, worked_hours:Math.round((seven_shifts_hours + manual_hours) * 100) / 100, original_bonus:Number(review.original_bonus || 0), ...calculateManagerBonus(Number(review.original_bonus || 0), scores) };
   }).sort((a,b) => a.location.localeCompare(b.location) || a.employee_name.localeCompare(b.employee_name));
 
   return { rows, tableReady, storageMode:tableReady?'manager_bonus_reviews':'settings_fallback' };

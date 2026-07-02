@@ -36,7 +36,7 @@ export default function Nav() {
       const [punchRes, salesRes] = await Promise.all([
         fetch('/api/7shifts/sync', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ start:`${fmt(yesterday)}T00:00:00.000Z`, end:`${fmt(today)}T23:59:59.999Z`, triggered_by:'manual-nav', sync_wages:false }),
+          body: JSON.stringify({ start:`${fmt(yesterday)}T00:00:00.000Z`, end:`${fmt(today)}T23:59:59.999Z`, triggered_by:'manual-nav', sync_wages:true }),
         }).then(r=>r.json()),
         fetch('/api/sales-sync', {
           method:'POST', headers:{'Content-Type':'application/json'},

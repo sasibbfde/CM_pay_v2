@@ -128,6 +128,7 @@ create table if not exists public.manager_bonus_reviews (
   period_start date not null,
   period_end date not null,
   original_bonus numeric not null default 0 check (original_bonus >= 0),
+  manual_hours numeric not null default 0,
   attendance smallint check (attendance between 0 and 5),
   inventory smallint check (inventory between 0 and 5),
   cleaning smallint check (cleaning between 0 and 5),

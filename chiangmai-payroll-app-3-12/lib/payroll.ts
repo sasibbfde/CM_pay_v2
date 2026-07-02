@@ -250,6 +250,34 @@ export function summarizeLabourGroups(punches: Punch[]) {
   })).sort((a,b)=>a.location.localeCompare(b.location)||a.group.localeCompare(b.group));
 }
 
+export function summarizeEmployeeLabourByLocation(punches: Punch[]) {
+  const grouped = new Map<string, { employee_id?:string; employee_name:string; location:string; department?:string; role?:string; actual_hours:number; payroll_hours:number; wage_cost:number; employees:Set<string> }>();
+  for (const punch of punches) {
+    if (!punch.clocked_out) continue;
+    const location = punch.location || 'Unknown';
+    const employeeKey = punch.employee_id || norm(punch.employee_name || 'Unknown');
+    const key = `${employeeKey}\u0000${location}`;
+    const row = grouped.get(key) || { employee_id:punch.employee_id, employee_name:punch.employee_name, location, department:punch.department, role:punch.role, actual_hours:0, payroll_hours:0, wage_cost:0, employees:new Set<string>() };
+    const payrollHours = getPunchHours(punch);
+    const grossHours = Number(punch.gross_hours || 0) || payrollHours;
+    row.actual_hours += grossHours;
+    row.payroll_hours += payrollHours;
+    row.wage_cost += payrollHours * Number(punch.wage || 0);
+    row.employees.add(employeeKey);
+    grouped.set(key, row);
+  }
+  return [...grouped.values()].map(({employees:_, ...row}) => ({
+    ...row,
+    actual_hours:round(row.actual_hours),
+    payroll_hours:round(row.payroll_hours),
+    payroll_amount:round(row.wage_cost),
+    cash_hours:0,
+    cash_amount:0,
+    wage:row.payroll_hours ? round(row.wage_cost / row.payroll_hours) : 0,
+    rule_applied:'ACTUAL LOCATION',
+  })).sort((a,b)=>a.location.localeCompare(b.location)||a.employee_name.localeCompare(b.employee_name));
+}
+
 export function summarize(rows: PayrollRow[]) {
   return {
     employees: rows.length,

@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     const [punchRes, salesRes] = await Promise.all([
       fetch(`${base}/api/7shifts/sync`, {
         method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${cronSecret}`},
-        body: JSON.stringify({ start:`${yDate}T00:00:00.000Z`, end:`${tDate}T23:59:59.999Z`, triggered_by:'cron-daily', sync_wages:false }),
+        body: JSON.stringify({ start:`${yDate}T00:00:00.000Z`, end:`${tDate}T23:59:59.999Z`, triggered_by:'cron-daily', sync_wages:true }),
       }).then(parseSyncResponse),
       fetch(`${base}/api/sales-sync`, {
         method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${cronSecret}`},

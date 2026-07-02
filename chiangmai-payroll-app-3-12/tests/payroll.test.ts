@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyEmployeeWages, calculatePayroll, filterPunches, getLabourGroup, summarizeDailyLabour, summarizeLabourGroups } from '../lib/payroll';
+import { applyEmployeeWages, calculatePayroll, filterPunches, getLabourGroup, summarizeDailyLabour, summarizeEmployeeLabourByLocation, summarizeLabourGroups } from '../lib/payroll';
 import { EmployeeRule, Punch } from '../lib/types';
 
 function punch(overrides: Partial<Punch> = {}): Punch {
@@ -84,5 +84,16 @@ test('groups 7shifts labour into BOH, FOH, and Managers', () => {
     ['Back of House',8,160],
     ['Front of House',6,108],
     ['Managers',5,150],
+  ]);
+});
+
+test('attributes a multi-location employee labour hours to each actual punch location', () => {
+  const rows = summarizeEmployeeLabourByLocation([
+    punch({ location:'Chiang Mai York Mills', hours:8, payroll_hours:8, gross_hours:8.5, break_minutes:30, wage:20 }),
+    punch({ location:'Imm Thai Kitchen', clocked_in:'2026-06-02T14:00:00Z', hours:5, payroll_hours:5, gross_hours:5.5, break_minutes:30, wage:20 }),
+  ]);
+  assert.deepEqual(rows.map(row=>[row.location,row.actual_hours,row.payroll_hours,row.payroll_amount]), [
+    ['Chiang Mai York Mills',8.5,8,160],
+    ['Imm Thai Kitchen',5.5,5,100],
   ]);
 });

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 type ManagerRow = {
-  employee_id:string; employee_name:string; location:string; department:string; role:string; worked_hours:number;
+  employee_id:string; employee_name:string; location:string; department:string; role:string; seven_shifts_hours:number; manual_hours:number; worked_hours:number;
   original_bonus:number; attendance:number|null; inventory:number|null; cleaning:number|null; labour_control:number|null;
   customer_service_leadership:number|null; notes?:string; approval?:string; totalPoints:number; scorePercent:number;
   maxExtraBonus:number; earnedExtraBonus:number; finalBonus:number;
@@ -22,7 +22,8 @@ function periodDates(month:string,period:string){
 function calculate(row:ManagerRow){
   const totalPoints=categories.reduce((sum,[,key])=>sum+(Number(row[key])||0),0); const scorePercent=totalPoints/25;
   const maxExtraBonus=Number(row.original_bonus||0)*.5; const earnedExtraBonus=maxExtraBonus*scorePercent;
-  return {...row,totalPoints,scorePercent,maxExtraBonus,earnedExtraBonus,finalBonus:Number(row.original_bonus||0)+earnedExtraBonus};
+  const worked_hours=Number(row.seven_shifts_hours||0)+Number(row.manual_hours||0);
+  return {...row,worked_hours,totalPoints,scorePercent,maxExtraBonus,earnedExtraBonus,finalBonus:Number(row.original_bonus||0)+earnedExtraBonus};
 }
 
 function Rating({value,onChange}:{value:number|null;onChange:(value:number)=>void}){
@@ -63,8 +64,9 @@ export default function ManagerBonusPage(){
     {loading?<div style={{padding:40,textAlign:'center',color:'#6b7280'}}>Loading manager hours…</div>:visible.length===0?<div style={{padding:40,textAlign:'center',color:'#6b7280'}}>No managers found for this selection. Check manager roles in 7shifts and sync again.</div>:
       <div style={{display:'grid',gap:12}}>{visible.map(row=>{const key=`${row.employee_id}\u0000${row.location}`;return <article key={key} style={{background:'#131720',border:'1px solid rgba(255,255,255,.07)',borderRadius:11,overflow:'hidden'}}>
         <header style={{padding:'12px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',borderBottom:'1px solid rgba(255,255,255,.06)'}}><div><div style={{fontWeight:650,color:'#f9fafb'}}>{row.employee_name}</div><div style={{fontSize:10,color:'#6b7280',marginTop:2}}>{row.location} · {row.role||row.department||'Manager'} · {row.worked_hours.toFixed(2)} hours</div></div><div style={{display:'flex',gap:7}}><button style={buttonStyle} onClick={()=>window.location.href=exportUrl(`&employee_id=${encodeURIComponent(row.employee_id)}&location=${encodeURIComponent(row.location)}`)}>Download</button><button disabled={saving===key} onClick={()=>save(row)} style={{...buttonStyle,background:'rgba(52,211,153,.12)',borderColor:'rgba(52,211,153,.35)',color:'#34d399'}}>{saving===key?'Saving…':'Save review'}</button></div></header>
-        <div style={{padding:14,display:'grid',gridTemplateColumns:'minmax(150px,.7fr) repeat(5,minmax(135px,1fr))',gap:10,alignItems:'end',overflowX:'auto'}}>
+        <div style={{padding:14,display:'grid',gridTemplateColumns:'repeat(2,minmax(150px,.7fr)) repeat(5,minmax(135px,1fr))',gap:10,alignItems:'end',overflowX:'auto'}}>
           <label style={{fontSize:10,color:'#9ca3af'}}>Original Bonus<input type="number" min="0" step="0.01" value={row.original_bonus} onChange={event=>update(key,'original_bonus',Number(event.target.value))} style={{...inputStyle,width:'100%',marginTop:5,boxSizing:'border-box'}}/></label>
+          <label style={{fontSize:10,color:'#9ca3af'}}>Additional Hours <span style={{color:'#6b7280'}}>(7shifts: {row.seven_shifts_hours.toFixed(2)})</span><input type="number" step="0.25" value={row.manual_hours||0} onChange={event=>update(key,'manual_hours',Number(event.target.value))} style={{...inputStyle,width:'100%',marginTop:5,boxSizing:'border-box'}}/></label>
           {categories.map(([label,field])=><div key={field}><div style={{fontSize:10,color:'#9ca3af',marginBottom:6,minHeight:24}}>{label}</div><Rating value={row[field]} onChange={value=>update(key,field,value)}/></div>)}
         </div>
         <div style={{padding:'0 14px 14px',display:'grid',gridTemplateColumns:'2fr 1fr repeat(4,minmax(100px,.7fr))',gap:9,alignItems:'end'}}>

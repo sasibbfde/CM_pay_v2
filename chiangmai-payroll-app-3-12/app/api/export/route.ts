@@ -24,6 +24,7 @@ const fill = (ws: any, row: number) => ws.getRow(row).fill={type:'pattern',patte
 const toNum = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
 const mapPunch = (row: any): Punch => ({ ...row, hours:toNum(row.hours), wage:toNum(row.wage), cash_wage:toNum(row.cash_wage) });
 const mapRule = (row: any): EmployeeRule => ({ ...row, active:row.active !== false });
+const safeSheetName = (value:string) => value.replace(/^Chiang Mai /,'').replace(/[\\/*?:\[\]]/g,'').slice(0,31) || 'Unknown';
 
 export async function GET(req: NextRequest) {
   try {
@@ -108,6 +109,19 @@ export async function GET(req: NextRequest) {
       for(const p of punches.sort((a:any,b:any)=>a.employee_name.localeCompare(b.employee_name))){
         const ph=Number(p.payroll_hours)||Number(p.hours)||0;
         ws3.addRow([p.employee_name,p.clocked_in?.split('T')[0],p.clocked_in?.split('T')[1]?.slice(0,5),p.clocked_out?.split('T')[1]?.slice(0,5)||'Still In',Number(p.break_minutes)||0,ph,Number(p.gross_hours)||ph,p.location,p.role||p.department,+p.wage||0,+(ph*(+p.wage||0)).toFixed(2)]);
+      }
+
+      // One authoritative labour sheet per actual punch location. Multi-location
+      // employees therefore appear separately in every location they worked.
+      const punchesByLocation=new Map<string,Punch[]>();
+      for(const punch of punches){const location=punch.location||'Unknown';punchesByLocation.set(location,[...(punchesByLocation.get(location)||[]),punch]);}
+      for(const [location,locationPunches] of [...punchesByLocation.entries()].sort((a,b)=>a[0].localeCompare(b[0]))){
+        const sheet=wb.addWorksheet(safeSheetName(location));
+        sheet.columns=[{header:'Employee',width:28},{header:'Role',width:18},{header:'Actual Hours',width:14},{header:'Break Hours',width:13},{header:'Payroll Hours',width:14},{header:'Wage',width:10},{header:'Labour Cost',width:14}];hdr(sheet,1);fill(sheet,1);
+        const employeesAtLocation=new Map<string,any>();
+        for(const punch of locationPunches){if(!punch.clocked_out)continue;const key=punch.employee_id||punch.employee_name;const payroll=Number(punch.payroll_hours)||Number(punch.hours)||0;const gross=Number(punch.gross_hours)||payroll;const wage=Number(punch.wage)||0;const row=employeesAtLocation.get(key)||{name:punch.employee_name,role:punch.role||punch.department||'',actual:0,breaks:0,payroll:0,cost:0};row.actual+=gross;row.breaks+=Number(punch.break_minutes||0)/60;row.payroll+=payroll;row.cost+=payroll*wage;employeesAtLocation.set(key,row);}
+        for(const row of [...employeesAtLocation.values()].sort((a,b)=>a.name.localeCompare(b.name)))sheet.addRow([row.name,row.role,+row.actual.toFixed(2),+row.breaks.toFixed(2),+row.payroll.toFixed(2),row.payroll?+(row.cost/row.payroll).toFixed(2):0,+row.cost.toFixed(2)]);
+        const total=[...employeesAtLocation.values()].reduce((sum,row)=>({actual:sum.actual+row.actual,breaks:sum.breaks+row.breaks,payroll:sum.payroll+row.payroll,cost:sum.cost+row.cost}),{actual:0,breaks:0,payroll:0,cost:0});const totalRow=sheet.addRow(['TOTAL','',+total.actual.toFixed(2),+total.breaks.toFixed(2),+total.payroll.toFixed(2),'',+total.cost.toFixed(2)]);totalRow.font={bold:true};sheet.views=[{state:'frozen',ySplit:1}];sheet.autoFilter={from:'A1',to:'G1'};
       }
 
       // ── Sheet 4: Sales Data ──
