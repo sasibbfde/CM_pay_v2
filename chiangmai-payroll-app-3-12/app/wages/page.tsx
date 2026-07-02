@@ -5,7 +5,7 @@ import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache'
 type Employee = {
   id: string; seven_shifts_user_id: string | null; full_name: string;
   location: string; department: string; role: string;
-  wage: number; cash_wage?: number; wage_locked?: boolean; wage_source?: string; active: boolean;
+  wage: number; cash_wage?: number; wage_locked?: boolean; wage_source?: string; active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
 };
 
 const sel: React.CSSProperties = { background:'#1a1f2e',border:'1px solid rgba(255,255,255,0.1)',borderRadius:7,color:'#e5e7eb',padding:'7px 12px',fontSize:13,outline:'none',cursor:'pointer' };
@@ -21,6 +21,7 @@ export default function WagesPage() {
   const [edits,   setEdits]         = useState<Record<string,{wage:string;cash_wage:string}>>({});
   const [search,  setSearch]        = useState('');
   const [locFilter, setLocFilter]   = useState('ALL');
+  const [missingOnly, setMissingOnly] = useState(false);
   const [page, setPage]             = useState(0);
   const [msg, setMsg]               = useState<{text:string;ok:boolean}|null>(null);
 
@@ -45,8 +46,9 @@ export default function WagesPage() {
   const filtered = useMemo(()=>employees.filter(e=>{
     if (locFilter!=='ALL'&&e.location!==locFilter) return false;
     if (search&&!e.full_name?.toLowerCase().includes(search.toLowerCase())) return false;
+    if (missingOnly&&Number(e.wage||0)>0) return false;
     return true;
-  }),[employees,locFilter,search]);
+  }),[employees,locFilter,search,missingOnly]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visibleEmployees = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   useEffect(()=>setPage(0),[search,locFilter,employees.length]);
@@ -109,6 +111,7 @@ export default function WagesPage() {
     }
   };
 
+  const missingWages = employees.filter(e=>!e.wage||e.wage===0);
   const zeroWageCount = filtered.filter(e=>!e.wage||e.wage===0).length;
   const editCount = Object.keys(edits).filter(id=>filtered.find(e=>e.id===id)).length;
 
@@ -141,6 +144,8 @@ export default function WagesPage() {
         </div>
       </div>
 
+      {missingWages.length>0&&<div style={{marginBottom:16,padding:'12px 14px',borderRadius:10,background:'rgba(248,113,113,.08)',border:'1px solid rgba(248,113,113,.28)'}}><div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}><div><div style={{fontSize:13,fontWeight:700,color:'#f87171'}}>⚠ {missingWages.length} active employees need a wage</div><div style={{fontSize:11,color:'#9ca3af',marginTop:3}}>{missingWages.slice(0,12).map(employee=>`${employee.full_name} (${employee.location||'No location'})`).join(' · ')}{missingWages.length>12?' …':''}</div></div><button onClick={()=>{setMissingOnly(true);setLocFilter('ALL');setSearch('');}} style={{...sel,borderColor:'rgba(248,113,113,.35)',color:'#f87171'}}>Show missing wages</button></div></div>}
+
       {/* Filters */}
       <div style={{display:'flex',gap:10,marginBottom:20,flexWrap:'wrap'}}>
         <input placeholder="Search employee…" value={search} onChange={e=>setSearch(e.target.value)}
@@ -148,7 +153,8 @@ export default function WagesPage() {
         <select value={locFilter} onChange={e=>setLocFilter(e.target.value)} style={{...sel,maxWidth:240}}>
           {locations.map(l=><option key={l}>{l}</option>)}
         </select>
-        <button onClick={()=>{setSearch('');setLocFilter('ALL');}} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.08)',color:'#6b7280',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:'pointer'}}>Clear</button>
+        <button onClick={()=>{setSearch('');setLocFilter('ALL');setMissingOnly(false);}} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.08)',color:'#6b7280',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:'pointer'}}>Clear</button>
+        <button onClick={()=>setMissingOnly(value=>!value)} style={{...sel,color:missingOnly?'#f87171':'#9ca3af',borderColor:missingOnly?'rgba(248,113,113,.4)':'rgba(255,255,255,.1)'}}>{missingOnly?'Showing missing only':'Missing wages'}</button>
         <span style={{marginLeft:'auto',fontSize:11,color:'#6b7280',alignSelf:'center'}}>
           {filtered.length ? `${page*PAGE_SIZE+1}–${Math.min((page+1)*PAGE_SIZE,filtered.length)} of ${filtered.length}` : '0 employees'}
         </span>
@@ -176,10 +182,11 @@ export default function WagesPage() {
                 const curWage  = parseFloat(getEdit(emp.id,'wage',emp.wage||0));
                 const noWage   = !emp.wage || emp.wage===0;
                 return (
-                  <tr key={emp.id} style={{borderTop:'1px solid rgba(255,255,255,0.05)',background:i%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
+                  <tr key={emp.id} style={{borderTop:'1px solid rgba(255,255,255,0.05)',background:emp.is_new?'rgba(34,211,238,.07)':i%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
                     <td style={{padding:'10px 16px'}}>
                       <div style={{fontWeight:500,color:'#f9fafb',display:'flex',alignItems:'center',gap:6}}>
                         {emp.full_name}
+                        {emp.is_new&&<span title={`New through ${emp.new_until}`} style={{fontSize:9,background:'rgba(34,211,238,.18)',color:'#22d3ee',borderRadius:3,padding:'1px 5px'}}>NEW</span>}
                         {noWage&&<span style={{fontSize:9,background:'rgba(248,113,113,0.2)',color:'#f87171',borderRadius:3,padding:'1px 5px'}}>$0</span>}
                         {hasEdit&&<span style={{fontSize:9,background:'rgba(251,191,36,0.2)',color:'#fbbf24',borderRadius:3,padding:'1px 5px'}}>edited</span>}
                         {emp.wage_locked&&<span style={{fontSize:9,background:'rgba(52,211,153,0.14)',color:'#34d399',borderRadius:3,padding:'1px 5px'}}>{emp.wage_source==='roster-2026'?'roster locked':'saved'}</span>}

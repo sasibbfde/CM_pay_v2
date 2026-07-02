@@ -69,6 +69,15 @@ async function runSync(body: any): Promise<NextResponse> {
     if (employee.seven_shifts_user_id) existingBy7shiftsId.set(String(employee.seven_shifts_user_id), employee);
   }
 
+  // If an employee is no longer returned by either the active or inactive
+  // 7shifts roster, remove them from all active app views without deleting
+  // historical punches or payroll records.
+  const staleIds = [...existingBy7shiftsId.keys()].filter(id => !userById.has(id));
+  for (let index = 0; index < staleIds.length; index += 200) {
+    const { error } = await supabase.from('employees').update({ active:false, updated_at:new Date().toISOString() }).in('seven_shifts_user_id', staleIds.slice(index,index+200));
+    if (error) throw new Error(`Inactive employee cleanup failed: ${error.message}`);
+  }
+
   // 7shifts stores wages in a separate endpoint. Fetch active-user wages in
   // bounded batches to avoid overwhelming the API.
   const wagesByUser = new Map<string, SevenShiftsWage[]>();

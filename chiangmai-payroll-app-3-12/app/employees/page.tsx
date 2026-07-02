@@ -5,7 +5,7 @@ import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache'
 type Employee = {
   id: string; seven_shifts_user_id: string; full_name: string;
   location: string; department: string; role: string;
-  wage: number; cash_wage: number; active: boolean;
+  wage: number; cash_wage: number; active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
 };
 type Punch = {
   punch_id: string; location: string; department: string; role: string;
@@ -212,10 +212,11 @@ export default function EmployeesPage() {
             visibleEmployees.map(emp=>(
               <div key={emp.id} onClick={()=>loadPunches(emp)}
                 style={{padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid rgba(255,255,255,0.03)',
-                  background:selected?.id===emp.id?'rgba(34,211,238,0.08)':'transparent',
+                  background:selected?.id===emp.id?'rgba(34,211,238,0.12)':emp.is_new?'rgba(34,211,238,.055)':'transparent',
                   borderLeft:selected?.id===emp.id?'2px solid #22d3ee':'2px solid transparent'}}>
                 <div style={{fontWeight:500,fontSize:12,color:'#f9fafb',display:'flex',alignItems:'center',gap:5}}>
                   {emp.full_name}
+                  {emp.is_new&&<span title={`New through ${emp.new_until}`} style={{fontSize:9,background:'rgba(34,211,238,.18)',color:'#22d3ee',borderRadius:3,padding:'1px 4px'}}>NEW</span>}
                   {(!emp.wage||+emp.wage===0)&&<span style={{fontSize:9,background:'rgba(248,113,113,0.2)',color:'#f87171',borderRadius:3,padding:'1px 4px'}}>$0</span>}
                 </div>
                 <div style={{fontSize:10,color:'#4b5563',marginTop:1}}>{emp.location} · {emp.role||emp.department}</div>

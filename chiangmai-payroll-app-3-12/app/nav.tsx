@@ -46,7 +46,10 @@ export default function Nav() {
 
       const punches = punchRes.synced?.punches ?? 0;
       const salesDays = salesRes.synced ?? 0;
-      if (punchRes.ok !== false && salesRes.ok !== false) invalidateClientCache();
+      if (punchRes.ok !== false && salesRes.ok !== false) {
+        invalidateClientCache();
+        setTimeout(() => window.location.reload(), 700);
+      }
       setMsg(`✓ ${punches} punches · ${salesDays} sales days`);
     } catch (e: any) {
       setMsg(`✗ ${e.message}`);
