@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
 import { cachedJson, peekJson } from '@/lib/client-cache';
+import { payrollLocationView, type PayrollReportRow } from '@/lib/payroll-report';
 
 type PayrollRow = {
   employee_name: string;
@@ -32,12 +33,15 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 const cad = (n: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(n || 0);
 const cadFull = (n: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n || 0);
 const hrs = (n: number) => `${(n || 0).toFixed(2)}h`;
+function periodRange(year:number,month:number,period:string){const prefix=`${year}-${String(month).padStart(2,'0')}`;const last=String(new Date(year,month,0).getDate()).padStart(2,'0');return{start:`${prefix}-${period==='16-end'?'16':'01'}`,end:`${prefix}-${period==='1-15'?'15':last}`};}
+function locationRows(reportRows:PayrollReportRow[]):PayrollRow[]{return reportRows.flatMap(row=>row.locations.map(location=>{const local=payrollLocationView(row,location);return{employee_name:row.employee_name,location,department:row.roles[0]||'',role:row.roles.join(', '),actual_hours:local.gross_hours,payroll_hours:local.cheque_hours,cash_hours:local.cash_hours,wage:local.wage,payroll_amount:local.cheque_pay,cash_amount:local.cash_pay,rule_applied:local.rule_type,notes:local.notes};}));}
 
 export default function LocationPage() {
   const now = new Date();
-  const initialUrl = `/api/payroll?year=${now.getFullYear()}&month=${now.getMonth() + 1}&period=month`;
-  const initial = peekJson<{rows:PayrollRow[]}>(initialUrl);
-  const [rows, setRows]         = useState<PayrollRow[]>(() => initial?.rows || []);
+  const initialRange=periodRange(now.getFullYear(),now.getMonth()+1,'month');
+  const initialUrl = `/api/payroll-report?start=${initialRange.start}&end=${initialRange.end}`;
+  const initial = peekJson<{rows:PayrollReportRow[]}>(initialUrl);
+  const [rows, setRows]         = useState<PayrollRow[]>(() => locationRows(initial?.rows || []));
   const [loading, setLoading]   = useState(() => !initial);
   const [year, setYear]         = useState(new Date().getFullYear());
   const [month, setMonth]       = useState(new Date().getMonth() + 1);
@@ -47,12 +51,12 @@ export default function LocationPage() {
   const [search, setSearch]     = useState('');
 
   useEffect(() => {
-    const url = `/api/payroll?year=${year}&month=${month}&period=${period}`;
-    const cached = peekJson<{rows:PayrollRow[]}>(url);
-    if (cached) setRows(cached.rows || []);
+    const range=periodRange(year,month,period);const url = `/api/payroll-report?start=${range.start}&end=${range.end}`;
+    const cached = peekJson<{rows:PayrollReportRow[]}>(url);
+    if (cached) setRows(locationRows(cached.rows || []));
     setLoading(!cached);
-    cachedJson<{rows:PayrollRow[]}>(url)
-      .then(d => { setRows(d.rows || []); setLoading(false); })
+    cachedJson<{rows:PayrollReportRow[]}>(url)
+      .then(d => { setRows(locationRows(d.rows || [])); setLoading(false); })
       .catch(() => setLoading(false));
   }, [year, month, period]);
 
