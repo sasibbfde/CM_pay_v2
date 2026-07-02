@@ -3,6 +3,7 @@ import { fetchUsers, fetchTimePunches, fetchDepartments, fetchRoles, fetchUserWa
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { resolveEmployeeWage, selectHourlyWage, SevenShiftsWage } from '@/lib/wages';
 import { calculateBreaks, calculateGrossHours, calculatePayrollHours } from '@/lib/time-punch';
+import { fillMissingRosterDetails } from '@/lib/roster-details';
 
 export const maxDuration = 300;
 
@@ -94,6 +95,13 @@ async function runSync(body: any): Promise<NextResponse> {
     const loc  = mapLoc(u.location_id ?? u.home_location_id ?? '');
     const dept = u.department_name || mapDept(u.department_id) || null;
     const role = u.role_name || mapRole(u.role_id) || null;
+    const completed = fillMissingRosterDetails({
+      full_name:fullName(u),
+      location:(loc && loc !== 'Unknown' ? loc : existing?.location) || '',
+      department:dept || existing?.department || '',
+      role:role || existing?.role || '',
+      wage,
+    });
     return {
       employee_id:          `7S-${u.id}`,
       seven_shifts_user_id: String(u.id),
@@ -106,10 +114,10 @@ async function runSync(body: any): Promise<NextResponse> {
       wage_source:          existing?.wage_locked ? (existing.wage_source || 'manual') : '7shifts',
       updated_at:           new Date().toISOString(),
       // Only set these if 7shifts has a real value — never overwrite DB data with null
-      ...(wage > 0                    ? { wage }        : {}),
-      ...(loc && loc !== 'Unknown'    ? { location: loc }: {}),
-      ...(dept                        ? { department: dept }: {}),
-      ...(role                        ? { role }        : {}),
+      ...(Number(completed.wage||0)>0 ? { wage:completed.wage } : {}),
+      ...(completed.location          ? { location:completed.location }: {}),
+      ...(completed.department        ? { department:completed.department }: {}),
+      ...(completed.role              ? { role:completed.role }: {}),
     };
   });
 

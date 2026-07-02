@@ -10,6 +10,7 @@ const links = [
   { href: '/budget',   label: 'Budget Tool' },
   { href: '/insights', label: 'Insights'    },
   { href: '/labour',   label: 'Labour Cost' },
+  { href: '/payroll-hours', label: 'Payroll Hours' },
   { href: '/manager-bonus', label: 'Manager Bonus' },
   { href: '/location', label: 'By Location' },
   { href: '/employees',label: 'Logbook'     },

@@ -2,6 +2,7 @@ import 'server-only';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { getPayrollDate, getPunchHours } from '@/lib/payroll';
 import { calculateManagerBonus, isManager, ManagerBonusScores } from '@/lib/manager-bonus';
+import { fillMissingRosterDetails } from '@/lib/roster-details';
 
 async function fetchAll(supabase: any, table: string, columns: string, filter?: (query: any) => any) {
   const rows: any[] = [];
@@ -20,29 +21,18 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
   const supabase = getSupabaseAdmin();
   const queryStart = new Date(`${periodStart}T00:00:00Z`); queryStart.setUTCDate(queryStart.getUTCDate() - 1);
   const queryEnd = new Date(`${periodEnd}T23:59:59Z`); queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
-  const [employees, punches] = await Promise.all([
+  const [rawEmployees, punches] = await Promise.all([
     fetchAll(supabase, 'employees', 'employee_id, seven_shifts_user_id, full_name, location, department, role, active', query => query.eq('active', true)),
     fetchAll(supabase, 'punches', 'employee_id, seven_shifts_user_id, employee_name, location, department, role, clocked_in, clocked_out, hours', query => query
       .gte('clocked_in', queryStart.toISOString()).lte('clocked_in', queryEnd.toISOString()).order('clocked_in')),
   ]);
+  const employees = rawEmployees.map(fillMissingRosterDetails);
 
   const employeeById = new Map<string, any>();
   for (const employee of employees) {
     if (employee.employee_id) employeeById.set(String(employee.employee_id), employee);
     if (employee.seven_shifts_user_id) employeeById.set(String(employee.seven_shifts_user_id), employee);
   }
-  const missingDetails = employees
-    .filter(employee => !String(employee.location || '').trim() || !String(employee.role || '').trim())
-    .map(employee => ({
-      id:employee.employee_id || employee.seven_shifts_user_id || employee.full_name,
-      employee_name:employee.full_name,
-      location:employee.location || '',
-      department:employee.department || '',
-      role:employee.role || '',
-      missing_location:!String(employee.location || '').trim(),
-      missing_role:!String(employee.role || '').trim(),
-    }))
-    .sort((a,b) => a.employee_name.localeCompare(b.employee_name));
 
   const managers = new Map<string, any>();
   for (const employee of employees) {
@@ -93,5 +83,5 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
     return { ...manager, ...review, ...scores, worked_hours:Math.round(manager.worked_hours * 100) / 100, original_bonus:Number(review.original_bonus || 0), ...calculateManagerBonus(Number(review.original_bonus || 0), scores) };
   }).sort((a,b) => a.location.localeCompare(b.location) || a.employee_name.localeCompare(b.employee_name));
 
-  return { rows, missingDetails, tableReady, storageMode:tableReady?'manager_bonus_reviews':'settings_fallback' };
+  return { rows, tableReady, storageMode:tableReady?'manager_bonus_reviews':'settings_fallback' };
 }

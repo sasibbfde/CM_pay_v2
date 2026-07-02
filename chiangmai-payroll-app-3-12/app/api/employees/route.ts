@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { fillMissingRosterDetails } from '@/lib/roster-details';
 
 const PAGE = 1000;
 
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
     const activeOnly = sp.get('active') !== 'false';
     const supabase   = getSupabaseAdmin();
 
-    const employees = await fetchAllEmployees(supabase, activeOnly);
+    const employees = (await fetchAllEmployees(supabase, activeOnly)).map(fillMissingRosterDetails);
 
     return NextResponse.json({ employees });
   } catch (e: any) {

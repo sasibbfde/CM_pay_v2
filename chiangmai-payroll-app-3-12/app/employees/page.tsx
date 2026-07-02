@@ -109,6 +109,9 @@ export default function EmployeesPage() {
   const actualHours = completedPunches.reduce((sum,p)=>sum+Number(p.gross_hours||0),0);
   const payrollHours = completedPunches.reduce((sum,p)=>sum+Number(p.payroll_hours||0),0);
   const totalBreakMinutes = completedPunches.reduce((sum,p)=>sum+Number(p.break_minutes||0),0);
+  const workedLocations = Object.entries(completedPunches.reduce<Record<string,number>>((map,p)=>{
+    const location=p.location||'Unknown';map[location]=(map[location]||0)+Number(p.payroll_hours||p.hours||0);return map;
+  },{})).sort((a,b)=>b[1]-a[1]);
   const estPay = punches.filter(p=>p.clocked_out).reduce((sum,p)=>{
     const hours=Number(p.payroll_hours||0);
     return sum + hours * Number(p.wage || 0);
@@ -155,6 +158,7 @@ export default function EmployeesPage() {
       ['Employee Logbook Export'],
       [`Employee: ${selected.full_name}`],
       [`Location: ${selected.location||'—'} | Role: ${selected.role||'—'} | Wage: $${selected.wage}/hr`],
+      [`Worked locations: ${workedLocations.map(([location,hours])=>`${location} (${hours.toFixed(2)}h)`).join('; ')||'—'}`],
       [`Period: ${fromDate} to ${toDate}`],
       [],
       ['Date','Clock In','Clock Out','Break (min)','Actual Hours','Payroll Hours','Location','Role','Pay'],
@@ -252,6 +256,8 @@ export default function EmployeesPage() {
                 ↓ Download Logbook CSV
               </button>
             </div>
+
+            {workedLocations.length>0&&<div style={{display:'flex',gap:6,flexWrap:'wrap',margin:'-8px 0 14px 50px'}}>{workedLocations.map(([location,hours])=><span key={location} style={{fontSize:10,color:'#22d3ee',background:'rgba(34,211,238,.08)',border:'1px solid rgba(34,211,238,.16)',borderRadius:5,padding:'3px 7px'}}>{location}: {hours.toFixed(2)} payroll hours</span>)}</div>}
 
             {/* Date range controls */}
             <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10,padding:'12px 14px',marginBottom:14}}>
