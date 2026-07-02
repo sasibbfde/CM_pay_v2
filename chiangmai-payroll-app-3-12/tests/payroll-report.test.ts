@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildPayrollReport, roundQuarterHour } from '../lib/payroll-report';
+import { buildPayrollReport, payrollLocationView, roundQuarterHour } from '../lib/payroll-report';
 import { Punch } from '../lib/types';
 
 const punch=(overrides:Partial<Punch>):Punch=>({employee_id:'7S-1',employee_name:'Test Employee',location:'Location A',department:'Back of House',role:'Wok',clocked_in:'2026-06-16T14:00:00Z',clocked_out:'2026-06-16T22:00:00Z',hours:8,payroll_hours:8,gross_hours:8,break_minutes:0,wage:20,...overrides});
@@ -33,4 +33,16 @@ test('payroll report exposes paid and unpaid breaks without deducting paid break
   assert.equal(paid.break_hours,.5);assert.equal(paid.unpaid_break_hours,0);assert.equal(paid.paid_break_hours,.5);assert.equal(paid.payable_hours,8);
   const [unpaid]=buildPayrollReport([punch({gross_hours:8,payroll_hours:7.5,hours:7.5,break_minutes:30})],[],'2026-06-30');
   assert.equal(unpaid.break_hours,.5);assert.equal(unpaid.unpaid_break_hours,.5);assert.equal(unpaid.paid_break_hours,0);assert.equal(unpaid.payable_hours,7.5);
+});
+
+test('location-filtered payroll shows only hours worked at that location',()=>{
+  const [combined]=buildPayrollReport([
+    punch({location:'Chiang Mai York Mills',hours:18.73,payroll_hours:18.73,gross_hours:20.05,break_minutes:79}),
+    punch({location:'Imm Thai Kitchen',hours:17.99,payroll_hours:17.99,gross_hours:17.99,break_minutes:0}),
+  ],[],'2026-06-30');
+  const imm=payrollLocationView(combined,'Imm Thai Kitchen');
+  assert.equal(combined.payable_hours,36.72);
+  assert.equal(imm.gross_hours,17.99);
+  assert.equal(imm.payable_hours,17.99);
+  assert.equal(imm.rounded_hours,18);
 });

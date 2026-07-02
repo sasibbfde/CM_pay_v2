@@ -56,3 +56,21 @@ export function buildPayrollReport(punches:Punch[],rules:EmployeeRule[],periodEn
 }
 
 export function summarizePayrollReport(rows:PayrollReportRow[]){return rows.reduce((sum,row)=>({employees:sum.employees+1,gross_hours:round2(sum.gross_hours+row.gross_hours),break_hours:round2(sum.break_hours+row.break_hours),payable_hours:round2(sum.payable_hours+row.payable_hours),rounded_hours:round2(sum.rounded_hours+row.rounded_hours),cheque_hours:round2(sum.cheque_hours+row.cheque_hours),cash_hours:round2(sum.cash_hours+row.cash_hours),cheque_pay:round2(sum.cheque_pay+row.cheque_pay),cash_pay:round2(sum.cash_pay+row.cash_pay),total_pay:round2(sum.total_pay+row.total_pay)}),{employees:0,gross_hours:0,break_hours:0,payable_hours:0,rounded_hours:0,cheque_hours:0,cash_hours:0,cheque_pay:0,cash_pay:0,total_pay:0});}
+
+export function payrollLocationView(row:PayrollReportRow, location:string):PayrollReportRow {
+  const gross = Number(row.location_gross_hours[location] || 0);
+  const breaks = Number(row.location_break_hours[location] || 0);
+  const payable = Number(row.location_hours[location] || 0);
+  const unpaidBreak = Math.max(0, gross - payable);
+  return {
+    ...row,
+    gross_hours:round2(gross),
+    break_hours:round2(breaks),
+    unpaid_break_hours:round2(unpaidBreak),
+    paid_break_hours:round2(Math.max(0,breaks-unpaidBreak)),
+    payable_hours:round2(payable),
+    rounded_hours:roundQuarterHour(payable),
+    status:`${row.status ? `${row.status} · ` : ''}Location hours`,
+    notes:`Showing ${location} hours only. Cheque/cash allocation remains the combined all-location payroll result. ${row.notes || ''}`.trim(),
+  };
+}
