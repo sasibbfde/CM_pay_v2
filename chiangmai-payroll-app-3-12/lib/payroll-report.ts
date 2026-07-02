@@ -2,7 +2,7 @@ import { EmployeeRule, Punch } from './types';
 
 const normalize=(value:string)=>value.trim().toLowerCase().replace(/\s+/g,' ');
 const round2=(value:number)=>Math.round((value+Number.EPSILON)*100)/100;
-export const roundUpHalfHour=(value:number)=>Math.ceil(value*2-1e-8)/2;
+export const roundQuarterHour=(value:number)=>Math.round((value+Number.EPSILON)*4)/4;
 
 export type PayrollReportRow={
   employee_id:string; employee_name:string; locations:string[]; roles:string[]; location_hours:Record<string,number>; location_gross_hours:Record<string,number>; location_break_hours:Record<string,number>;
@@ -36,7 +36,7 @@ export function buildPayrollReport(punches:Punch[],rules:EmployeeRule[],periodEn
       const location=punch.location||'Unknown';locations.add(location);locationHours[location]=(locationHours[location]||0)+hours;locationGross[location]=(locationGross[location]||0)+grossHours;locationBreaks[location]=(locationBreaks[location]||0)+Number(punch.break_minutes||0)/60;
       if(punch.role||punch.department)roles.add(punch.role||punch.department||'');
     }
-    const rounded=roundUpHalfHour(payable);const wage=payable>0?weightedWage/payable:Number(first.wage||0);const rule=ruleFor(employeeId,first.employee_name,rules,periodEnd);
+    const rounded=roundQuarterHour(payable);const wage=payable>0?weightedWage/payable:Number(first.wage||0);const rule=ruleFor(employeeId,first.employee_name,rules,periodEnd);
     let cap=88;let cheque=Math.min(rounded,cap),cash=Math.max(0,rounded-cheque),status=rounded>88?'Over 88 → cash':'',notes=rule?.notes||'';
     if(rule?.rule_type==='CASH_ONLY'){cheque=0;cash=rounded;status='CASH (all)';}
     if(rule?.rule_type==='HOLD_PAYROLL'){cheque=0;cash=0;status='HOLD — NO PAY';}
