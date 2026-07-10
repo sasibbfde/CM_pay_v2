@@ -213,6 +213,7 @@ async function runSync(body: any): Promise<NextResponse> {
     const reportEntry = hoursAndWages.find({
       punch_id: punchId,
       user_id: userId,
+      employee_name: name,
       clocked_in: clockIn,
       location_id: locId,
       location,

@@ -3,10 +3,12 @@ import { calculateBreaks } from './time-punch';
 type HoursWagesEntry = {
   punch_id?: string;
   user_id?: string;
+  employee_name?: string;
   location_id?: string;
   location?: string;
   role?: string;
   wage?: number;
+  date?: string;
   clocked_in?: string;
   clocked_out?: string;
   regular_hours?: number;
@@ -25,6 +27,18 @@ const keyLocation = (value?: string) => (value || '')
   .replace(/york\s*mills/g, 'yorkmills')
   .replace(/village/g, '')
   .replace(/[^a-z0-9]/g, '');
+const keyName = (value?: string) => (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+function nameKeys(value?: string) {
+  const raw = (value || '').trim();
+  if (!raw) return [];
+  const keys = new Set<string>([keyName(raw)]);
+  const comma = raw.split(',').map(part => part.trim()).filter(Boolean);
+  if (comma.length >= 2) {
+    keys.add(keyName(`${comma.slice(1).join(' ')} ${comma[0]}`));
+  }
+  return [...keys].filter(Boolean);
+}
 
 function firstNumber(source: any, names: string[]) {
   for (const name of names) {
@@ -40,6 +54,25 @@ function firstString(source: any, names: string[]) {
     if (value) return value;
   }
   return undefined;
+}
+
+function personName(value: any) {
+  const direct = firstString(value, [
+    'employee_name', 'employeeName', 'user_name', 'userName', 'staff_name',
+    'staffName', 'name', 'full_name', 'fullName',
+  ]);
+  if (direct) return direct;
+  const first = firstString(value, ['first_name', 'firstName', 'firstname']);
+  const last = firstString(value, ['last_name', 'lastName', 'lastname']);
+  return [first, last].filter(Boolean).join(' ') || undefined;
+}
+
+function workDate(value: any, clockedIn?: string) {
+  const date = firstString(value, [
+    'date', 'work_date', 'worked_date', 'business_date', 'shift_date', 'day',
+  ]);
+  if (date) return date.slice(0, 10);
+  return clockedIn ? String(clockedIn).slice(0, 10) : undefined;
 }
 
 function clockTime(value: any) {
@@ -91,10 +124,12 @@ function entryFromObject(value: any, parent: Partial<HoursWagesEntry>): HoursWag
   return {
     punch_id: firstString(value, ['punch_id', 'time_punch_id', 'id']) || firstString(punchObject, ['id', 'punch_id']) || parent.punch_id,
     user_id: firstString(value, ['user_id', 'employee_id']) || firstString(userObject, ['id', 'user_id', 'employee_id']) || parent.user_id,
+    employee_name: personName(value) || personName(userObject) || parent.employee_name,
     location_id: firstString(value, ['location_id']) || firstString(locationObject, ['id', 'location_id']) || parent.location_id,
     location: firstString(value, ['location_name']) || firstString(locationObject, ['name']) || parent.location,
     role: firstString(value, ['role_name']) || firstString(roleObject, ['name']) || parent.role,
     wage: firstNumber(value, ['wage', 'hourly_wage', 'rate', 'hourly_rate']) ?? parent.wage,
+    date: workDate(value, clockedIn) || parent.date,
     clocked_in: clockedIn,
     clocked_out: clockedOut,
     regular_hours: regularHours,
@@ -110,10 +145,12 @@ function childParent(value: any, parent: Partial<HoursWagesEntry>) {
   return {
     ...parent,
     user_id: firstString(value, ['user_id', 'employee_id']) || firstString(userObject, ['id', 'user_id', 'employee_id']) || parent.user_id,
+    employee_name: personName(value) || personName(userObject) || parent.employee_name,
     location_id: firstString(value, ['location_id']) || firstString(locationObject, ['id', 'location_id']) || parent.location_id,
     location: firstString(value, ['location_name']) || firstString(locationObject, ['name']) || parent.location,
     role: firstString(value, ['role_name']) || firstString(roleObject, ['name']) || parent.role,
     wage: firstNumber(value, ['wage', 'hourly_wage', 'rate', 'hourly_rate']) ?? parent.wage,
+    date: workDate(value) || parent.date,
   };
 }
 
@@ -141,6 +178,8 @@ export function flattenHoursAndWagesReport(payload: any): HoursWagesEntry[] {
     const key = [
       entry.punch_id,
       entry.user_id,
+      entry.employee_name,
+      entry.date,
       entry.clocked_in,
       entry.location_id || entry.location,
       entry.regular_hours,
@@ -154,24 +193,42 @@ export function flattenHoursAndWagesReport(payload: any): HoursWagesEntry[] {
 export function hoursWagesLookup(entries: HoursWagesEntry[]) {
   const byPunchId = new Map<string, HoursWagesEntry>();
   const byFallback = new Map<string, HoursWagesEntry[]>();
+  const byNameDateLocation = new Map<string, HoursWagesEntry[]>();
+  const push = (map: Map<string, HoursWagesEntry[]>, key: string, entry: HoursWagesEntry) => {
+    map.set(key, [...(map.get(key) || []), entry]);
+  };
   for (const entry of entries) {
     if (entry.punch_id) byPunchId.set(String(entry.punch_id), entry);
-    if (!entry.user_id || !entry.clocked_in) continue;
-    const date = String(entry.clocked_in).slice(0, 10);
+    const date = entry.date || (entry.clocked_in ? String(entry.clocked_in).slice(0, 10) : undefined);
     const location = entry.location_id || keyLocation(entry.location);
-    const key = `${entry.user_id}|${date}|${location}`;
-    byFallback.set(key, [...(byFallback.get(key) || []), entry]);
+    if (entry.user_id && date) {
+      push(byFallback, `${entry.user_id}|${date}|${location}`, entry);
+    }
+    if (entry.employee_name && date) {
+      for (const name of nameKeys(entry.employee_name)) {
+        push(byNameDateLocation, `${name}|${date}|${location}`, entry);
+      }
+    }
   }
   return {
-    find(punch: { punch_id?: string; user_id?: string; clocked_in?: string | null; location_id?: string; location?: string }) {
+    find(punch: { punch_id?: string; user_id?: string; employee_name?: string; clocked_in?: string | null; location_id?: string; location?: string }) {
       if (punch.punch_id && byPunchId.has(String(punch.punch_id))) return byPunchId.get(String(punch.punch_id));
-      if (!punch.user_id || !punch.clocked_in) return undefined;
+      if (!punch.clocked_in) return undefined;
       const date = String(punch.clocked_in).slice(0, 10);
       const locations = [punch.location_id, keyLocation(punch.location), ''].filter((item, index, all) => item !== undefined && all.indexOf(item) === index);
-      for (const location of locations) {
-        const queue = byFallback.get(`${punch.user_id}|${date}|${location}`);
-        const entry = queue?.shift();
-        if (entry) return entry;
+      if (punch.user_id) {
+        for (const location of locations) {
+          const queue = byFallback.get(`${punch.user_id}|${date}|${location}`);
+          const entry = queue?.shift();
+          if (entry) return entry;
+        }
+      }
+      for (const name of nameKeys(punch.employee_name)) {
+        for (const location of locations) {
+          const queue = byNameDateLocation.get(`${name}|${date}|${location}`);
+          const entry = queue?.shift();
+          if (entry) return entry;
+        }
       }
       return undefined;
     },
