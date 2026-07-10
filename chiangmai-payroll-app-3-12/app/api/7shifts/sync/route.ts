@@ -30,6 +30,39 @@ function mapLoc(id: any): string {
   return LOCATION_MAP[String(id)] || 'Unknown';
 }
 
+const round2 = (value: number) => Math.round(Math.max(0, value) * 100) / 100;
+const nameKey = (value?: string | null) => (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+function normalizeLocation(locationId?: any, locationName?: string | null) {
+  const mapped = mapLoc(locationId);
+  if (mapped !== 'Unknown') return mapped;
+  const raw = (locationName || '').trim();
+  if (!raw) return 'Unknown';
+  const compact = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (compact.includes('immthai')) return 'Imm Thai Kitchen';
+  if (compact.includes('mississauga')) return 'Chiang Mai Mississauga';
+  if (compact.includes('yorkmills') || compact.includes('yorkmill')) return 'Chiang Mai York Mills';
+  if (compact.includes('liberty')) return 'Chiang Mai Liberty Village';
+  if (compact.includes('junction')) return 'Chiang Mai Junction';
+  if (compact.includes('danforth')) return 'Chiang Mai Danforth';
+  if (compact.includes('parklawn')) return 'Chiang Mai Parklawn';
+  return raw;
+}
+
+function reportPunchId(entry: any, index: number) {
+  if (entry.punch_id) return `HW-${String(entry.punch_id)}`;
+  const stable = [
+    entry.user_id || nameKey(entry.employee_name),
+    entry.date || String(entry.clocked_in || '').slice(0, 10),
+    normalizeLocation(entry.location_id, entry.location),
+    entry.clocked_in || '',
+    entry.clocked_out || '',
+    entry.regular_hours,
+    index,
+  ].join('|').replace(/[^a-zA-Z0-9|._:-]/g, '');
+  return `HW-${stable}`;
+}
+
 // ─── break calculation (7shifts payroll method) ──────────────────────────────
 /**
  * 7shifts breaks are a `breaks` array on each punch: [{ in, out, paid }]
@@ -145,8 +178,10 @@ async function runSync(body: any): Promise<NextResponse> {
     .from('employees')
     .select('employee_id, seven_shifts_user_id, full_name, location, department, role, wage, cash_wage, wage_locked, wage_source');
   const dbEmpMap = new Map<string, any>();
+  const dbEmpByName = new Map<string, any>();
   for (const e of dbEmps || []) {
     if (e.seven_shifts_user_id) dbEmpMap.set(String(e.seven_shifts_user_id), e);
+    if (e.full_name) dbEmpByName.set(nameKey(e.full_name), e);
   }
 
   // ─── 4. Fetch time punches ────────────────────────────────────────────────
@@ -166,99 +201,190 @@ async function runSync(body: any): Promise<NextResponse> {
   const punchMap = new Map<string, any>();
   const locBreakdown: Record<string, number> = {};
 
-  for (const p of rawPunches) {
-    const rawPunchId = p.id ?? p.punch_id;
-    if (rawPunchId == null || rawPunchId === '') continue;
-    const punchId = String(rawPunchId);
+  const reportRows = hoursAndWagesEntries
+    .filter(entry => {
+      const payrollHours = Number(entry.regular_hours);
+      const grossHours = Number(entry.gross_hours ?? entry.regular_hours);
+      const hasPerson = Boolean(entry.user_id || entry.employee_name);
+      const hasDate = Boolean(entry.date || entry.clocked_in);
+      const hasLocation = Boolean(entry.location_id || entry.location);
+      return hasPerson
+        && hasDate
+        && hasLocation
+        && Number.isFinite(payrollHours)
+        && payrollHours >= 0
+        && Number.isFinite(grossHours)
+        && grossHours > 0;
+    })
+    .sort((a, b) => [
+      a.date || String(a.clocked_in || '').slice(0, 10),
+      normalizeLocation(a.location_id, a.location),
+      a.employee_name || a.user_id || '',
+      a.clocked_in || '',
+      a.clocked_out || '',
+      String(a.regular_hours ?? ''),
+    ].join('|').localeCompare([
+      b.date || String(b.clocked_in || '').slice(0, 10),
+      normalizeLocation(b.location_id, b.location),
+      b.employee_name || b.user_id || '',
+      b.clocked_in || '',
+      b.clocked_out || '',
+      String(b.regular_hours ?? ''),
+    ].join('|')));
 
-    const userId  = String(p.user_id || p.userId || '');
-    const dbEmp   = dbEmpMap.get(userId);
-    const u7      = userById.get(userId);
+  const usingReportRows = reportRows.length > 0 && !hoursAndWagesError;
 
-    // Name
-    const name = dbEmp?.full_name
-      || (u7 ? fullName(u7) : null)
-      || (p.first_name && p.last_name ? `${p.first_name} ${p.last_name}`.trim() : null)
-      || `Staff ${userId}`;
+  if (usingReportRows) {
+    for (const [index, entry] of reportRows.entries()) {
+      const userId = entry.user_id ? String(entry.user_id) : '';
+      const dbEmp = (userId ? dbEmpMap.get(userId) : undefined) || dbEmpByName.get(nameKey(entry.employee_name));
+      const u7 = userId ? userById.get(userId) : undefined;
+      const name = dbEmp?.full_name || entry.employee_name || (u7 ? fullName(u7) : null) || `Staff ${userId || index + 1}`;
+      const location = normalizeLocation(entry.location_id, entry.location || dbEmp?.location);
+      const date = entry.date || String(entry.clocked_in || '').slice(0, 10);
+      const clockIn = entry.clocked_in || `${date}T12:00:00.000Z`;
+      const clockOut = entry.clocked_out || clockIn;
+      const payrollHours = round2(Number(entry.regular_hours || 0));
+      const grossHours = round2(Number(entry.gross_hours ?? entry.regular_hours ?? 0));
+      const breakMinutes = Number.isFinite(Number(entry.break_minutes))
+        ? Math.max(0, Math.round(Number(entry.break_minutes)))
+        : Math.max(0, Math.round((grossHours - payrollHours) * 60));
+      const wage = resolveEmployeeWage(
+        dbEmp,
+        Number(entry.wage || 0) || selectHourlyWage(wagesByUser.get(userId) || [], undefined, date),
+      );
+      const department = dbEmp?.department || 'Unknown';
+      const role = entry.role || dbEmp?.role || 'Unknown';
+      const punchId = reportPunchId(entry, index);
 
-    // Location / dept / role
-    const locId  = String(p.location_id  || u7?.location_id  || '');
-    const deptId = String(p.department_id || u7?.department_id || '');
-    const roleId = String(p.role_id       || u7?.role_id      || '');
+      if (location && location !== 'Unknown') {
+        locBreakdown[location] = round2((locBreakdown[location] || 0) + payrollHours);
+      }
 
-    const location   = mapLoc(locId) !== 'Unknown' ? mapLoc(locId) : (dbEmp?.location || 'Unknown');
-    const department = mapDept(deptId) || dbEmp?.department || 'Unknown';
-    const role       = mapRole(roleId) || dbEmp?.role || 'Unknown';
-
-    // Match the authoritative 7shifts wage by punch role and effective date.
-    const punchDate = String(p.clocked_in || p.clock_in || '').slice(0, 10);
-    const wage = resolveEmployeeWage(
-      dbEmp,
-      selectHourlyWage(wagesByUser.get(userId) || [], p.role_id, punchDate),
-    );
-
-    // Times
-    const clockIn  = p.clocked_in  || p.clock_in  || null;
-    const clockOut = p.clocked_out || p.clock_out || null;
-
-    // Gross hours = raw clock diff (no breaks)
-    const grossHours = calculateGrossHours(clockIn, clockOut);
-
-    // ── CORRECT BREAK CALCULATION ──────────────────────────────────────────
-    // 7shifts returns breaks as: p.breaks = [{ in: "...", out: "...", paid: bool }]
-    const breaks = Array.isArray(p.breaks) ? p.breaks : [];
-    const { unpaidMinutes, breakMinutes } = calculateBreaks(breaks);
-
-    // Payroll hours = gross - unpaid breaks (matching 7shifts payroll export exactly)
-    const reportEntry = hoursAndWages.find({
-      punch_id: punchId,
-      user_id: userId,
-      employee_name: name,
-      clocked_in: clockIn,
-      location_id: locId,
-      location,
-    });
-    const reportPayrollHours = Number(reportEntry?.regular_hours);
-    const reportGrossHours = Number(reportEntry?.gross_hours);
-    const reportBreakMinutes = Number(reportEntry?.break_minutes);
-    if (reportEntry && Number.isFinite(reportPayrollHours)) reportMatchedPunches += 1;
-    const payrollHours = reportEntry && Number.isFinite(reportPayrollHours)
-      ? Math.max(0, Math.round(reportPayrollHours * 100) / 100)
-      : (clockOut ? calculatePayrollHours(grossHours, unpaidMinutes) : 0);
-    const roundedReportGross = Number.isFinite(reportGrossHours) ? Math.round(reportGrossHours * 100) / 100 : 0;
-    const finalGrossHours = reportEntry && roundedReportGross > payrollHours + 0.01
-      ? roundedReportGross
-      : grossHours;
-    const finalBreakMinutes = reportEntry && Number.isFinite(reportBreakMinutes) && reportBreakMinutes > 0
-      ? Math.max(0, Math.round(reportBreakMinutes))
-      : Math.round(breakMinutes);
-
-    if (location && location !== 'Unknown') {
-      locBreakdown[location] = (locBreakdown[location] || 0) + payrollHours;
+      punchMap.set(punchId, {
+        punch_id: punchId,
+        employee_id: userId ? `7S-${userId}` : (dbEmp?.employee_id || `HW-${nameKey(name)}`),
+        seven_shifts_user_id: userId || dbEmp?.seven_shifts_user_id || null,
+        employee_name: name,
+        location,
+        department,
+        role,
+        clocked_in: clockIn,
+        clocked_out: clockOut,
+        hours: payrollHours,
+        payroll_hours: payrollHours,
+        gross_hours: grossHours,
+        break_minutes: breakMinutes,
+        wage,
+        cash_wage: Number(dbEmp?.cash_wage || 0),
+        source: '7shifts-hours-wages',
+      });
     }
+    reportMatchedPunches = punchMap.size;
+  } else {
+    for (const p of rawPunches) {
+      const rawPunchId = p.id ?? p.punch_id;
+      if (rawPunchId == null || rawPunchId === '') continue;
+      const punchId = String(rawPunchId);
 
-    punchMap.set(punchId, {
-      punch_id:      punchId,
-      employee_id:   userId ? `7S-${userId}` : 'UNKNOWN',
-      seven_shifts_user_id: userId || null,
-      employee_name: name,
-      location,
-      department,
-      role,
-      clocked_in:    clockIn,
-      clocked_out:   clockOut,
-      hours:         payrollHours,     // hours = payroll hours (break-deducted)
-      payroll_hours: payrollHours,     // explicit payroll_hours field
-      gross_hours:   finalGrossHours,  // raw clock diff / 7shifts total hours
-      break_minutes: finalBreakMinutes, // total break duration (paid + unpaid)
-      wage,
-      cash_wage: Number(dbEmp?.cash_wage || 0),
-      source: '7shifts',
-    });
+      const userId  = String(p.user_id || p.userId || '');
+      const dbEmp   = dbEmpMap.get(userId);
+      const u7      = userById.get(userId);
+
+      // Name
+      const name = dbEmp?.full_name
+        || (u7 ? fullName(u7) : null)
+        || (p.first_name && p.last_name ? `${p.first_name} ${p.last_name}`.trim() : null)
+        || `Staff ${userId}`;
+
+      // Location / dept / role
+      const locId  = String(p.location_id  || u7?.location_id  || '');
+      const deptId = String(p.department_id || u7?.department_id || '');
+      const roleId = String(p.role_id       || u7?.role_id      || '');
+
+      const location   = normalizeLocation(locId, dbEmp?.location);
+      const department = mapDept(deptId) || dbEmp?.department || 'Unknown';
+      const role       = mapRole(roleId) || dbEmp?.role || 'Unknown';
+
+      // Match the authoritative 7shifts wage by punch role and effective date.
+      const punchDate = String(p.clocked_in || p.clock_in || '').slice(0, 10);
+      const wage = resolveEmployeeWage(
+        dbEmp,
+        selectHourlyWage(wagesByUser.get(userId) || [], p.role_id, punchDate),
+      );
+
+      // Times
+      const clockIn  = p.clocked_in  || p.clock_in  || null;
+      const clockOut = p.clocked_out || p.clock_out || null;
+
+      // Gross hours = raw clock diff (no breaks)
+      const grossHours = calculateGrossHours(clockIn, clockOut);
+
+      // ── CORRECT BREAK CALCULATION ──────────────────────────────────────────
+      // 7shifts returns breaks as: p.breaks = [{ in: "...", out: "...", paid: bool }]
+      const breaks = Array.isArray(p.breaks) ? p.breaks : [];
+      const { unpaidMinutes, breakMinutes } = calculateBreaks(breaks);
+
+      // Payroll hours = gross - unpaid breaks (matching 7shifts payroll export exactly)
+      const reportEntry = hoursAndWages.find({
+        punch_id: punchId,
+        user_id: userId,
+        employee_name: name,
+        clocked_in: clockIn,
+        location_id: locId,
+        location,
+      });
+      const reportPayrollHours = Number(reportEntry?.regular_hours);
+      const reportGrossHours = Number(reportEntry?.gross_hours);
+      const reportBreakMinutes = Number(reportEntry?.break_minutes);
+      if (reportEntry && Number.isFinite(reportPayrollHours)) reportMatchedPunches += 1;
+      const payrollHours = reportEntry && Number.isFinite(reportPayrollHours)
+        ? round2(reportPayrollHours)
+        : (clockOut ? calculatePayrollHours(grossHours, unpaidMinutes) : 0);
+      const roundedReportGross = Number.isFinite(reportGrossHours) ? round2(reportGrossHours) : 0;
+      const finalGrossHours = reportEntry && roundedReportGross > payrollHours + 0.01
+        ? roundedReportGross
+        : grossHours;
+      const finalBreakMinutes = reportEntry && Number.isFinite(reportBreakMinutes) && reportBreakMinutes > 0
+        ? Math.max(0, Math.round(reportBreakMinutes))
+        : Math.round(breakMinutes);
+
+      if (location && location !== 'Unknown') {
+        locBreakdown[location] = round2((locBreakdown[location] || 0) + payrollHours);
+      }
+
+      punchMap.set(punchId, {
+        punch_id:      punchId,
+        employee_id:   userId ? `7S-${userId}` : 'UNKNOWN',
+        seven_shifts_user_id: userId || null,
+        employee_name: name,
+        location,
+        department,
+        role,
+        clocked_in:    clockIn,
+        clocked_out:   clockOut,
+        hours:         payrollHours,     // hours = payroll hours (break-deducted)
+        payroll_hours: payrollHours,     // explicit payroll_hours field
+        gross_hours:   finalGrossHours,  // raw clock diff / 7shifts total hours
+        break_minutes: finalBreakMinutes, // total break duration (paid + unpaid)
+        wage,
+        cash_wage: Number(dbEmp?.cash_wage || 0),
+        source: '7shifts',
+      });
+    }
   }
 
   // ─── 6. Upsert punches ─────────────────────────────────────────────────────
   const punchRows = [...punchMap.values()];
+  if (usingReportRows) {
+    const { error: deleteError } = await supabase
+      .from('punches')
+      .delete()
+      .in('source', ['7shifts', '7shifts-hours-wages'])
+      .gte('clocked_in', startIso)
+      .lte('clocked_in', endIso);
+    if (deleteError) throw new Error(`Old 7shifts punch cleanup failed: ${deleteError.message}`);
+  }
   let punchesSynced = 0;
   for (let i = 0; i < punchRows.length; i += BATCH) {
     const { error } = await supabase.from('punches')
@@ -276,7 +402,9 @@ async function runSync(body: any): Promise<NextResponse> {
   const duration = Date.now() - t0;
   const notes = [
     `breaks parsed from ${rawPunches.filter((p:any)=>p.breaks?.length>0).length} punches`,
-    `hours&wages rows ${hoursAndWagesEntries.length}, matched ${reportMatchedPunches}/${rawPunches.length} punches`,
+    usingReportRows
+      ? `hours&wages authoritative rows ${punchRows.length}/${hoursAndWagesEntries.length}`
+      : `hours&wages rows ${hoursAndWagesEntries.length}, matched ${reportMatchedPunches}/${rawPunches.length} punches`,
     hoursAndWagesError ? `hours&wages fallback: ${hoursAndWagesError}` : '',
   ].filter(Boolean).join(' · ');
   const { error: logError } = await supabase.from('sync_log').insert({ triggered_by: triggeredBy, date_from: startDate, date_to: endDate, users_synced: userRows.length, punches_synced: punchesSynced, duration_ms: duration, location_breakdown: locBreakdown, notes });
@@ -291,6 +419,7 @@ async function runSync(body: any): Promise<NextResponse> {
     breaks_found: rawPunches.filter((p: any) => (p.breaks||[]).length > 0).length,
     hours_and_wages_matched: reportMatchedPunches,
     hours_and_wages_rows: hoursAndWagesEntries.length,
+    hours_and_wages_authoritative: usingReportRows,
     hours_and_wages_error: hoursAndWagesError || undefined,
     wages_synced: wagesByUser.size,
     wage_errors: wageErrors.length ? wageErrors : undefined,
