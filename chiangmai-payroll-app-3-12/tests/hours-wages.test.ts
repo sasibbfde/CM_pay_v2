@@ -44,3 +44,12 @@ test('matches hours and wages rows by punch id or employee date location', () =>
   assert.equal(lookup.find({ punch_id:'p-1' })?.regular_hours, 7.5);
   assert.equal(lookup.find({ user_id:'102', location:'Chiang Mai York Mills', clocked_in:'2026-06-17T16:00:00Z' })?.regular_hours, 5.85);
 });
+
+test('matches compact 7shifts location names like YorkMills', () => {
+  const lookup = hoursWagesLookup(flattenHoursAndWagesReport({
+    data: [
+      { user_id:'103', location_name:'Chiang Mai YorkMills', clocked_in:'2026-06-18T16:00:00Z', regular_hours:6.25, total_hours:6.25 },
+    ],
+  }));
+  assert.equal(lookup.find({ user_id:'103', location:'Chiang Mai York Mills', clocked_in:'2026-06-18T16:00:00Z' })?.regular_hours, 6.25);
+});

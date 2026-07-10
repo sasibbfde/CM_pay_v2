@@ -275,7 +275,7 @@ async function runSync(body: any): Promise<NextResponse> {
   const duration = Date.now() - t0;
   const notes = [
     `breaks parsed from ${rawPunches.filter((p:any)=>p.breaks?.length>0).length} punches`,
-    `hours&wages matched ${reportMatchedPunches}/${rawPunches.length} punches`,
+    `hours&wages rows ${hoursAndWagesEntries.length}, matched ${reportMatchedPunches}/${rawPunches.length} punches`,
     hoursAndWagesError ? `hours&wages fallback: ${hoursAndWagesError}` : '',
   ].filter(Boolean).join(' · ');
   const { error: logError } = await supabase.from('sync_log').insert({ triggered_by: triggeredBy, date_from: startDate, date_to: endDate, users_synced: userRows.length, punches_synced: punchesSynced, duration_ms: duration, location_breakdown: locBreakdown, notes });

@@ -20,6 +20,11 @@ const num = (value: any) => {
 };
 
 const str = (value: any) => value == null || value === '' ? undefined : String(value);
+const keyLocation = (value?: string) => (value || '')
+  .toLowerCase()
+  .replace(/york\s*mills/g, 'yorkmills')
+  .replace(/village/g, '')
+  .replace(/[^a-z0-9]/g, '');
 
 function firstNumber(source: any, names: string[]) {
   for (const name of names) {
@@ -84,7 +89,7 @@ function entryFromObject(value: any, parent: Partial<HoursWagesEntry>): HoursWag
   const regularHours = regular ?? gross ?? 0;
   const grossHours = gross ?? regularHours;
   return {
-    punch_id: firstString(value, ['punch_id', 'time_punch_id']) || firstString(punchObject, ['id', 'punch_id']) || parent.punch_id,
+    punch_id: firstString(value, ['punch_id', 'time_punch_id', 'id']) || firstString(punchObject, ['id', 'punch_id']) || parent.punch_id,
     user_id: firstString(value, ['user_id', 'employee_id']) || firstString(userObject, ['id', 'user_id', 'employee_id']) || parent.user_id,
     location_id: firstString(value, ['location_id']) || firstString(locationObject, ['id', 'location_id']) || parent.location_id,
     location: firstString(value, ['location_name']) || firstString(locationObject, ['name']) || parent.location,
@@ -153,7 +158,7 @@ export function hoursWagesLookup(entries: HoursWagesEntry[]) {
     if (entry.punch_id) byPunchId.set(String(entry.punch_id), entry);
     if (!entry.user_id || !entry.clocked_in) continue;
     const date = String(entry.clocked_in).slice(0, 10);
-    const location = entry.location_id || entry.location || '';
+    const location = entry.location_id || keyLocation(entry.location);
     const key = `${entry.user_id}|${date}|${location}`;
     byFallback.set(key, [...(byFallback.get(key) || []), entry]);
   }
@@ -162,7 +167,7 @@ export function hoursWagesLookup(entries: HoursWagesEntry[]) {
       if (punch.punch_id && byPunchId.has(String(punch.punch_id))) return byPunchId.get(String(punch.punch_id));
       if (!punch.user_id || !punch.clocked_in) return undefined;
       const date = String(punch.clocked_in).slice(0, 10);
-      const locations = [punch.location_id, punch.location, ''].filter((item, index, all) => item !== undefined && all.indexOf(item) === index);
+      const locations = [punch.location_id, keyLocation(punch.location), ''].filter((item, index, all) => item !== undefined && all.indexOf(item) === index);
       for (const location of locations) {
         const queue = byFallback.get(`${punch.user_id}|${date}|${location}`);
         const entry = queue?.shift();
