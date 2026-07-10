@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
-import { fetchUsers, fetchTimePunches, fetchDepartments, fetchRoles, fetchUserWages } from '@/lib/7shifts';
+import { fetchUsers, fetchTimePunches, fetchDepartments, fetchRoles, fetchUserWages, fetchHoursAndWages } from '@/lib/7shifts';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { resolveEmployeeWage, selectHourlyWage, SevenShiftsWage } from '@/lib/wages';
 import { calculateBreaks, calculateGrossHours, calculatePayrollHours } from '@/lib/time-punch';
 import { fillMissingRosterDetails } from '@/lib/roster-details';
+import { flattenHoursAndWagesReport, hoursWagesLookup } from '@/lib/hours-wages';
 
 export const maxDuration = 300;
 
@@ -151,8 +152,15 @@ async function runSync(body: any): Promise<NextResponse> {
   // ─── 4. Fetch time punches ────────────────────────────────────────────────
   const startDate = startIso.split('T')[0];
   const endDate   = endIso.split('T')[0];
-  const punchesRes = await fetchTimePunches(startIso, endIso);
+  const [punchesRes, hoursAndWagesRes] = await Promise.all([
+    fetchTimePunches(startIso, endIso),
+    fetchHoursAndWages(startDate, endDate).catch((error:any) => ({ error:error.message, data:[] })),
+  ]);
   const rawPunches: any[] = punchesRes.data || [];
+  const hoursAndWagesEntries = flattenHoursAndWagesReport(hoursAndWagesRes);
+  const hoursAndWages = hoursWagesLookup(hoursAndWagesEntries);
+  const hoursAndWagesError = 'error' in hoursAndWagesRes ? String(hoursAndWagesRes.error) : '';
+  let reportMatchedPunches = 0;
 
   // ─── 5. Build punch rows with CORRECT break-deducted payroll hours ─────────
   const punchMap = new Map<string, any>();
@@ -202,7 +210,27 @@ async function runSync(body: any): Promise<NextResponse> {
     const { unpaidMinutes, breakMinutes } = calculateBreaks(breaks);
 
     // Payroll hours = gross - unpaid breaks (matching 7shifts payroll export exactly)
-    const payrollHours = clockOut ? calculatePayrollHours(grossHours, unpaidMinutes) : 0;
+    const reportEntry = hoursAndWages.find({
+      punch_id: punchId,
+      user_id: userId,
+      clocked_in: clockIn,
+      location_id: locId,
+      location,
+    });
+    const reportPayrollHours = Number(reportEntry?.regular_hours);
+    const reportGrossHours = Number(reportEntry?.gross_hours);
+    const reportBreakMinutes = Number(reportEntry?.break_minutes);
+    if (reportEntry && Number.isFinite(reportPayrollHours)) reportMatchedPunches += 1;
+    const payrollHours = reportEntry && Number.isFinite(reportPayrollHours)
+      ? Math.max(0, Math.round(reportPayrollHours * 100) / 100)
+      : (clockOut ? calculatePayrollHours(grossHours, unpaidMinutes) : 0);
+    const roundedReportGross = Number.isFinite(reportGrossHours) ? Math.round(reportGrossHours * 100) / 100 : 0;
+    const finalGrossHours = reportEntry && roundedReportGross > payrollHours + 0.01
+      ? roundedReportGross
+      : grossHours;
+    const finalBreakMinutes = reportEntry && Number.isFinite(reportBreakMinutes) && reportBreakMinutes > 0
+      ? Math.max(0, Math.round(reportBreakMinutes))
+      : Math.round(breakMinutes);
 
     if (location && location !== 'Unknown') {
       locBreakdown[location] = (locBreakdown[location] || 0) + payrollHours;
@@ -220,8 +248,8 @@ async function runSync(body: any): Promise<NextResponse> {
       clocked_out:   clockOut,
       hours:         payrollHours,     // hours = payroll hours (break-deducted)
       payroll_hours: payrollHours,     // explicit payroll_hours field
-      gross_hours:   grossHours,       // raw clock diff
-      break_minutes: Math.round(breakMinutes),    // total break duration (paid + unpaid)
+      gross_hours:   finalGrossHours,  // raw clock diff / 7shifts total hours
+      break_minutes: finalBreakMinutes, // total break duration (paid + unpaid)
       wage,
       cash_wage: Number(dbEmp?.cash_wage || 0),
       source: '7shifts',
@@ -245,7 +273,12 @@ async function runSync(body: any): Promise<NextResponse> {
 
   // ─── 8. Log sync ───────────────────────────────────────────────────────────
   const duration = Date.now() - t0;
-  const { error: logError } = await supabase.from('sync_log').insert({ triggered_by: triggeredBy, date_from: startDate, date_to: endDate, users_synced: userRows.length, punches_synced: punchesSynced, duration_ms: duration, location_breakdown: locBreakdown, notes: `breaks parsed from ${rawPunches.filter((p:any)=>p.breaks?.length>0).length} punches` });
+  const notes = [
+    `breaks parsed from ${rawPunches.filter((p:any)=>p.breaks?.length>0).length} punches`,
+    `hours&wages matched ${reportMatchedPunches}/${rawPunches.length} punches`,
+    hoursAndWagesError ? `hours&wages fallback: ${hoursAndWagesError}` : '',
+  ].filter(Boolean).join(' · ');
+  const { error: logError } = await supabase.from('sync_log').insert({ triggered_by: triggeredBy, date_from: startDate, date_to: endDate, users_synced: userRows.length, punches_synced: punchesSynced, duration_ms: duration, location_breakdown: locBreakdown, notes });
   if (logError) throw new Error(`Sync log write failed: ${logError.message}`);
 
   return NextResponse.json({
@@ -255,6 +288,9 @@ async function runSync(body: any): Promise<NextResponse> {
     duration_ms: duration,
     location_breakdown: locBreakdown,
     breaks_found: rawPunches.filter((p: any) => (p.breaks||[]).length > 0).length,
+    hours_and_wages_matched: reportMatchedPunches,
+    hours_and_wages_rows: hoursAndWagesEntries.length,
+    hours_and_wages_error: hoursAndWagesError || undefined,
     wages_synced: wagesByUser.size,
     wage_errors: wageErrors.length ? wageErrors : undefined,
   });
