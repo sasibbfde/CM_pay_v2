@@ -26,6 +26,16 @@ const LOCATION_MAP: Record<string, string> = {
   '500371': 'Chiang Mai Mississauga',
 };
 
+const PAYROLL_REPORT_LOCATION_IDS = [
+  '450889', // Liberty Village
+  '458858', // York Mills
+  '461096', // Junction
+  '461097', // Danforth
+  '464811', // Imm Thai Kitchen
+  '465654', // Parklawn
+  '467000', // Mississauga
+];
+
 function mapLoc(id: any): string {
   return LOCATION_MAP[String(id)] || 'Unknown';
 }
@@ -187,14 +197,19 @@ async function runSync(body: any): Promise<NextResponse> {
   // ─── 4. Fetch time punches ────────────────────────────────────────────────
   const startDate = startIso.split('T')[0];
   const endDate   = endIso.split('T')[0];
-  const [punchesRes, hoursAndWagesRes] = await Promise.all([
+  const [punchesRes, ...hoursAndWagesReports] = await Promise.all([
     fetchTimePunches(startIso, endIso),
-    fetchHoursAndWages(startDate, endDate).catch((error:any) => ({ error:error.message, data:[] })),
+    ...PAYROLL_REPORT_LOCATION_IDS.map(locationId => fetchHoursAndWages(startDate, endDate, locationId)
+      .then(report => ({
+        location_id: locationId,
+        location_name: mapLoc(locationId),
+        data: report?.data || [],
+      }))),
   ]);
   const rawPunches: any[] = punchesRes.data || [];
-  const hoursAndWagesEntries = flattenHoursAndWagesReport(hoursAndWagesRes);
+  const hoursAndWagesEntries = hoursAndWagesReports.flatMap(report => flattenHoursAndWagesReport(report));
   const hoursAndWages = hoursWagesLookup(hoursAndWagesEntries);
-  const hoursAndWagesError = 'error' in hoursAndWagesRes ? String(hoursAndWagesRes.error) : '';
+  const hoursAndWagesError = '';
   let reportMatchedPunches = 0;
 
   // ─── 5. Build punch rows with CORRECT break-deducted payroll hours ─────────

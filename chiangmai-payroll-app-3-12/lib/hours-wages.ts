@@ -172,7 +172,10 @@ function walk(value: any, parent: Partial<HoursWagesEntry>, output: HoursWagesEn
 
 export function flattenHoursAndWagesReport(payload: any): HoursWagesEntry[] {
   const output: HoursWagesEntry[] = [];
-  walk(payload?.data ?? payload, {}, output);
+  const parent = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? childParent(payload, {})
+    : {};
+  walk(payload?.data ?? payload, parent, output);
   const seen = new Set<string>();
   return output.filter(entry => {
     const key = [

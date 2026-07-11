@@ -56,6 +56,18 @@ test('matches compact 7shifts location names like YorkMills', () => {
   assert.equal(lookup.find({ user_id:'103', location:'Chiang Mai York Mills', clocked_in:'2026-06-18T16:00:00Z' })?.regular_hours, 6.25);
 });
 
+test('applies wrapper location to per-location hours and wages report rows', () => {
+  const rows = flattenHoursAndWagesReport({
+    location_id:'458858',
+    location_name:'Chiang Mai York Mills',
+    data: [
+      { user_id:'104', clocked_in:'2026-06-19T16:00:00Z', regular_hours:4.75, total_hours:4.75 },
+    ],
+  });
+  assert.equal(rows[0].location_id, '458858');
+  assert.equal(rows[0].location, 'Chiang Mai York Mills');
+});
+
 test('matches hours and wages rows by employee name date and location when ids are missing', () => {
   const lookup = hoursWagesLookup(flattenHoursAndWagesReport({
     data: [
