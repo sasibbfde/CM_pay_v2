@@ -1,4 +1,5 @@
 import { Employee, EmployeeRule, PayrollRow, Punch } from './types';
+import { resolveCashWage } from './cash-rates';
 
 const PAYROLL_TIME_ZONE = 'America/Toronto';
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -67,7 +68,11 @@ export function applyEmployeeWages(punches: Punch[], employees: Employee[]) {
     return {
       ...punch,
       wage: Number(employee.wage || 0),
-      cash_wage: Number(employee.cash_wage || 0),
+      cash_wage: resolveCashWage({
+        name: punch.employee_name || employee.full_name,
+        location: punch.location || employee.location,
+        cash_wage: punch.cash_wage || employee.cash_wage,
+      }),
     };
   });
 }

@@ -5,6 +5,7 @@ import { resolveEmployeeWage, selectHourlyWage, SevenShiftsWage } from '@/lib/wa
 import { calculateBreaks, calculateGrossHours, calculatePayrollHours } from '@/lib/time-punch';
 import { fillMissingRosterDetails } from '@/lib/roster-details';
 import { flattenHoursAndWagesReport, hoursWagesLookup } from '@/lib/hours-wages';
+import { resolveCashWage } from '@/lib/cash-rates';
 
 export const maxDuration = 300;
 
@@ -157,6 +158,7 @@ async function runSync(body: any): Promise<NextResponse> {
       role:role || existing?.role || '',
       wage,
     });
+    const cashWage = resolveCashWage({ name: fullName(u), location: completed.location, cash_wage: existing?.cash_wage });
     return {
       employee_id:          `7S-${u.id}`,
       seven_shifts_user_id: String(u.id),
@@ -170,6 +172,7 @@ async function runSync(body: any): Promise<NextResponse> {
       updated_at:           new Date().toISOString(),
       // Only set these if 7shifts has a real value — never overwrite DB data with null
       ...(Number(completed.wage||0)>0 ? { wage:completed.wage } : {}),
+      ...(Number(cashWage||0)>0 ? { cash_wage:cashWage } : {}),
       ...(completed.location          ? { location:completed.location }: {}),
       ...(completed.department        ? { department:completed.department }: {}),
       ...(completed.role              ? { role:completed.role }: {}),
@@ -268,6 +271,7 @@ async function runSync(body: any): Promise<NextResponse> {
         dbEmp,
         Number(entry.wage || 0) || selectHourlyWage(wagesByUser.get(userId) || [], undefined, date),
       );
+      const cashWage = resolveCashWage({ name, location, cash_wage: dbEmp?.cash_wage });
       const department = dbEmp?.department || 'Unknown';
       const role = entry.role || dbEmp?.role || 'Unknown';
       const punchId = reportPunchId(entry, index);
@@ -291,7 +295,7 @@ async function runSync(body: any): Promise<NextResponse> {
         gross_hours: grossHours,
         break_minutes: breakMinutes,
         wage,
-        cash_wage: Number(dbEmp?.cash_wage || 0),
+        cash_wage: cashWage,
         source: '7shifts-hours-wages',
       });
     }
@@ -356,6 +360,7 @@ async function runSync(body: any): Promise<NextResponse> {
       const payrollHours = reportEntry && Number.isFinite(reportPayrollHours)
         ? round2(reportPayrollHours)
         : (clockOut ? calculatePayrollHours(grossHours, unpaidMinutes) : 0);
+      const cashWage = resolveCashWage({ name, location, cash_wage: dbEmp?.cash_wage });
       const roundedReportGross = Number.isFinite(reportGrossHours) ? round2(reportGrossHours) : 0;
       const finalGrossHours = reportEntry && roundedReportGross > payrollHours + 0.01
         ? roundedReportGross
@@ -383,7 +388,7 @@ async function runSync(body: any): Promise<NextResponse> {
         gross_hours:   finalGrossHours,  // raw clock diff / 7shifts total hours
         break_minutes: finalBreakMinutes, // total break duration (paid + unpaid)
         wage,
-        cash_wage: Number(dbEmp?.cash_wage || 0),
+        cash_wage: cashWage,
         source: '7shifts',
       });
     }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { fillMissingRosterDetails } from '@/lib/roster-details';
 import { firstPayrollPeriodEnd, isNewEmployee } from '@/lib/employee-status';
+import { applyCashWage } from '@/lib/cash-rates';
 
 const PAGE = 1000;
 
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
     const activeOnly = sp.get('active') !== 'false';
     const supabase   = getSupabaseAdmin();
 
-    const employees = (await fetchAllEmployees(supabase, activeOnly)).map(fillMissingRosterDetails).map(employee => ({
+    const employees = (await fetchAllEmployees(supabase, activeOnly)).map(fillMissingRosterDetails).map(applyCashWage).map(employee => ({
       ...employee,
       new_until:firstPayrollPeriodEnd(employee.created_at),
       is_new:isNewEmployee(employee.created_at),

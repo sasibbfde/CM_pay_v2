@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { getPayrollDate } from '@/lib/payroll';
+import { resolveCashWage } from '@/lib/cash-rates';
 
 export async function GET(
   req: NextRequest,
@@ -33,14 +34,14 @@ export async function GET(
     const [{ data, error }, { data: employee }] = await Promise.all([
       supabase
         .from('punches')
-        .select('punch_id, employee_id, clocked_in, clocked_out, hours, payroll_hours, gross_hours, break_minutes, location, department, role, wage, cash_wage')
+        .select('punch_id, employee_id, employee_name, clocked_in, clocked_out, hours, payroll_hours, gross_hours, break_minutes, location, department, role, wage, cash_wage')
         .or(`employee_id.eq.7S-${cleanId},employee_id.eq.${cleanId},seven_shifts_user_id.eq.${cleanId}`)
         .gte('clocked_in', queryStart.toISOString())
         .lte('clocked_in', queryEnd.toISOString())
         .order('clocked_in', { ascending: false }),
       supabase
         .from('employees')
-        .select('wage, cash_wage')
+        .select('full_name, location, wage, cash_wage')
         .or(`employee_id.eq.7S-${cleanId},employee_id.eq.${cleanId},seven_shifts_user_id.eq.${cleanId}`)
         .limit(1)
         .maybeSingle(),
@@ -65,7 +66,11 @@ export async function GET(
         // Older imported punches may not have stored wage data. Use the employee
         // wage only as a fallback; synced historical punch wages remain preferred.
         wage:          Number(p.wage) > 0 ? Number(p.wage) : Number(employee?.wage || 0),
-        cash_wage:     Number(p.cash_wage) > 0 ? Number(p.cash_wage) : Number(employee?.cash_wage || 0),
+        cash_wage:     resolveCashWage({
+          name: p.employee_name || employee?.full_name,
+          location: p.location || employee?.location,
+          cash_wage: p.cash_wage || employee?.cash_wage,
+        }),
       };
     });
 

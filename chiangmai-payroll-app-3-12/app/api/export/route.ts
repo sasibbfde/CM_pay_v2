@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { applyEmployeeWages, calculatePayroll, filterPunchesByDateRange } from '@/lib/payroll';
+import { resolveCashWage } from '@/lib/cash-rates';
 import { Employee, EmployeeRule, Punch } from '@/lib/types';
 import ExcelJS from 'exceljs';
 
@@ -45,12 +46,13 @@ export async function GET(req: NextRequest) {
         .order('clocked_in',{ascending:false}));
       const punches = filterPunchesByDateRange(allPunches.map(mapPunch), from, to);
       const ws=wb.addWorksheet('Logbook');
-      ws.columns=[{header:'Date',width:14},{header:'Clock In',width:12},{header:'Clock Out',width:12},{header:'Break (min)',width:12},{header:'Payroll Hours',width:14},{header:'Gross Hours',width:12},{header:'Location',width:22},{header:'Role',width:16},{header:'Wage',width:10},{header:'Pay',width:12}];
+      ws.columns=[{header:'Date',width:14},{header:'Clock In',width:12},{header:'Clock Out',width:12},{header:'Break (min)',width:12},{header:'Payroll Hours',width:14},{header:'Gross Hours',width:12},{header:'Location',width:22},{header:'Role',width:16},{header:'Cheque Wage',width:12},{header:'Cash Wage',width:12},{header:'Cheque Pay',width:12},{header:'Cash Pay',width:12}];
       hdr(ws,1); fill(ws,1);
       for(const p of punches){
         const ph=Number(p.payroll_hours)||Number(p.hours)||0;
         const wage=+p.wage||0;
-        ws.addRow([p.clocked_in?.split('T')[0],p.clocked_in?.split('T')[1]?.slice(0,5),p.clocked_out?.split('T')[1]?.slice(0,5)||'Still In',Number(p.break_minutes)||0,ph,Number(p.gross_hours)||ph,p.location,p.role||p.department,wage,+(ph*wage).toFixed(2)]);
+        const cashWage=resolveCashWage({name:p.employee_name,location:p.location,cash_wage:p.cash_wage});
+        ws.addRow([p.clocked_in?.split('T')[0],p.clocked_in?.split('T')[1]?.slice(0,5),p.clocked_out?.split('T')[1]?.slice(0,5)||'Still In',Number(p.break_minutes)||0,ph,Number(p.gross_hours)||ph,p.location,p.role||p.department,wage,cashWage,+(ph*wage).toFixed(2),+(ph*cashWage).toFixed(2)]);
       }
     } else {
       // Full export — all tabs
@@ -104,11 +106,13 @@ export async function GET(req: NextRequest) {
 
       // ── Sheet 3: Daily Punches ──
       const ws3=wb.addWorksheet('Daily Punches');
-      ws3.columns=[{header:'Employee',width:26},{header:'Date',width:12},{header:'In',width:10},{header:'Out',width:10},{header:'Break (min)',width:11},{header:'Payroll Hrs',width:12},{header:'Gross Hrs',width:10},{header:'Location',width:22},{header:'Role',width:16},{header:'Wage',width:8},{header:'Pay',width:10}];
+      ws3.columns=[{header:'Employee',width:26},{header:'Date',width:12},{header:'In',width:10},{header:'Out',width:10},{header:'Break (min)',width:11},{header:'Payroll Hrs',width:12},{header:'Gross Hrs',width:10},{header:'Location',width:22},{header:'Role',width:16},{header:'Cheque Wage',width:12},{header:'Cash Wage',width:12},{header:'Cheque Pay',width:12},{header:'Cash Pay',width:12}];
       hdr(ws3,1); fill(ws3,1);
       for(const p of punches.sort((a:any,b:any)=>a.employee_name.localeCompare(b.employee_name))){
         const ph=Number(p.payroll_hours)||Number(p.hours)||0;
-        ws3.addRow([p.employee_name,p.clocked_in?.split('T')[0],p.clocked_in?.split('T')[1]?.slice(0,5),p.clocked_out?.split('T')[1]?.slice(0,5)||'Still In',Number(p.break_minutes)||0,ph,Number(p.gross_hours)||ph,p.location,p.role||p.department,+p.wage||0,+(ph*(+p.wage||0)).toFixed(2)]);
+        const wage=+p.wage||0;
+        const cashWage=resolveCashWage({name:p.employee_name,location:p.location,cash_wage:p.cash_wage});
+        ws3.addRow([p.employee_name,p.clocked_in?.split('T')[0],p.clocked_in?.split('T')[1]?.slice(0,5),p.clocked_out?.split('T')[1]?.slice(0,5)||'Still In',Number(p.break_minutes)||0,ph,Number(p.gross_hours)||ph,p.location,p.role||p.department,wage,cashWage,+(ph*wage).toFixed(2),+(ph*cashWage).toFixed(2)]);
       }
 
       // One authoritative labour sheet per actual punch location. Multi-location
