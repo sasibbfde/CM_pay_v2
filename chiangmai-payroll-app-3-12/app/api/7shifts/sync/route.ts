@@ -200,8 +200,12 @@ async function runSync(body: any): Promise<NextResponse> {
   // ─── 4. Fetch time punches ────────────────────────────────────────────────
   const startDate = startIso.split('T')[0];
   const endDate   = endIso.split('T')[0];
+  const queryStart = new Date(`${startDate}T00:00:00Z`);
+  queryStart.setUTCDate(queryStart.getUTCDate() - 1);
+  const queryEnd = new Date(`${endDate}T23:59:59Z`);
+  queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
   const [punchesRes, ...hoursAndWagesReports] = await Promise.all([
-    fetchTimePunches(startIso, endIso),
+    fetchTimePunches(queryStart.toISOString(), queryEnd.toISOString()),
     ...PAYROLL_REPORT_LOCATION_IDS.map(locationId => fetchHoursAndWages(startDate, endDate, locationId)
       .then(report => ({
         location_id: locationId,
@@ -397,12 +401,17 @@ async function runSync(body: any): Promise<NextResponse> {
   // ─── 6. Upsert punches ─────────────────────────────────────────────────────
   const punchRows = [...punchMap.values()];
   if (usingReportRows) {
+    // Payroll periods are evaluated by Toronto business date. A local June 30
+    // late-night punch can have a July 1 UTC `clocked_in`, so cleanup must use
+    // the same one-day safety window as payroll reads. Otherwise stale pre-report
+    // rows can survive beside the authoritative Hours & Wages rows and inflate
+    // location totals for Junction / Mississauga / York Mills.
     const { error: deleteError } = await supabase
       .from('punches')
       .delete()
       .in('source', ['7shifts', '7shifts-hours-wages'])
-      .gte('clocked_in', startIso)
-      .lte('clocked_in', endIso);
+      .gte('clocked_in', queryStart.toISOString())
+      .lte('clocked_in', queryEnd.toISOString());
     if (deleteError) throw new Error(`Old 7shifts punch cleanup failed: ${deleteError.message}`);
   }
   let punchesSynced = 0;
