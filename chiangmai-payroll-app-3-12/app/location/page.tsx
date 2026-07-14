@@ -8,8 +8,11 @@ type PayrollRow = {
   location: string;
   department?: string;
   role?: string;
-  actual_hours: number;
-  payroll_hours: number;
+  gross_hours: number;
+  break_hours: number;
+  payable_hours: number;
+  rounded_hours: number;
+  cheque_hours: number;
   cash_hours: number;
   wage: number;
   payroll_amount: number;
@@ -34,7 +37,7 @@ const cad = (n: number) => new Intl.NumberFormat('en-CA', { style: 'currency', c
 const cadFull = (n: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n || 0);
 const hrs = (n: number) => `${(n || 0).toFixed(2)}h`;
 function periodRange(year:number,month:number,period:string){const prefix=`${year}-${String(month).padStart(2,'0')}`;const last=String(new Date(year,month,0).getDate()).padStart(2,'0');return{start:`${prefix}-${period==='16-end'?'16':'01'}`,end:`${prefix}-${period==='1-15'?'15':last}`};}
-function locationRows(reportRows:PayrollReportRow[]):PayrollRow[]{return reportRows.flatMap(row=>row.locations.map(location=>{const local=payrollLocationView(row,location);return{employee_name:row.employee_name,location,department:row.roles[0]||'',role:row.roles.join(', '),actual_hours:local.gross_hours,payroll_hours:local.cheque_hours,cash_hours:local.cash_hours,wage:local.wage,payroll_amount:local.cheque_pay,cash_amount:local.cash_pay,rule_applied:local.rule_type,notes:local.notes};}));}
+function locationRows(reportRows:PayrollReportRow[]):PayrollRow[]{return reportRows.flatMap(row=>row.locations.map(location=>{const local=payrollLocationView(row,location);return{employee_name:row.employee_name,location,department:row.roles[0]||'',role:row.roles.join(', '),gross_hours:local.gross_hours,break_hours:local.break_hours,payable_hours:local.payable_hours,rounded_hours:local.rounded_hours,cheque_hours:local.cheque_hours,cash_hours:local.cash_hours,wage:local.wage,payroll_amount:local.cheque_pay,cash_amount:local.cash_pay,rule_applied:local.rule_type,notes:local.notes};}));}
 
 export default function LocationPage() {
   const now = new Date();
@@ -84,8 +87,11 @@ export default function LocationPage() {
 
   const locTotals = (locRows: PayrollRow[]) => ({
     employees: locRows.length,
-    totalHours: locRows.reduce((s, r) => s + r.actual_hours, 0),
-    payrollHours: locRows.reduce((s, r) => s + r.payroll_hours, 0),
+    grossHours: locRows.reduce((s, r) => s + r.gross_hours, 0),
+    breakHours: locRows.reduce((s, r) => s + r.break_hours, 0),
+    payableHours: locRows.reduce((s, r) => s + r.payable_hours, 0),
+    roundedHours: locRows.reduce((s, r) => s + r.rounded_hours, 0),
+    chequeHours: locRows.reduce((s, r) => s + r.cheque_hours, 0),
     cashHours: locRows.reduce((s, r) => s + r.cash_hours, 0),
     payrollAmount: locRows.reduce((s, r) => s + r.payroll_amount, 0),
     cashAmount: locRows.reduce((s, r) => s + r.cash_amount, 0),
@@ -154,8 +160,10 @@ export default function LocationPage() {
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         {[
           { label: 'Employees', val: grandTotal.employees },
-          { label: 'Total hrs', val: hrs(grandTotal.totalHours) },
-          { label: 'Payroll hrs', val: hrs(grandTotal.payrollHours) },
+          { label: 'Gross hrs', val: hrs(grandTotal.grossHours) },
+          { label: 'Break hrs', val: hrs(grandTotal.breakHours) },
+          { label: 'Payable hrs', val: hrs(grandTotal.payableHours) },
+          { label: 'Cheque hrs', val: hrs(grandTotal.chequeHours) },
           { label: 'Cash hrs', val: hrs(grandTotal.cashHours) },
           { label: 'Payroll $', val: cad(grandTotal.payrollAmount) },
           { label: 'Cash $', val: cad(grandTotal.cashAmount) },
@@ -190,8 +198,10 @@ export default function LocationPage() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                    <Stat label="Total hrs" val={hrs(t.totalHours)} />
-                    <Stat label="Payroll hrs" val={hrs(t.payrollHours)} />
+                    <Stat label="Gross hrs" val={hrs(t.grossHours)} />
+                    <Stat label="Break hrs" val={hrs(t.breakHours)} />
+                    <Stat label="Payable hrs" val={hrs(t.payableHours)} color="#22d3ee" />
+                    <Stat label="Cheque hrs" val={hrs(t.chequeHours)} />
                     <Stat label="Cash hrs" val={hrs(t.cashHours)} color="#fbbf24" />
                     <Stat label="Payroll $" val={cadFull(t.payrollAmount)} color="#34d399" />
                     <Stat label="Cash $" val={cadFull(t.cashAmount)} color="#fbbf24" />
@@ -204,7 +214,7 @@ export default function LocationPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                       <thead>
                         <tr style={{ background: 'rgba(0,0,0,0.2)' }}>
-                          {['Employee','Department','Role','Actual hrs','Payroll hrs','Cash hrs','Wage','Payroll $','Cash $','Rule'].map(h => (
+                          {['Employee','Department','Role','Gross hrs','Break hrs','Payable hrs','Rounded','Cheque hrs','Cash hrs','Wage','Payroll $','Cash $','Rule'].map(h => (
                             <th key={h} style={{ padding: '9px 14px', textAlign: 'left', color: '#6b7280', fontWeight: 500, whiteSpace: 'nowrap', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                           ))}
                         </tr>
@@ -218,8 +228,11 @@ export default function LocationPage() {
                               <td style={{ padding: '8px 14px', color: isUnknown ? '#f87171' : '#e5e7eb', fontWeight: isUnknown ? 600 : 400 }}>{row.employee_name}</td>
                               <td style={{ padding: '8px 14px', color: '#9ca3af' }}>{row.department || '–'}</td>
                               <td style={{ padding: '8px 14px', color: '#9ca3af' }}>{row.role || '–'}</td>
-                              <td style={{ padding: '8px 14px', color: '#e5e7eb', textAlign: 'right' }}>{hrs(row.actual_hours)}</td>
-                              <td style={{ padding: '8px 14px', color: '#e5e7eb', textAlign: 'right' }}>{hrs(row.payroll_hours)}</td>
+                              <td style={{ padding: '8px 14px', color: '#e5e7eb', textAlign: 'right' }}>{hrs(row.gross_hours)}</td>
+                              <td style={{ padding: '8px 14px', color: '#9ca3af', textAlign: 'right' }}>{hrs(row.break_hours)}</td>
+                              <td style={{ padding: '8px 14px', color: '#22d3ee', textAlign: 'right', fontWeight: 600 }}>{hrs(row.payable_hours)}</td>
+                              <td style={{ padding: '8px 14px', color: '#d1d5db', textAlign: 'right' }}>{hrs(row.rounded_hours)}</td>
+                              <td style={{ padding: '8px 14px', color: '#e5e7eb', textAlign: 'right' }}>{hrs(row.cheque_hours)}</td>
                               <td style={{ padding: '8px 14px', color: row.cash_hours > 0 ? '#fbbf24' : '#6b7280', textAlign: 'right' }}>{hrs(row.cash_hours)}</td>
                               <td style={{ padding: '8px 14px', color: '#9ca3af', textAlign: 'right' }}>${(row.wage||0).toFixed(2)}</td>
                               <td style={{ padding: '8px 14px', color: '#34d399', textAlign: 'right', fontWeight: 500 }}>{cadFull(row.payroll_amount)}</td>
@@ -233,8 +246,11 @@ export default function LocationPage() {
                         {/* Location totals row */}
                         <tr style={{ borderTop: '2px solid rgba(255,255,255,0.1)', background: 'rgba(34,211,238,0.04)' }}>
                           <td style={{ padding: '9px 14px', fontWeight: 600, color: '#22d3ee' }} colSpan={3}>Total</td>
-                          <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 600, color: '#e5e7eb' }}>{hrs(t.totalHours)}</td>
-                          <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 600, color: '#e5e7eb' }}>{hrs(t.payrollHours)}</td>
+                          <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 600, color: '#e5e7eb' }}>{hrs(t.grossHours)}</td>
+                          <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 600, color: '#9ca3af' }}>{hrs(t.breakHours)}</td>
+                          <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#22d3ee' }}>{hrs(t.payableHours)}</td>
+                          <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 600, color: '#e5e7eb' }}>{hrs(t.roundedHours)}</td>
+                          <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 600, color: '#e5e7eb' }}>{hrs(t.chequeHours)}</td>
                           <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 600, color: '#fbbf24' }}>{hrs(t.cashHours)}</td>
                           <td style={{ padding: '9px 14px' }}></td>
                           <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#34d399' }}>{cadFull(t.payrollAmount)}</td>
