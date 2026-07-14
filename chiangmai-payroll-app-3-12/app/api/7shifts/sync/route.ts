@@ -6,6 +6,7 @@ import { calculateBreaks, calculateGrossHours, calculatePayrollHours } from '@/l
 import { fillMissingRosterDetails } from '@/lib/roster-details';
 import { flattenHoursAndWagesReport, hoursWagesLookup } from '@/lib/hours-wages';
 import { resolveCashWage } from '@/lib/cash-rates';
+import { evaluateSyncSafety } from '@/lib/sync-safety';
 
 export const maxDuration = 300;
 
@@ -105,6 +106,8 @@ async function runSync(body: any): Promise<NextResponse> {
   const endIso   = body.end   || new Date().toISOString().replace(/T.*/, 'T23:59:59.999Z');
   const triggeredBy = body.triggered_by || 'manual';
   const shouldSyncWages = body.sync_wages !== false;
+  const allowDecrease = body.allow_decrease === true || body.force === true;
+  const expectedPayableHours = Number(body.expected_payable_hours || body.expectedPayableHours || 0);
 
   // ─── 1. Fetch reference data ───────────────────────────────────────────────
   const [usersRes, deptsRes, rolesRes] = await Promise.all([
@@ -473,6 +476,23 @@ async function runSync(body: any): Promise<NextResponse> {
     // the same one-day safety window as payroll reads. Otherwise stale pre-report
     // rows can survive beside the authoritative Hours & Wages rows and inflate
     // location totals for Junction / Mississauga / York Mills.
+    const { data: existingPunchRows, error: existingPunchError } = await supabase
+      .from('punches')
+      .select('clocked_in,hours,payroll_hours,gross_hours,break_minutes,source')
+      .in('source', ['7shifts', '7shifts-hours-wages'])
+      .gte('clocked_in', queryStart.toISOString())
+      .lte('clocked_in', queryEnd.toISOString());
+    if (existingPunchError) throw new Error(`Existing payroll safety check failed: ${existingPunchError.message}`);
+    const safety = evaluateSyncSafety(existingPunchRows || [], punchRows, {
+      start: startDate,
+      end: endDate,
+      allowDecrease,
+      expectedPayableHours,
+    });
+    if (!safety.ok) {
+      throw new Error(`${safety.reason} Existing: ${safety.existing.rows} rows / ${safety.existing.payrollHours.toFixed(2)}h. Incoming: ${safety.incoming.rows} rows / ${safety.incoming.payrollHours.toFixed(2)}h. To override, send allow_decrease=true.`);
+    }
+
     const { error: deleteError } = await supabase
       .from('punches')
       .delete()
@@ -517,6 +537,7 @@ async function runSync(body: any): Promise<NextResponse> {
     hours_and_wages_rows: hoursAndWagesEntries.length,
     hours_and_wages_authoritative: usingReportRows,
     hours_and_wages_error: hoursAndWagesError || undefined,
+    protected_by_safety_check: true,
     wages_synced: wagesByUser.size,
     wage_errors: wageErrors.length ? wageErrors : undefined,
   });
@@ -537,6 +558,8 @@ export async function GET(req: Request) {
     end: url.searchParams.get('end') || undefined,
     triggered_by: url.searchParams.get('triggered_by') || undefined,
     sync_wages: url.searchParams.get('sync_wages') === 'false' ? false : undefined,
+    allow_decrease: url.searchParams.get('allow_decrease') === 'true' ? true : undefined,
+    expected_payable_hours: url.searchParams.get('expected_payable_hours') || undefined,
   });
 }
 export async function POST(req: Request) {
