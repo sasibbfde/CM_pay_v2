@@ -187,10 +187,14 @@ function childParent(value: any, parent: Partial<HoursWagesEntry>) {
   const locationObject = value?.location || value?.location_data || {};
   const userObject = value?.user || value?.employee || value?.staff || {};
   const roleObject = value?.role || value?.job || {};
+  const directPersonName = personName(value);
   return {
     ...parent,
-    user_id: firstString(value, ['user_id', 'employee_id']) || firstString(userObject, ['id', 'user_id', 'employee_id']) || parent.user_id,
-    employee_name: personName(value) || personName(userObject) || parent.employee_name,
+    user_id: firstString(value, ['user_id', 'employee_id'])
+      || firstString(userObject, ['id', 'user_id', 'employee_id'])
+      || (directPersonName ? firstString(value, ['id']) : undefined)
+      || parent.user_id,
+    employee_name: directPersonName || personName(userObject) || parent.employee_name,
     location_id: firstString(value, ['location_id']) || firstString(locationObject, ['id', 'location_id']) || parent.location_id,
     location: firstString(value, ['location_name']) || firstString(locationObject, ['name']) || parent.location,
     role: firstString(value, ['role_name']) || firstString(roleObject, ['name']) || parent.role,

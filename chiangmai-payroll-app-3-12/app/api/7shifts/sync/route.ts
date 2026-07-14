@@ -210,9 +210,9 @@ async function runSync(body: any): Promise<NextResponse> {
     fetchTimePunches(queryStart.toISOString(), queryEnd.toISOString()),
     ...PAYROLL_REPORT_LOCATION_IDS.map(locationId => fetchHoursAndWages(startDate, endDate, locationId)
       .then(report => ({
+        ...report,
         location_id: locationId,
         location_name: mapLoc(locationId),
-        data: report?.data || [],
       }))),
   ]);
   const rawPunches: any[] = punchesRes.data || [];

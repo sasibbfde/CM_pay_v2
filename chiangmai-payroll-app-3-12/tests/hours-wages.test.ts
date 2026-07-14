@@ -68,6 +68,34 @@ test('applies wrapper location to per-location hours and wages report rows', () 
   assert.equal(rows[0].location, 'Chiang Mai York Mills');
 });
 
+test('preserves wrapper location for 7shifts users-shaped hours and wages reports', () => {
+  const rows = flattenHoursAndWagesReport({
+    location_id:'500371',
+    location_name:'Chiang Mai Mississauga',
+    users: [{
+      id:'105',
+      first_name:'Mohana',
+      last_name:'Sundaram',
+      shifts: [{
+        date:'2026-06-24',
+        shift_details:'11:00AM - 8:00PM',
+        role_name:'Server',
+        regular_hours:8.5,
+        total_hours:9,
+        hourly_wage:18.5,
+      }],
+    }],
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].user_id, '105');
+  assert.equal(rows[0].employee_name, 'Mohana Sundaram');
+  assert.equal(rows[0].location_id, '500371');
+  assert.equal(rows[0].location, 'Chiang Mai Mississauga');
+  assert.equal(rows[0].regular_hours, 8.5);
+  assert.equal(rows[0].gross_hours, 9);
+  assert.equal(rows[0].break_minutes, 30);
+});
+
 test('matches hours and wages rows by employee name date and location when ids are missing', () => {
   const lookup = hoursWagesLookup(flattenHoursAndWagesReport({
     data: [
