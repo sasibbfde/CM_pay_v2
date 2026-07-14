@@ -73,6 +73,33 @@ function isAggregateReportRow(value: any) {
   );
 }
 
+function breakNoteMinutes(value: any) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
+  const text = [
+    'label', 'type', 'row_type', 'rowType', 'kind', 'name', 'title',
+    'shift_details', 'shiftDetails', 'details', 'description', 'note',
+  ].map(field => String(value?.[field] || '')).join(' ');
+  const match = text.match(/\b(?:unpaid|paid)?\s*break\s*-\s*(\d+)\s*min/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function attachBreakToPreviousEntry(output: HoursWagesEntry[], parent: Partial<HoursWagesEntry>, minutes: number) {
+  if (!minutes || minutes <= 0) return;
+  for (let index = output.length - 1; index >= 0; index -= 1) {
+    const entry = output[index];
+    const sameEmployee = !parent.employee_name || !entry.employee_name || keyName(parent.employee_name) === keyName(entry.employee_name);
+    const sameLocation = !parent.location && !parent.location_id
+      ? true
+      : keyLocation(parent.location_id || parent.location) === keyLocation(entry.location_id || entry.location);
+    if (!sameEmployee || !sameLocation) continue;
+    entry.break_minutes = (entry.break_minutes || 0) + minutes;
+    const regular = Number(entry.regular_hours || 0);
+    const gross = Number(entry.gross_hours || 0);
+    if (gross <= regular) entry.gross_hours = regular + (entry.break_minutes || 0) / 60;
+    return;
+  }
+}
+
 function personName(value: any) {
   const direct = firstString(value, [
     'employee_name', 'employeeName', 'user_name', 'userName', 'staff_name',
@@ -180,6 +207,7 @@ function walk(value: any, parent: Partial<HoursWagesEntry>, output: HoursWagesEn
   }
   if (typeof value !== 'object') return;
   const nextParent = childParent(value, parent);
+  attachBreakToPreviousEntry(output, nextParent, breakNoteMinutes(value));
   const entry = entryFromObject(value, nextParent);
   if (entry) output.push(entry);
   for (const [key, child] of Object.entries(value)) {

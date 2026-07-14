@@ -98,5 +98,7 @@ test('ignores totals and break note rows from worked hours and wages reports', (
   });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].regular_hours, 7);
+  assert.equal(rows[0].break_minutes, 15);
+  assert.equal(rows[0].gross_hours, 7.25);
   assert.equal(rows[0].location, 'Chiang Mai Junction');
 });
