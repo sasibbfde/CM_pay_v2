@@ -81,3 +81,22 @@ test('matches hours and wages rows by employee name date and location when ids a
     clocked_in:'2026-06-22T10:00:00-04:00',
   })?.regular_hours, 17.99);
 });
+
+test('ignores totals and break note rows from worked hours and wages reports', () => {
+  const rows = flattenHoursAndWagesReport({
+    location_id:'461096',
+    location_name:'Chiang Mai Junction',
+    data: [{
+      employee_name:'Magar, Manish',
+      shifts: [
+        { date:'2026-06-20', shift_details:'4:00PM - 11:00PM', role_name:'Wok', regular_hours:7, total_hours:7 },
+        { date:'2026-06-20', shift_details:'Unpaid Break - 15 min (8:00pm - 8:15pm)', regular_hours:0, total_hours:0 },
+        { label:'Weekly Total', role_name:'Weekly Total', regular_hours:42, total_hours:42 },
+        { label:'No shifts', regular_hours:0, total_hours:0 },
+      ],
+    }],
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].regular_hours, 7);
+  assert.equal(rows[0].location, 'Chiang Mai Junction');
+});

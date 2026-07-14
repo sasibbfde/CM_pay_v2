@@ -56,6 +56,23 @@ function firstString(source: any, names: string[]) {
   return undefined;
 }
 
+function isAggregateReportRow(value: any) {
+  const markers = [
+    'label', 'type', 'row_type', 'rowType', 'kind', 'name', 'title',
+    'role_name', 'roleName', 'shift_details', 'shiftDetails', 'details',
+  ].map(field => String(value?.[field] || '').toLowerCase());
+  return markers.some(marker =>
+    marker === 'total'
+    || marker.includes('weekly total')
+    || marker.includes('employee total')
+    || marker.includes('grand total')
+    || marker.includes('subtotal')
+    || marker.includes('no shifts')
+    || marker.includes('unpaid break')
+    || marker.includes('paid break')
+  );
+}
+
 function personName(value: any) {
   const direct = firstString(value, [
     'employee_name', 'employeeName', 'user_name', 'userName', 'staff_name',
@@ -104,6 +121,7 @@ function breakMinutes(value: any, grossHours?: number, regularHours?: number) {
 
 function entryFromObject(value: any, parent: Partial<HoursWagesEntry>): HoursWagesEntry | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (isAggregateReportRow(value)) return null;
   const regular = firstNumber(value, [
     'regular_hours', 'regularHours', 'payroll_hours', 'payable_hours',
     'paid_hours', 'hours_regular',
