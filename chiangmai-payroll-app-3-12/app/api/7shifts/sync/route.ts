@@ -216,6 +216,11 @@ async function runSync(body: any): Promise<NextResponse> {
       }))),
   ]);
   const rawPunches: any[] = punchesRes.data || [];
+  const rawPunchById = new Map<string, any>();
+  for (const punch of rawPunches) {
+    const rawPunchId = punch.id ?? punch.punch_id;
+    if (rawPunchId != null && rawPunchId !== '') rawPunchById.set(String(rawPunchId), punch);
+  }
   const hoursAndWagesEntries = hoursAndWagesReports.flatMap(report => flattenHoursAndWagesReport(report));
   const hoursAndWages = hoursWagesLookup(hoursAndWagesEntries);
   const hoursAndWagesError = '';
@@ -266,13 +271,25 @@ async function runSync(body: any): Promise<NextResponse> {
       const name = dbEmp?.full_name || entry.employee_name || (u7 ? fullName(u7) : null) || `Staff ${userId || index + 1}`;
       const location = normalizeLocation(entry.location_id, entry.location || dbEmp?.location);
       const date = entry.date || String(entry.clocked_in || '').slice(0, 10);
-      const clockIn = entry.clocked_in || `${date}T12:00:00.000Z`;
-      const clockOut = entry.clocked_out || clockIn;
+      const rawPunch = entry.punch_id ? rawPunchById.get(String(entry.punch_id)) : undefined;
+      const rawClockIn = rawPunch?.clocked_in || rawPunch?.clock_in || null;
+      const rawClockOut = rawPunch?.clocked_out || rawPunch?.clock_out || null;
+      const clockIn = entry.clocked_in || rawClockIn || `${date}T12:00:00.000Z`;
+      const clockOut = entry.clocked_out || rawClockOut || clockIn;
       const payrollHours = round2(Number(entry.regular_hours || 0));
-      const grossHours = round2(Number(entry.gross_hours ?? entry.regular_hours ?? 0));
-      const breakMinutes = Number.isFinite(Number(entry.break_minutes))
+      const reportGrossHours = round2(Number(entry.gross_hours ?? entry.regular_hours ?? 0));
+      const rawGrossHours = rawClockOut ? calculateGrossHours(rawClockIn, rawClockOut) : 0;
+      const rawBreaks = Array.isArray(rawPunch?.breaks) ? rawPunch.breaks : [];
+      const rawBreakTotals = calculateBreaks(rawBreaks);
+      const reportBreakMinutes = Number.isFinite(Number(entry.break_minutes))
         ? Math.max(0, Math.round(Number(entry.break_minutes)))
-        : Math.max(0, Math.round((grossHours - payrollHours) * 60));
+        : Math.max(0, Math.round((reportGrossHours - payrollHours) * 60));
+      const breakMinutes = rawBreakTotals.breakMinutes > 0
+        ? Math.round(rawBreakTotals.breakMinutes)
+        : reportBreakMinutes;
+      const grossHours = rawGrossHours > payrollHours + 0.01
+        ? rawGrossHours
+        : Math.max(reportGrossHours, payrollHours + breakMinutes / 60);
       const wage = resolveEmployeeWage(
         dbEmp,
         Number(entry.wage || 0) || selectHourlyWage(wagesByUser.get(userId) || [], undefined, date),
