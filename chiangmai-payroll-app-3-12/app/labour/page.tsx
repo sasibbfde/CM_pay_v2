@@ -80,8 +80,11 @@ export default function LabourPage() {
     cachedJson<{sales:SaleRow[]}>(`/api/sales?from=${fromDate}&to=${toDate}`,120_000).then(d=>setDailySales(d.sales||[])).catch(()=>setDailySales([]));
   },[fromDate,toDate,refresh]);
 
-  const locations=useMemo(()=>[...new Set(rows.map(row=>row.location).filter(Boolean))].sort(),[rows]);
+  const syncedSalesByLocation=useMemo(()=>dailySales.reduce((map,row)=>{map[row.location]=(map[row.location]||0)+Number(row.net_sales||0);return map;},{} as Record<string,number>),[dailySales]);
+  const locations=useMemo(()=>[...new Set([...rows.map(row=>row.location).filter(Boolean),...Object.keys(syncedSalesByLocation)])].sort(),[rows,syncedSalesByLocation]);
   const filteredRows=useMemo(()=>locationFilter==='ALL'?rows:rows.filter(row=>row.location===locationFilter),[rows,locationFilter]);
+  const punchLocations=useMemo(()=>new Set(filteredRows.map(row=>row.location).filter(Boolean)),[filteredRows]);
+  const salesLocations=useMemo(()=>Object.keys(syncedSalesByLocation).filter(location=>locationFilter==='ALL'||location===locationFilter),[syncedSalesByLocation,locationFilter]);
 
   const byLocation=useMemo(()=>{
     const map=new Map<string,any>();
@@ -90,8 +93,11 @@ export default function LabourPage() {
       if(!map.has(l))map.set(l,{loc:l,gross:0,breaks:0,payable:0,rounded:0,chequeHours:0,cashHours:0,payroll:0,cash:0,headcount:0});
       const e=map.get(l);e.gross+=r.gross_hours;e.breaks+=r.break_hours;e.payable+=r.payable_hours;e.rounded+=r.rounded_hours;e.chequeHours+=r.cheque_hours;e.cashHours+=r.cash_hours;e.payroll+=r.payroll_amount;e.cash+=r.cash_amount;e.headcount++;
     }
-    return [...map.values()].sort((a,b)=>b.payroll+b.cash-a.payroll-a.cash);
-  },[filteredRows]);
+    for(const l of salesLocations){
+      if(!map.has(l))map.set(l,{loc:l,gross:0,breaks:0,payable:0,rounded:0,chequeHours:0,cashHours:0,payroll:0,cash:0,headcount:0});
+    }
+    return [...map.values()].sort((a,b)=>((b.payroll+b.cash)||syncedSalesByLocation[b.loc]||0)-((a.payroll+a.cash)||syncedSalesByLocation[a.loc]||0));
+  },[filteredRows,salesLocations,syncedSalesByLocation]);
 
   const byRole=useMemo(()=>{
     const map=new Map<string,any>();
@@ -117,8 +123,7 @@ export default function LabourPage() {
   },[labourGroups,locationFilter]);
   const groupedLabourCost=groupedLabour.reduce((sum,row)=>sum+row.cost,0);
   const managementDays=useMemo(()=>{const days:string[]=[];const current=new Date(`${fromDate}T12:00:00`);const end=new Date(`${toDate}T12:00:00`);while(current<=end&&days.length<31){days.push(isoDate(current));current.setDate(current.getDate()+1);}return days;},[fromDate,toDate]);
-  const management=useMemo(()=>managementDays.map(date=>{const groups=dailyLabourGroups.filter(row=>row.date===date&&(locationFilter==='ALL'||row.location===locationFilter));const salesRows=dailySales.filter(row=>row.sale_date===date&&(locationFilter==='ALL'||row.location===locationFilter));const rawByGroup=(group:string)=>groups.filter(row=>row.group===group).reduce((sum,row)=>({hours:sum.hours+row.hours,cost:sum.cost+row.cost}),{hours:0,cost:0});const actualSales=salesRows.reduce((sum,row)=>sum+Number(row.net_sales||0),0);const projectedSales=salesRows.reduce((sum,row)=>sum+Number(row.projected_sales||0),0);const hours=groups.reduce((sum,row)=>sum+row.hours,0);const punchCost=groups.reduce((sum,row)=>sum+row.cost,0);const sevenShiftsCost=salesRows.reduce((sum,row)=>sum+Number(row.actual_labor_cost||0),0);const cost=sevenShiftsCost>0?sevenShiftsCost:punchCost;const scale=punchCost>0&&sevenShiftsCost>0?sevenShiftsCost/punchCost:1;const byGroup=(group:string)=>{const value=rawByGroup(group);return{hours:value.hours,cost:value.cost*scale};};return{date,actualSales,projectedSales,hours,cost,boh:byGroup('Back of House'),foh:byGroup('Front of House'),managers:byGroup('Managers')};}),[managementDays,dailyLabourGroups,dailySales,locationFilter]);
-  const syncedSalesByLocation=useMemo(()=>dailySales.reduce((map,row)=>{map[row.location]=(map[row.location]||0)+Number(row.net_sales||0);return map;},{} as Record<string,number>),[dailySales]);
+  const management=useMemo(()=>managementDays.map(date=>{const groups=dailyLabourGroups.filter(row=>row.date===date&&(locationFilter==='ALL'||row.location===locationFilter));const salesRows=dailySales.filter(row=>row.sale_date===date&&(locationFilter==='ALL'||row.location===locationFilter));const rawByGroup=(group:string)=>groups.filter(row=>row.group===group).reduce((sum,row)=>({hours:sum.hours+row.hours,cost:sum.cost+row.cost}),{hours:0,cost:0});const actualSales=salesRows.reduce((sum,row)=>sum+Number(row.net_sales||0),0);const projectedSales=salesRows.reduce((sum,row)=>sum+Number(row.projected_sales||0),0);const hours=groups.reduce((sum,row)=>sum+row.hours,0);const cost=groups.reduce((sum,row)=>sum+row.cost,0);const byGroup=(group:string)=>rawByGroup(group);return{date,actualSales,projectedSales,hours,cost,boh:byGroup('Back of House'),foh:byGroup('Front of House'),managers:byGroup('Managers')};}),[managementDays,dailyLabourGroups,dailySales,locationFilter]);
 
   const syncSelectedRange=async()=>{
     if(syncing)return;
@@ -148,6 +153,7 @@ export default function LabourPage() {
     cash:filteredRows.reduce((s,r)=>s+r.cash_amount,0),
     heads:filteredRows.length,
   };
+  const missingPunchSalesLocations=useMemo(()=>salesLocations.filter(location=>!punchLocations.has(location)),[salesLocations,punchLocations]);
 
   const saveSales=()=>{
     const next={...sales};
@@ -198,6 +204,12 @@ export default function LabourPage() {
           </div>
         )}
       </div>
+
+      {missingPunchSalesLocations.length>0&&(
+        <div role="status" style={{background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.25)',color:'#fbbf24',borderRadius:10,padding:'10px 14px',fontSize:12,marginBottom:16}}>
+          Sales are loaded for {missingPunchSalesLocations.length} location{missingPunchSalesLocations.length===1?'':'s'} with no completed 7shifts punches in this date range: <strong>{missingPunchSalesLocations.join(', ')}</strong>. Labour stays $0 for those locations until 7shifts punches are synced/available.
+        </div>
+      )}
 
       {/* 7shifts department breakdown */}
       <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:12,overflow:'hidden',marginBottom:20}}>
