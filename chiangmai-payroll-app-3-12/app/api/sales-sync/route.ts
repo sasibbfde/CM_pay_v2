@@ -9,7 +9,7 @@ const LOCATION_MAP: Record<string, string> = {
   '461097': 'Chiang Mai Danforth',
   '464811': 'Imm Thai Kitchen',
   '465654': 'Chiang Mai Parklawn',
-  '467000': 'Chiang Mai Mississauga',
+  // Current Mississauga location ID. Legacy 467000 now returns 403 from 7shifts.
   '500371': 'Chiang Mai Mississauga',
 };
 
@@ -54,8 +54,8 @@ export async function POST(req: NextRequest) {
             };
             const key = `${row.sale_date}|${row.location}`;
             const existing = rowsByDateLocation.get(key);
-            // Mississauga has legacy and current 7shifts IDs. Keep one record
-            // per date/location and prefer the ID that actually reports sales.
+            // Keep one record per date/location if 7shifts ever returns
+            // duplicate rows for a location and prefer the higher sales value.
             if (!existing || row.net_sales > existing.net_sales) rowsByDateLocation.set(key, row);
           }
         }

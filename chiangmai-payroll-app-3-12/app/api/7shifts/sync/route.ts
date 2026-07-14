@@ -23,8 +23,10 @@ const LOCATION_MAP: Record<string, string> = {
   '461097': 'Chiang Mai Danforth',
   '464811': 'Imm Thai Kitchen',
   '465654': 'Chiang Mai Parklawn',
-  '467000': 'Chiang Mai Mississauga',
+  // Current Mississauga location ID. Legacy 467000 now returns 403 from 7shifts.
   '500371': 'Chiang Mai Mississauga',
+  // Keep legacy mapping only for old synced rows/punches that may still carry it.
+  '467000': 'Chiang Mai Mississauga',
 };
 
 const PAYROLL_REPORT_LOCATION_IDS = [
@@ -34,7 +36,7 @@ const PAYROLL_REPORT_LOCATION_IDS = [
   '461097', // Danforth
   '464811', // Imm Thai Kitchen
   '465654', // Parklawn
-  '467000', // Mississauga
+  '500371', // Mississauga
 ];
 
 function mapLoc(id: any): string {
