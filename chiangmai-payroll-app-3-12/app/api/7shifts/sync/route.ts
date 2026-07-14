@@ -465,7 +465,15 @@ async function handleSync(body: any) {
   }
 }
 
-export async function GET()          { return handleSync({}); }
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  return handleSync({
+    start: url.searchParams.get('start') || undefined,
+    end: url.searchParams.get('end') || undefined,
+    triggered_by: url.searchParams.get('triggered_by') || undefined,
+    sync_wages: url.searchParams.get('sync_wages') === 'false' ? false : undefined,
+  });
+}
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   return handleSync(body);
