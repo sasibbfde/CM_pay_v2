@@ -118,6 +118,7 @@ export default function LabourPage() {
   const groupedLabourCost=groupedLabour.reduce((sum,row)=>sum+row.cost,0);
   const managementDays=useMemo(()=>{const days:string[]=[];const current=new Date(`${fromDate}T12:00:00`);const end=new Date(`${toDate}T12:00:00`);while(current<=end&&days.length<31){days.push(isoDate(current));current.setDate(current.getDate()+1);}return days;},[fromDate,toDate]);
   const management=useMemo(()=>managementDays.map(date=>{const groups=dailyLabourGroups.filter(row=>row.date===date&&(locationFilter==='ALL'||row.location===locationFilter));const salesRows=dailySales.filter(row=>row.sale_date===date&&(locationFilter==='ALL'||row.location===locationFilter));const rawByGroup=(group:string)=>groups.filter(row=>row.group===group).reduce((sum,row)=>({hours:sum.hours+row.hours,cost:sum.cost+row.cost}),{hours:0,cost:0});const actualSales=salesRows.reduce((sum,row)=>sum+Number(row.net_sales||0),0);const projectedSales=salesRows.reduce((sum,row)=>sum+Number(row.projected_sales||0),0);const hours=groups.reduce((sum,row)=>sum+row.hours,0);const punchCost=groups.reduce((sum,row)=>sum+row.cost,0);const sevenShiftsCost=salesRows.reduce((sum,row)=>sum+Number(row.actual_labor_cost||0),0);const cost=sevenShiftsCost>0?sevenShiftsCost:punchCost;const scale=punchCost>0&&sevenShiftsCost>0?sevenShiftsCost/punchCost:1;const byGroup=(group:string)=>{const value=rawByGroup(group);return{hours:value.hours,cost:value.cost*scale};};return{date,actualSales,projectedSales,hours,cost,boh:byGroup('Back of House'),foh:byGroup('Front of House'),managers:byGroup('Managers')};}),[managementDays,dailyLabourGroups,dailySales,locationFilter]);
+  const syncedSalesByLocation=useMemo(()=>dailySales.reduce((map,row)=>{map[row.location]=(map[row.location]||0)+Number(row.net_sales||0);return map;},{} as Record<string,number>),[dailySales]);
 
   const syncSelectedRange=async()=>{
     if(syncing)return;
@@ -170,7 +171,7 @@ export default function LabourPage() {
         <div style={{display:'flex',gap:8}}>
           <button onClick={syncSelectedRange} disabled={syncing} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:syncing?'#6b7280':'#22d3ee',borderRadius:7,padding:'7px 14px',fontSize:13,cursor:syncing?'wait':'pointer'}}>{syncing?'Syncing…':'↻ Sync 7shifts'}</button>
           <button onClick={()=>window.location.href=`/api/export?from=${fromDate}&to=${toDate}&type=full`} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:'#34d399',borderRadius:7,padding:'7px 14px',fontSize:13,cursor:'pointer'}}>↓ Export Excel</button>
-          <button onClick={()=>{setSalesInput(Object.fromEntries(byLocation.map(l=>[l.loc,String(sales[l.loc]||'')])));setEditSales(true);}} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:'#22d3ee',borderRadius:7,padding:'7px 14px',fontSize:13,cursor:'pointer'}}>Enter sales</button>
+          <button onClick={()=>{setSalesInput(Object.fromEntries(byLocation.map(l=>[l.loc,String(sales[l.loc]??syncedSalesByLocation[l.loc]??'')])));setEditSales(true);}} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:'#22d3ee',borderRadius:7,padding:'7px 14px',fontSize:13,cursor:'pointer'}}>Enter sales</button>
         </div>
       </div>
       {syncMessage&&<div role="status" style={{fontSize:11,color:syncMessage.startsWith('Updated')?'#34d399':'#f87171',margin:'-8px 0 12px'}}>{syncMessage}</div>}
@@ -310,7 +311,7 @@ export default function LabourPage() {
           <tbody>
             {byLocation.map((l,i)=>{
               const total=l.payroll+l.cash;
-              const sale=sales[l.loc]||0;
+              const sale=Object.prototype.hasOwnProperty.call(sales,l.loc)?sales[l.loc]:(syncedSalesByLocation[l.loc]||0);
               const labPct=sale>0?total/sale:null;
               return(
                 <tr key={l.loc} style={{borderTop:'1px solid rgba(255,255,255,0.05)',background:i%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
