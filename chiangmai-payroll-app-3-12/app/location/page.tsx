@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { cachedJson, peekJson } from '@/lib/client-cache';
 import { payrollLocationView, type PayrollReportRow } from '@/lib/payroll-report';
 
@@ -52,15 +52,17 @@ export default function LocationPage() {
   const [selectedLoc, setSelectedLoc] = useState<string>('ALL');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [search, setSearch]     = useState('');
+  const loadSeq = useRef(0);
 
   useEffect(() => {
+    const seq = ++loadSeq.current;
     const range=periodRange(year,month,period);const url = `/api/payroll-report?start=${range.start}&end=${range.end}`;
     const cached = peekJson<{rows:PayrollReportRow[]}>(url);
     if (cached) setRows(locationRows(cached.rows || []));
     setLoading(!cached);
     cachedJson<{rows:PayrollReportRow[]}>(url)
-      .then(d => { setRows(locationRows(d.rows || [])); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(d => { if (seq === loadSeq.current) { setRows(locationRows(d.rows || [])); setLoading(false); } })
+      .catch(() => { if (seq === loadSeq.current) setLoading(false); });
   }, [year, month, period]);
 
   // All unique locations from data

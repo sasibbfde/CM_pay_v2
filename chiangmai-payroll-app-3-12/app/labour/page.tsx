@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,LineChart,Line,CartesianGrid } from 'recharts';
 import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
 import { payrollLocationView, type PayrollReportRow } from '@/lib/payroll-report';
@@ -45,6 +45,7 @@ export default function LabourPage() {
   const [sales,setSales]=useState<Record<string,number>>({});
   const [editSales,setEditSales]=useState(false);
   const [salesInput,setSalesInput]=useState<Record<string,string>>({});
+  const loadSeq=useRef(0);
 
   const applyPreset=useCallback((p:string)=>{
     setPreset(p);
@@ -59,6 +60,7 @@ export default function LabourPage() {
   },[]);
 
   useEffect(()=>{
+    const seq=++loadSeq.current;
     const year=new Date(fromDate).getFullYear();
     const month=new Date(fromDate).getMonth()+1;
     const url=`/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}&breakdown=departments-v3`;
@@ -72,12 +74,12 @@ export default function LabourPage() {
     if(cachedTrends)setMonthly(cachedTrends.monthly||[]);
     setLoading(!cachedReport);
     const periodRequest=cachedJson<{rows:PayrollRow[];locationRows:PayrollRow[];labourGroups:LabourGroupRow[];dailyLabourGroups:DailyGroupRow[]}>(url,600_000)
-      .then(d=>{setLabourGroups(d.labourGroups||[]);setDailyLabourGroups(d.dailyLabourGroups||[]);});
+      .then(d=>{if(seq===loadSeq.current){setLabourGroups(d.labourGroups||[]);setDailyLabourGroups(d.dailyLabourGroups||[]);}});
     cachedJson<{rows:PayrollReportRow[]}>(reportUrl,600_000)
-      .then(d=>setRows(reportLocationRows(d.rows||[])))
-      .finally(()=>setLoading(false));
-    periodRequest.then(()=>cachedJson<{monthly:any[]}>(trendsUrl,600_000).then(d=>setMonthly(d.monthly||[]))).catch(()=>{});
-    cachedJson<{sales:SaleRow[]}>(`/api/sales?from=${fromDate}&to=${toDate}`,120_000).then(d=>setDailySales(d.sales||[])).catch(()=>setDailySales([]));
+      .then(d=>{if(seq===loadSeq.current)setRows(reportLocationRows(d.rows||[]));})
+      .finally(()=>{if(seq===loadSeq.current)setLoading(false);});
+    periodRequest.then(()=>cachedJson<{monthly:any[]}>(trendsUrl,600_000).then(d=>{if(seq===loadSeq.current)setMonthly(d.monthly||[]);})).catch(()=>{});
+    cachedJson<{sales:SaleRow[]}>(`/api/sales?from=${fromDate}&to=${toDate}`,120_000).then(d=>{if(seq===loadSeq.current)setDailySales(d.sales||[]);}).catch(()=>{if(seq===loadSeq.current)setDailySales([]);});
   },[fromDate,toDate,refresh]);
 
   const syncedSalesByLocation=useMemo(()=>dailySales.reduce((map,row)=>{map[row.location]=(map[row.location]||0)+Number(row.net_sales||0);return map;},{} as Record<string,number>),[dailySales]);

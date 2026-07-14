@@ -52,6 +52,7 @@ export default function InsightsPage() {
   const [salesMsg,   setSalesMsg]   = useState('');
   const [syncingSnappy, setSyncingSnappy] = useState(false);
   const autoSalesSync = useRef(new Set<string>());
+  const loadSeq = useRef(0);
 
   // Alert drill-down
   const [alertDetail, setAlertDetail] = useState<Row[]|null>(null);
@@ -82,6 +83,7 @@ export default function InsightsPage() {
   };
 
   useEffect(() => {
+    const seq = ++loadSeq.current;
     const year = new Date(fromDate).getFullYear();
     const month = new Date(fromDate).getMonth() + 1;
     const payrollUrl = `/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}`;
@@ -99,12 +101,14 @@ export default function InsightsPage() {
       cachedJson<{sales:Sale[]}>(salesUrl, 600_000),
     ]);
     periodRequest.then(([pay, sal]) => {
-      setRows(pay.rows || []);
-      setSales(sal.sales || []);
-    }).finally(() => setLoading(false));
+      if (seq === loadSeq.current) {
+        setRows(pay.rows || []);
+        setSales(sal.sales || []);
+      }
+    }).finally(() => { if (seq === loadSeq.current) setLoading(false); });
     periodRequest.then(() =>
       cachedJson<{monthly:any[]}>(trendsUrl, 600_000)
-        .then(trends=>setMonthly(trends.monthly || []))
+        .then(trends=>{ if (seq === loadSeq.current) setMonthly(trends.monthly || []); })
         .catch(()=>{ /* selected-period insights remain available */ })
     );
   }, [fromDate, toDate]);
