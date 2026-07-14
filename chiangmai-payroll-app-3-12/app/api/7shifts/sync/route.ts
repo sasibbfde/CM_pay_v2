@@ -45,6 +45,19 @@ function mapLoc(id: any): string {
 
 const round2 = (value: number) => Math.round(Math.max(0, value) * 100) / 100;
 const nameKey = (value?: string | null) => (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+function torontoDate(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const byType = new Map(parts.map(part => [part.type, part.value]));
+  return `${byType.get('year')}-${byType.get('month')}-${byType.get('day')}`;
+}
 
 function normalizeLocation(locationId?: any, locationName?: string | null) {
   const mapped = mapLoc(locationId);
@@ -217,10 +230,44 @@ async function runSync(body: any): Promise<NextResponse> {
   ]);
   const rawPunches: any[] = punchesRes.data || [];
   const rawPunchById = new Map<string, any>();
+  const rawPunchByReportKey = new Map<string, any[]>();
+  const pushRawReportKey = (key: string, punch: any) => {
+    rawPunchByReportKey.set(key, [...(rawPunchByReportKey.get(key) || []), punch]);
+  };
   for (const punch of rawPunches) {
     const rawPunchId = punch.id ?? punch.punch_id;
     if (rawPunchId != null && rawPunchId !== '') rawPunchById.set(String(rawPunchId), punch);
+    const rawClockIn = punch.clocked_in || punch.clock_in || null;
+    const rawClockOut = punch.clocked_out || punch.clock_out || null;
+    if (!rawClockIn || !rawClockOut) continue;
+    const rawUserId = String(punch.user_id || punch.userId || '');
+    if (!rawUserId) continue;
+    const rawLocId = String(punch.location_id || userById.get(rawUserId)?.location_id || '');
+    const rawLocation = normalizeLocation(rawLocId, undefined);
+    const rawGrossHours = calculateGrossHours(rawClockIn, rawClockOut);
+    const { unpaidMinutes } = calculateBreaks(Array.isArray(punch.breaks) ? punch.breaks : []);
+    const rawPayrollHours = calculatePayrollHours(rawGrossHours, unpaidMinutes);
+    const dateCandidates = [String(rawClockIn).slice(0, 10), torontoDate(rawClockIn)].filter((item, index, all) => item && all.indexOf(item) === index);
+    for (const rawDate of dateCandidates) {
+      pushRawReportKey(`${rawUserId}|${rawDate}|${rawLocation}|${rawPayrollHours.toFixed(2)}`, punch);
+    }
   }
+  const takeRawPunchForReport = (userId: string, date: string, location: string, payrollHours: number) => {
+    if (!userId || !date || !location) return undefined;
+    const exactKey = `${userId}|${date}|${location}|${payrollHours.toFixed(2)}`;
+    const exactQueue = rawPunchByReportKey.get(exactKey);
+    const exact = exactQueue?.shift();
+    if (exact) return exact;
+    const loosePrefix = `${userId}|${date}|${location}|`;
+    for (const [key, queue] of rawPunchByReportKey.entries()) {
+      if (!key.startsWith(loosePrefix)) continue;
+      const candidateHours = Number(key.slice(loosePrefix.length));
+      if (Math.abs(candidateHours - payrollHours) > 0.03) continue;
+      const candidate = queue.shift();
+      if (candidate) return candidate;
+    }
+    return undefined;
+  };
   const hoursAndWagesEntries = hoursAndWagesReports.flatMap(report => flattenHoursAndWagesReport(report));
   const hoursAndWages = hoursWagesLookup(hoursAndWagesEntries);
   const hoursAndWagesError = '';
@@ -271,12 +318,13 @@ async function runSync(body: any): Promise<NextResponse> {
       const name = dbEmp?.full_name || entry.employee_name || (u7 ? fullName(u7) : null) || `Staff ${userId || index + 1}`;
       const location = normalizeLocation(entry.location_id, entry.location || dbEmp?.location);
       const date = entry.date || String(entry.clocked_in || '').slice(0, 10);
-      const rawPunch = entry.punch_id ? rawPunchById.get(String(entry.punch_id)) : undefined;
+      const payrollHours = round2(Number(entry.regular_hours || 0));
+      const rawPunch = (entry.punch_id ? rawPunchById.get(String(entry.punch_id)) : undefined)
+        || takeRawPunchForReport(userId, date, location, payrollHours);
       const rawClockIn = rawPunch?.clocked_in || rawPunch?.clock_in || null;
       const rawClockOut = rawPunch?.clocked_out || rawPunch?.clock_out || null;
       const clockIn = entry.clocked_in || rawClockIn || `${date}T12:00:00.000Z`;
       const clockOut = entry.clocked_out || rawClockOut || clockIn;
-      const payrollHours = round2(Number(entry.regular_hours || 0));
       const reportGrossHours = round2(Number(entry.gross_hours ?? entry.regular_hours ?? 0));
       const rawGrossHours = rawClockOut ? calculateGrossHours(rawClockIn, rawClockOut) : 0;
       const rawBreaks = Array.isArray(rawPunch?.breaks) ? rawPunch.breaks : [];
