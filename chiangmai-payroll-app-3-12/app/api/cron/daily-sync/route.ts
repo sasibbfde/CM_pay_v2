@@ -12,14 +12,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
-    const today = new Date();
-    // Re-sync a rolling window so breaks edited or approved after the shift
-    // are corrected automatically instead of being frozen after one day.
-    // On the first day of each month, run a deeper historical repair as well.
-    const lookbackDays = today.getUTCDate() === 1 ? 120 : 35;
-    const lookback = new Date(today); lookback.setUTCDate(today.getUTCDate()-lookbackDays);
     const fmt = (d: Date) => d.toISOString().split('T')[0];
-    const yDate = fmt(lookback);
+    const today = new Date();
+    // Keep automatic sync inside the current payroll period only. Finalized
+    // prior periods should not be rewritten by the 3am job.
+    const periodStart = new Date(Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate() <= 15 ? 1 : 16,
+    ));
+    const yDate = fmt(periodStart);
     const tDate = fmt(today);
     const base = new URL(req.url).origin;
     const parseSyncResponse = async (response: Response) => {

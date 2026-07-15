@@ -83,6 +83,15 @@ const cadFull = (n: number) =>
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const ROW_PAGE_SIZE = 75;
+const pad2 = (value: number) => String(value).padStart(2, '0');
+const localDate = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth()+1)}-${pad2(date.getDate())}`;
+function dashboardPeriodRange(year:number, month:number, period:string) {
+  const last = new Date(year, month, 0).getDate();
+  const prefix = `${year}-${pad2(month)}`;
+  if (period === '1-15') return { start:`${prefix}-01`, end:`${prefix}-15` };
+  if (period === '16-end') return { start:`${prefix}-16`, end:`${prefix}-${pad2(last)}` };
+  return { start:`${prefix}-01`, end:`${prefix}-${pad2(last)}` };
+}
 
 // ─── Custom chart tooltip ─────────────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }: any) {
@@ -189,9 +198,27 @@ export default function Home() {
     setSyncing(true);
     setSyncResult(null);
     try {
-      const body: Record<string, string | boolean> = { sync_wages:true };
-      if (syncStart) body.start = new Date(syncStart).toISOString();
-      if (syncEnd)   body.end   = new Date(syncEnd + 'T23:59:59').toISOString();
+      const today = new Date();
+      const computedRange = (() => {
+        if (syncRange === 'custom') return { start: syncStart, end: syncEnd };
+        if (syncRange === 'today') {
+          const day = localDate(today);
+          return { start: day, end: day };
+        }
+        if (syncRange === 'week') {
+          const start = new Date(today); start.setDate(today.getDate() - 7);
+          return { start: localDate(start), end: localDate(today) };
+        }
+        if (syncRange === 'month') return dashboardPeriodRange(year, month, 'month');
+        return dashboardPeriodRange(year, month, period);
+      })();
+      if (!computedRange.start || !computedRange.end) throw new Error('Choose a From and To date before syncing.');
+      const body: Record<string, string | boolean> = {
+        start: `${computedRange.start}T00:00:00.000Z`,
+        end: `${computedRange.end}T23:59:59.999Z`,
+        triggered_by:'dashboard',
+        sync_wages:true,
+      };
       const res = await fetch('/api/7shifts/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
