@@ -155,6 +155,21 @@ export default function LabourPage() {
     cash:filteredRows.reduce((s,r)=>s+r.cash_amount,0),
     heads:filteredRows.length,
   };
+  const totalPayrollCost=grand.payroll+grand.cash;
+  const departmentLocationRows=useMemo(()=>{
+    const groups=['Back of House','Front of House','Managers'] as const;
+    return byLocation.map(locationRow=>{
+      const byGroup=Object.fromEntries(groups.map(group=>{
+        const matches=labourGroups.filter(row=>row.location===locationRow.loc&&row.group===group);
+        return [group,{
+          hours:matches.reduce((sum,row)=>sum+row.hours,0),
+          cost:matches.reduce((sum,row)=>sum+row.cost,0),
+          employees:matches.reduce((sum,row)=>sum+row.employees,0),
+        }];
+      })) as Record<typeof groups[number],{hours:number;cost:number;employees:number}>;
+      return {location:locationRow.loc,totalPayroll:locationRow.payroll+locationRow.cash,groups:byGroup};
+    }).filter(row=>locationFilter==='ALL'||row.location===locationFilter);
+  },[byLocation,labourGroups,locationFilter]);
   const missingPunchSalesLocations=useMemo(()=>salesLocations.filter(location=>!punchLocations.has(location)),[salesLocations,punchLocations]);
 
   const saveSales=()=>{
@@ -217,12 +232,12 @@ export default function LabourPage() {
       <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:12,overflow:'hidden',marginBottom:20}}>
         <div style={{padding:'12px 16px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}>
           <div style={{fontSize:13,fontWeight:600,color:'#f9fafb'}}>7shifts payable labour by department</div>
-          <div style={{fontSize:10,color:'#6b7280',marginTop:2}}>Completed punches · payable hours and cost use the wage stored for each 7shifts employee</div>
+          <div style={{fontSize:10,color:'#6b7280',marginTop:2}}>Completed punches · percentages are calculated against total payroll for the selected location/date range</div>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(180px,1fr))'}}>
           {groupedLabour.map((row,index)=>{
             const colors=['#f97316','#22d3ee','#a78bfa'];
-            const percent=groupedLabourCost>0?row.cost/groupedLabourCost:0;
+            const percent=totalPayrollCost>0?row.cost/totalPayrollCost:0;
             return <div key={row.group} style={{padding:'16px 18px',borderLeft:index?'1px solid rgba(255,255,255,0.06)':'none'}}>
               <div style={{fontSize:11,fontWeight:700,color:colors[index],textTransform:'uppercase',letterSpacing:'0.05em'}}>{row.group}</div>
               <div style={{display:'flex',alignItems:'baseline',gap:8,marginTop:5}}>
@@ -234,14 +249,43 @@ export default function LabourPage() {
           })}
         </div>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,borderTop:'1px solid rgba(255,255,255,0.06)'}}>
-          <thead><tr style={{background:'rgba(0,0,0,0.18)'}}>{['Department','Payable hours','Labour cost','Cost/payable hr','% of labour'].map(header=><th key={header} style={{padding:'8px 16px',textAlign:header==='Department'?'left':'right',color:'#6b7280',fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{header}</th>)}</tr></thead>
+          <thead><tr style={{background:'rgba(0,0,0,0.18)'}}>{['Department','Payable hours','Labour cost','Cost/payable hr','% of total payroll'].map(header=><th key={header} style={{padding:'8px 16px',textAlign:header==='Department'?'left':'right',color:'#6b7280',fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{header}</th>)}</tr></thead>
           <tbody>{groupedLabour.map(row=><tr key={row.group} style={{borderTop:'1px solid rgba(255,255,255,0.04)'}}>
             <td style={{padding:'9px 16px',fontWeight:600,color:'#e5e7eb'}}>{row.group}</td>
             <td style={{padding:'9px 16px',textAlign:'right',color:'#22d3ee'}}>{row.hours.toFixed(2)}h</td>
             <td style={{padding:'9px 16px',textAlign:'right',color:'#a78bfa',fontWeight:600}}>{cadFull(row.cost)}</td>
             <td style={{padding:'9px 16px',textAlign:'right',color:'#9ca3af'}}>{cadFull(row.hours?row.cost/row.hours:0)}</td>
-            <td style={{padding:'9px 16px',textAlign:'right',color:'#fbbf24'}}>{groupedLabourCost?`${(row.cost/groupedLabourCost*100).toFixed(1)}%`:'—'}</td>
+            <td style={{padding:'9px 16px',textAlign:'right',color:'#fbbf24'}}>{totalPayrollCost?`${(row.cost/totalPayrollCost*100).toFixed(1)}%`:'—'}</td>
           </tr>)}</tbody>
+        </table>
+      </div>
+
+      <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:12,overflow:'hidden',marginBottom:20}}>
+        <div style={{padding:'12px 16px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}>
+          <div style={{fontSize:13,fontWeight:600,color:'#f9fafb'}}>Department percentage by location</div>
+          <div style={{fontSize:10,color:'#6b7280',marginTop:2}}>Each percentage = department labour cost ÷ that location&apos;s total payroll cost for this selected period</div>
+        </div>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+          <thead><tr style={{background:'rgba(0,0,0,0.18)'}}>
+            {['Location','Total payroll','Back of House','Front of House','Managers'].map(header=><th key={header} style={{padding:'8px 14px',textAlign:header==='Location'?'left':'right',color:'#6b7280',fontWeight:500,fontSize:10,textTransform:'uppercase',whiteSpace:'nowrap'}}>{header}</th>)}
+          </tr></thead>
+          <tbody>{departmentLocationRows.map(row=>{
+            const groupCell=(group:'Back of House'|'Front of House'|'Managers',color:string)=>{
+              const data=row.groups[group];
+              const pct=row.totalPayroll>0?data.cost/row.totalPayroll*100:null;
+              return <td style={{padding:'9px 14px',textAlign:'right'}}>
+                <div style={{color,fontWeight:700}}>{pct===null?'—':`${pct.toFixed(1)}%`}</div>
+                <div style={{fontSize:10,color:'#9ca3af'}}>{cadFull(data.cost)} · {data.hours.toFixed(1)}h</div>
+              </td>;
+            };
+            return <tr key={row.location} style={{borderTop:'1px solid rgba(255,255,255,0.05)'}}>
+              <td style={{padding:'9px 14px',fontWeight:600,color:'#f9fafb'}}>{row.location}</td>
+              <td style={{padding:'9px 14px',textAlign:'right',color:'#a78bfa',fontWeight:700}}>{cadFull(row.totalPayroll)}</td>
+              {groupCell('Back of House','#f97316')}
+              {groupCell('Front of House','#22d3ee')}
+              {groupCell('Managers','#a78bfa')}
+            </tr>;
+          })}</tbody>
         </table>
       </div>
 
