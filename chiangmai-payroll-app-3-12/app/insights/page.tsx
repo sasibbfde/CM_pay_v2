@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,LineChart,Line,CartesianGrid,PieChart,Pie,Cell } from 'recharts';
 import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
+import { payrollLocationView, type PayrollReportRow } from '@/lib/payroll-report';
 
 type Row = { employee_name:string; location:string; department:string; role:string;
   actual_hours:number; payroll_hours:number; cash_hours:number;
@@ -19,6 +20,24 @@ const sel: React.CSSProperties = {background:'#1a1f2e',border:'1px solid rgba(25
 const inp: React.CSSProperties = {background:'#0d1117',border:'1px solid rgba(255,255,255,0.12)',borderRadius:6,color:'#f9fafb',padding:'6px 10px',fontSize:13,outline:'none'};
 
 function isoDate(d: Date) { return d.toISOString().split('T')[0]; }
+function reportRowsToInsightRows(reportRows: PayrollReportRow[]): Row[] {
+  return reportRows.flatMap(row => row.locations.map(location => {
+    const local = payrollLocationView(row, location);
+    return {
+      employee_name: row.employee_name,
+      location,
+      department: row.roles[0] || '',
+      role: row.roles.join(', ') || 'Unknown',
+      actual_hours: local.payable_hours,
+      payroll_hours: local.cheque_hours,
+      cash_hours: local.cash_hours,
+      wage: local.wage,
+      payroll_amount: local.cheque_pay,
+      cash_amount: local.cash_pay,
+      rule_applied: local.rule_type,
+    };
+  }));
+}
 
 export default function InsightsPage() {
   // Date range state
@@ -30,16 +49,16 @@ export default function InsightsPage() {
 
   const initialYear = new Date(fromDate).getFullYear();
   const initialMonth = new Date(fromDate).getMonth() + 1;
-  const initialPayrollUrl = `/api/payroll?year=${initialYear}&month=${initialMonth}&period=month&from=${fromDate}&to=${toDate}`;
+  const initialPayrollUrl = `/api/payroll-report?start=${fromDate}&end=${toDate}`;
   const initialTrendsUrl = `/api/payroll?year=${initialYear}&month=${initialMonth}&period=month&trends_only=true`;
   const initialSalesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
-  const initialPay = peekJson<{rows:Row[];monthly:any[]}>(initialPayrollUrl);
+  const initialPay = peekJson<{rows:PayrollReportRow[]}>(initialPayrollUrl);
   const initialTrends = peekJson<{monthly:any[]}>(initialTrendsUrl);
   const initialSales = peekJson<{sales:Sale[]}>(initialSalesUrl);
 
   // Data
-  const [rows,    setRows]    = useState<Row[]>(() => initialPay?.rows || []);
-  const [monthly, setMonthly] = useState<any[]>(() => initialTrends?.monthly || initialPay?.monthly || []);
+  const [rows,    setRows]    = useState<Row[]>(() => reportRowsToInsightRows(initialPay?.rows || []));
+  const [monthly, setMonthly] = useState<any[]>(() => initialTrends?.monthly || []);
   const [sales,   setSales]   = useState<Sale[]>(() => initialSales?.sales || []);
   const [loading, setLoading] = useState(() => !initialPay || !initialSales);
   const [tab, setTab]         = useState<'overview'|'locations'|'roles'|'alerts'|'top'|'sales'>('overview');
@@ -86,23 +105,23 @@ export default function InsightsPage() {
     const seq = ++loadSeq.current;
     const year = new Date(fromDate).getFullYear();
     const month = new Date(fromDate).getMonth() + 1;
-    const payrollUrl = `/api/payroll?year=${year}&month=${month}&period=month&from=${fromDate}&to=${toDate}`;
+    const payrollUrl = `/api/payroll-report?start=${fromDate}&end=${toDate}`;
     const trendsUrl = `/api/payroll?year=${year}&month=${month}&period=month&trends_only=true`;
     const salesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
-    const cachedPay = peekJson<{rows:Row[];monthly:any[]}>(payrollUrl);
+    const cachedPay = peekJson<{rows:PayrollReportRow[]}>(payrollUrl);
     const cachedSales = peekJson<{sales:Sale[]}>(salesUrl);
     const cachedTrends = peekJson<{monthly:any[]}>(trendsUrl);
-    if (cachedPay) setRows(cachedPay.rows || []);
+    if (cachedPay) setRows(reportRowsToInsightRows(cachedPay.rows || []));
     if (cachedTrends) setMonthly(cachedTrends.monthly || []);
     if (cachedSales) setSales(cachedSales.sales || []);
     setLoading(!cachedPay || !cachedSales);
     const periodRequest = Promise.all([
-      cachedJson<{rows:Row[];monthly:any[]}>(payrollUrl, 600_000),
+      cachedJson<{rows:PayrollReportRow[]}>(payrollUrl, 600_000),
       cachedJson<{sales:Sale[]}>(salesUrl, 600_000),
     ]);
     periodRequest.then(([pay, sal]) => {
       if (seq === loadSeq.current) {
-        setRows(pay.rows || []);
+        setRows(reportRowsToInsightRows(pay.rows || []));
         setSales(sal.sales || []);
       }
     }).finally(() => { if (seq === loadSeq.current) setLoading(false); });
@@ -323,6 +342,11 @@ export default function InsightsPage() {
           </div>
         ))}
       </div>
+      {totalSales > 0 && summary.headcount === 0 && (
+        <div role="status" style={{background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.25)',color:'#fbbf24',borderRadius:10,padding:'10px 14px',fontSize:12,marginBottom:16}}>
+          Sales are loaded for this period, but there are no completed 7shifts payroll punches synced for the same date range yet. Sync 7shifts after shifts are completed/approved, then Total Labour, Cheque, Cash, and Labour % will update.
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{borderBottom:'1px solid rgba(255,255,255,0.07)',marginBottom:16,display:'flex',gap:2,overflowX:'auto'}}>

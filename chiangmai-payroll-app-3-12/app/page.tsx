@@ -433,7 +433,7 @@ export default function Home() {
             color="var(--accent2)"
           />
           <KpiCard
-            label="Payroll Hours"
+            label="Cheque Hours"
             value={s ? `${s.payrollHours}h` : '—'}
             icon={<IconCalendar />}
             color="var(--blue)"
