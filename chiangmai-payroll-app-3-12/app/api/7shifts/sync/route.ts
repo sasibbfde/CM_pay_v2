@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 import { resolveEmployeeWage, selectHourlyWage, SevenShiftsWage } from '@/lib/wages';
 import { calculateBreaks, calculateGrossHours, calculatePayrollHours } from '@/lib/time-punch';
 import { fillMissingRosterDetails } from '@/lib/roster-details';
-import { flattenHoursAndWagesReport, hoursWagesLookup } from '@/lib/hours-wages';
+import { flattenHoursAndWagesReport, hoursWagesLookup, supplementEqualPayableSplitPunches } from '@/lib/hours-wages';
 import { resolveCashWage } from '@/lib/cash-rates';
 import { evaluateSyncSafety } from '@/lib/sync-safety';
 
@@ -274,7 +274,22 @@ async function runSync(body: any): Promise<NextResponse> {
     }
     return undefined;
   };
-  const hoursAndWagesEntries = hoursAndWagesReports.flatMap(report => flattenHoursAndWagesReport(report));
+  const flattenedHoursAndWagesEntries = hoursAndWagesReports.flatMap(report => flattenHoursAndWagesReport(report));
+  const supplementedHoursAndWages = supplementEqualPayableSplitPunches(flattenedHoursAndWagesEntries, rawPunches, {
+    startDate,
+    endDate,
+    normalizeLocation,
+    workDate: torontoDate,
+    locationIdForUser: userId => String(userById.get(userId)?.location_id || ''),
+    employeeNameForUser: userId => {
+      const dbEmp = dbEmpMap.get(userId);
+      const u7 = userById.get(userId);
+      return dbEmp?.full_name || (u7 ? fullName(u7) : undefined);
+    },
+    roleNameForId: roleId => mapRole(roleId) || undefined,
+    userIdForEntry: entry => entry.user_id || dbEmpByName.get(nameKey(entry.employee_name))?.seven_shifts_user_id,
+  });
+  const hoursAndWagesEntries = supplementedHoursAndWages.entries;
   const hoursAndWages = hoursWagesLookup(hoursAndWagesEntries);
   const hoursAndWagesError = '';
   let reportMatchedPunches = 0;
@@ -532,6 +547,9 @@ async function runSync(body: any): Promise<NextResponse> {
     usingReportRows
       ? `hours&wages authoritative rows ${punchRows.length}/${hoursAndWagesEntries.length}`
       : `hours&wages rows ${hoursAndWagesEntries.length}, matched ${reportMatchedPunches}/${rawPunches.length} punches`,
+    supplementedHoursAndWages.supplemented
+      ? `supplemented ${supplementedHoursAndWages.supplemented} equal-payable split punches from raw API`
+      : '',
     hoursAndWagesError ? `hours&wages fallback: ${hoursAndWagesError}` : '',
   ].filter(Boolean).join(' · ');
   const { error: logError } = await supabase.from('sync_log').insert({ triggered_by: triggeredBy, date_from: startDate, date_to: endDate, users_synced: userRows.length, punches_synced: punchesSynced, duration_ms: duration, location_breakdown: locBreakdown, notes });
@@ -546,6 +564,7 @@ async function runSync(body: any): Promise<NextResponse> {
     breaks_found: rawPunches.filter((p: any) => (p.breaks||[]).length > 0).length,
     hours_and_wages_matched: reportMatchedPunches,
     hours_and_wages_rows: hoursAndWagesEntries.length,
+    hours_and_wages_supplemented: supplementedHoursAndWages.supplemented,
     hours_and_wages_authoritative: usingReportRows,
     hours_and_wages_error: hoursAndWagesError || undefined,
     protected_by_safety_check: true,

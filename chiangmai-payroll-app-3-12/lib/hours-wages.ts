@@ -1,4 +1,4 @@
-import { calculateBreaks } from './time-punch';
+import { calculateBreaks, calculateGrossHours, calculatePayrollHours } from './time-punch';
 
 type HoursWagesEntry = {
   punch_id?: string;
@@ -15,6 +15,17 @@ type HoursWagesEntry = {
   regular_hours?: number;
   gross_hours?: number;
   break_minutes?: number;
+};
+
+type RawPunchSupplementOptions = {
+  startDate?: string;
+  endDate?: string;
+  normalizeLocation: (locationId?: any, locationName?: string | null) => string;
+  workDate?: (clockedIn: string) => string;
+  locationIdForUser?: (userId: string) => string | undefined;
+  employeeNameForUser?: (userId: string) => string | undefined;
+  roleNameForId?: (roleId: string) => string | undefined;
+  userIdForEntry?: (entry: HoursWagesEntry) => string | undefined;
 };
 
 const num = (value: any) => {
@@ -301,5 +312,101 @@ export function hoursWagesLookup(entries: HoursWagesEntry[]) {
       }
       return undefined;
     },
+  };
+}
+
+const reportInstanceKey = (
+  userId: string,
+  date: string,
+  location: string,
+  payrollHours: number,
+) => `${userId}|${date}|${location}|${payrollHours.toFixed(2)}`;
+
+/**
+ * 7shifts' Hours & Wages API can collapse one half of a same-day double shift
+ * when both halves have identical payable hours. The raw time-punch API still
+ * contains both punches. Keep the report as the authority, but supplement only
+ * the extra raw instances for employee/date/location/payable-hour keys that are
+ * already present in the report.
+ */
+export function supplementEqualPayableSplitPunches(
+  entries: HoursWagesEntry[],
+  rawPunches: any[],
+  options: RawPunchSupplementOptions,
+) {
+  const remainingReportCounts = new Map<string, number>();
+  const originalReportCounts = new Map<string, number>();
+  const addReportCount = (key: string) => {
+    remainingReportCounts.set(key, (remainingReportCounts.get(key) || 0) + 1);
+    originalReportCounts.set(key, (originalReportCounts.get(key) || 0) + 1);
+  };
+
+  for (const entry of entries) {
+    const userId = options.userIdForEntry?.(entry) || entry.user_id || '';
+    const date = entry.date || (entry.clocked_in ? String(entry.clocked_in).slice(0, 10) : '');
+    const location = options.normalizeLocation(entry.location_id, entry.location);
+    const payrollHours = Number(entry.regular_hours);
+    if (!userId || !date || !location || location === 'Unknown' || !Number.isFinite(payrollHours)) continue;
+    addReportCount(reportInstanceKey(String(userId), date, location, payrollHours));
+  }
+
+  const supplements: HoursWagesEntry[] = [];
+  const sortedRawPunches = [...(rawPunches || [])].sort((a, b) =>
+    String(a?.clocked_in || a?.clock_in || '').localeCompare(String(b?.clocked_in || b?.clock_in || '')),
+  );
+
+  for (const punch of sortedRawPunches) {
+    const clockedIn = punch?.clocked_in || punch?.clock_in || null;
+    const clockedOut = punch?.clocked_out || punch?.clock_out || null;
+    if (!clockedIn || !clockedOut) continue;
+
+    const userId = String(punch.user_id || punch.userId || '');
+    if (!userId) continue;
+
+    const date = options.workDate?.(clockedIn) || String(clockedIn).slice(0, 10);
+    if (options.startDate && date < options.startDate) continue;
+    if (options.endDate && date > options.endDate) continue;
+
+    const locationId = String(punch.location_id || options.locationIdForUser?.(userId) || '');
+    const location = options.normalizeLocation(locationId, undefined);
+    if (!location || location === 'Unknown') continue;
+
+    const grossHours = calculateGrossHours(clockedIn, clockedOut);
+    if (!grossHours) continue;
+
+    const breakTotals = calculateBreaks(Array.isArray(punch.breaks) ? punch.breaks : []);
+    const payrollHours = calculatePayrollHours(grossHours, breakTotals.unpaidMinutes);
+    const key = reportInstanceKey(userId, date, location, payrollHours);
+    const remaining = remainingReportCounts.get(key) || 0;
+    if (remaining > 0) {
+      remainingReportCounts.set(key, remaining - 1);
+      continue;
+    }
+
+    // Conservative guard: supplement only extra raw instances for keys the
+    // Hours & Wages report already represented at least once.
+    if ((originalReportCounts.get(key) || 0) <= 0) continue;
+
+    const roleId = String(punch.role_id || punch.roleId || '');
+    supplements.push({
+      punch_id: str(punch.id ?? punch.punch_id),
+      user_id: userId,
+      employee_name: options.employeeNameForUser?.(userId),
+      location_id: locationId,
+      location,
+      role: options.roleNameForId?.(roleId),
+      date,
+      clocked_in: clockedIn,
+      clocked_out: clockedOut,
+      regular_hours: payrollHours,
+      gross_hours: grossHours,
+      break_minutes: Math.round(breakTotals.breakMinutes),
+    });
+  }
+
+  return {
+    entries: supplements.length ? [...entries, ...supplements] : entries,
+    supplemented: supplements.length,
+    supplements,
   };
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { flattenHoursAndWagesReport, hoursWagesLookup } from '../lib/hours-wages';
+import { flattenHoursAndWagesReport, hoursWagesLookup, supplementEqualPayableSplitPunches } from '../lib/hours-wages';
 
 test('flattens nested 7shifts hours and wages report rows', () => {
   const rows = flattenHoursAndWagesReport({
@@ -149,4 +149,55 @@ test('keeps same-day split shifts when both halves have identical payable hours'
   assert.deepEqual(rows.map(row => row.regular_hours), [5.5, 5.5]);
   assert.deepEqual(rows.map(row => row.gross_hours), [5.5, 6]);
   assert.deepEqual(rows.map(row => row.break_minutes || 0), [0, 30]);
+});
+
+test('supplements identical-payable split shifts collapsed by the 7shifts report API', () => {
+  const reportRows = flattenHoursAndWagesReport({
+    location_id:'461096',
+    location_name:'Chiang Mai Junction',
+    data: [{
+      user: { id:'9748941' },
+      employee_name:'Periyasamy, Gopinath',
+      shifts: [
+        { date:'2026-07-05', regular_hours:5.5, total_hours:5.5 },
+      ],
+    }],
+  });
+
+  const rawPunches = [
+    {
+      id:'raw-first-half',
+      user_id:'9748941',
+      location_id:'461096',
+      role_id:'prep',
+      clocked_in:'2026-07-05T10:30:00-04:00',
+      clocked_out:'2026-07-05T16:00:00-04:00',
+      breaks:[],
+    },
+    {
+      id:'raw-second-half',
+      user_id:'9748941',
+      location_id:'461096',
+      role_id:'prep',
+      clocked_in:'2026-07-05T16:00:00-04:00',
+      clocked_out:'2026-07-05T22:00:00-04:00',
+      breaks:[{ in:'2026-07-05T19:00:00-04:00', out:'2026-07-05T19:30:00-04:00', paid:false }],
+    },
+  ];
+
+  const result = supplementEqualPayableSplitPunches(reportRows, rawPunches, {
+    startDate:'2026-07-01',
+    endDate:'2026-07-15',
+    normalizeLocation: locationId => locationId === '461096' ? 'Chiang Mai Junction' : 'Unknown',
+    workDate: value => String(value).slice(0, 10),
+    employeeNameForUser: () => 'Gopinath Periyasamy',
+    roleNameForId: () => 'Prep',
+  });
+
+  assert.equal(result.supplemented, 1);
+  assert.equal(result.entries.length, 2);
+  assert.equal(result.entries.reduce((sum, row) => sum + Number(row.regular_hours || 0), 0), 11);
+  assert.deepEqual(result.supplements.map(row => row.punch_id), ['raw-second-half']);
+  assert.equal(result.supplements[0].gross_hours, 6);
+  assert.equal(result.supplements[0].break_minutes, 30);
 });
