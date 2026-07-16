@@ -478,37 +478,36 @@ async function runSync(body: any): Promise<NextResponse> {
 
   // ─── 6. Upsert punches ─────────────────────────────────────────────────────
   const punchRows = [...punchMap.values()];
-  if (usingReportRows) {
-    // Payroll periods are evaluated by Toronto business date. A local June 30
-    // late-night punch can have a July 1 UTC `clocked_in`, so cleanup must use
-    // the same one-day safety window as payroll reads. Otherwise stale pre-report
-    // rows can survive beside the authoritative Hours & Wages rows and inflate
-    // location totals for Junction / Mississauga / York Mills.
-    const { data: existingPunchRows, error: existingPunchError } = await supabase
-      .from('punches')
-      .select('clocked_in,hours,payroll_hours,gross_hours,break_minutes,source')
-      .in('source', ['7shifts', '7shifts-hours-wages'])
-      .gte('clocked_in', queryStart.toISOString())
-      .lte('clocked_in', queryEnd.toISOString());
-    if (existingPunchError) throw new Error(`Existing payroll safety check failed: ${existingPunchError.message}`);
-    const safety = evaluateSyncSafety(existingPunchRows || [], punchRows, {
-      start: startDate,
-      end: endDate,
-      allowDecrease,
-      expectedPayableHours,
-    });
-    if (!safety.ok) {
-      throw new Error(`${safety.reason} Existing: ${safety.existing.rows} rows / ${safety.existing.payrollHours.toFixed(2)}h. Incoming: ${safety.incoming.rows} rows / ${safety.incoming.payrollHours.toFixed(2)}h. To override, send allow_decrease=true.`);
-    }
-
-    const { error: deleteError } = await supabase
-      .from('punches')
-      .delete()
-      .in('source', ['7shifts', '7shifts-hours-wages'])
-      .gte('clocked_in', queryStart.toISOString())
-      .lte('clocked_in', queryEnd.toISOString());
-    if (deleteError) throw new Error(`Old 7shifts punch cleanup failed: ${deleteError.message}`);
+  // Payroll periods are evaluated by Toronto business date. A local June 30
+  // late-night punch can have a July 1 UTC `clocked_in`, so cleanup must use
+  // the same one-day safety window as payroll reads. Always clean up old
+  // 7shifts-derived rows before inserting the rebuilt period, otherwise a
+  // changed punch-id strategy can leave stale rows beside fresh rows.
+  const { data: existingPunchRows, error: existingPunchError } = await supabase
+    .from('punches')
+    .select('clocked_in,hours,payroll_hours,gross_hours,break_minutes,source')
+    .in('source', ['7shifts', '7shifts-hours-wages'])
+    .gte('clocked_in', queryStart.toISOString())
+    .lte('clocked_in', queryEnd.toISOString());
+  if (existingPunchError) throw new Error(`Existing payroll safety check failed: ${existingPunchError.message}`);
+  const safety = evaluateSyncSafety(existingPunchRows || [], punchRows, {
+    start: startDate,
+    end: endDate,
+    allowDecrease,
+    expectedPayableHours,
+  });
+  if (!safety.ok) {
+    throw new Error(`${safety.reason} Existing: ${safety.existing.rows} rows / ${safety.existing.payrollHours.toFixed(2)}h. Incoming: ${safety.incoming.rows} rows / ${safety.incoming.payrollHours.toFixed(2)}h. To override, send allow_decrease=true.`);
   }
+
+  const { error: deleteError } = await supabase
+    .from('punches')
+    .delete()
+    .in('source', ['7shifts', '7shifts-hours-wages'])
+    .gte('clocked_in', queryStart.toISOString())
+    .lte('clocked_in', queryEnd.toISOString());
+  if (deleteError) throw new Error(`Old 7shifts punch cleanup failed: ${deleteError.message}`);
+
   let punchesSynced = 0;
   for (let i = 0; i < punchRows.length; i += BATCH) {
     const { error } = await supabase.from('punches')
