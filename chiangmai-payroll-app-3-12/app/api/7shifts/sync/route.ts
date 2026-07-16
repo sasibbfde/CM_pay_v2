@@ -77,7 +77,7 @@ function normalizeLocation(locationId?: any, locationName?: string | null) {
 }
 
 function reportPunchId(entry: any, index: number) {
-  if (entry.punch_id) return `HW-${String(entry.punch_id)}`;
+  if (entry.punch_id) return `HW-${String(entry.punch_id)}-${index}`;
   const stable = [
     entry.user_id || nameKey(entry.employee_name),
     entry.date || String(entry.clocked_in || '').slice(0, 10),
@@ -348,7 +348,10 @@ async function runSync(body: any): Promise<NextResponse> {
       const cashWage = resolveCashWage({ name, location, cash_wage: dbEmp?.cash_wage });
       const department = dbEmp?.department || 'Unknown';
       const role = entry.role || dbEmp?.role || 'Unknown';
-      const punchId = reportPunchId(entry, index);
+      const rawPunchId = rawPunch?.id ?? rawPunch?.punch_id;
+      const punchId = rawPunchId != null && rawPunchId !== ''
+        ? `7S-${String(rawPunchId)}`
+        : reportPunchId(entry, index);
 
       if (location && location !== 'Unknown') {
         locBreakdown[location] = round2((locBreakdown[location] || 0) + payrollHours);

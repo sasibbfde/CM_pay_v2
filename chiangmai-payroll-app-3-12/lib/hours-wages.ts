@@ -228,14 +228,21 @@ export function flattenHoursAndWagesReport(payload: any): HoursWagesEntry[] {
   walk(payload?.data ?? payload, parent, output);
   const seen = new Set<string>();
   return output.filter(entry => {
+    // Do not collapse rows that have no clock detail. 7shifts split shifts can
+    // produce two report lines for the same employee/date/location with the
+    // exact same payable hours. Those are real punches, not duplicates.
+    if (!entry.clocked_in && !entry.clocked_out) return true;
     const key = [
       entry.punch_id,
       entry.user_id,
       entry.employee_name,
       entry.date,
       entry.clocked_in,
+      entry.clocked_out,
       entry.location_id || entry.location,
       entry.regular_hours,
+      entry.gross_hours,
+      entry.break_minutes,
     ].join('|');
     if (seen.has(key)) return false;
     seen.add(key);
