@@ -311,12 +311,10 @@ async function runSync(body: any): Promise<NextResponse> {
       String(b.regular_hours ?? ''),
     ].join('|')));
 
-  // Prefer raw time punches as the one-row-per-shift source of truth whenever
-  // available, then attach the hours-and-wages payable value to each punch.
-  // The report payload can contain duplicate-looking rows for nested summaries,
-  // and equal-hours split shifts are impossible to identify safely from report
-  // rows alone.
-  const usingReportRows = reportRows.length > 0 && !hoursAndWagesError && rawPunches.length === 0;
+  // Prefer the 7shifts Hours & Wages report as the payroll source because it
+  // matches the exported payroll report. The parser keeps equal-payable split
+  // shifts by including gross/break details in its duplicate key.
+  const usingReportRows = reportRows.length > 0 && !hoursAndWagesError;
 
   if (usingReportRows) {
     for (const [index, entry] of reportRows.entries()) {
