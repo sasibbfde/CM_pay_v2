@@ -311,7 +311,12 @@ async function runSync(body: any): Promise<NextResponse> {
       String(b.regular_hours ?? ''),
     ].join('|')));
 
-  const usingReportRows = reportRows.length > 0 && !hoursAndWagesError;
+  // Prefer raw time punches as the one-row-per-shift source of truth whenever
+  // available, then attach the hours-and-wages payable value to each punch.
+  // The report payload can contain duplicate-looking rows for nested summaries,
+  // and equal-hours split shifts are impossible to identify safely from report
+  // rows alone.
+  const usingReportRows = reportRows.length > 0 && !hoursAndWagesError && rawPunches.length === 0;
 
   if (usingReportRows) {
     for (const [index, entry] of reportRows.entries()) {
