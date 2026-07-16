@@ -3,6 +3,7 @@ import { EmployeeRule, Punch } from './types';
 const normalize=(value:string)=>value.trim().toLowerCase().replace(/\s+/g,' ');
 const round2=(value:number)=>Math.round((value+Number.EPSILON)*100)/100;
 export const roundQuarterHour=(value:number)=>Math.round((value+Number.EPSILON)*4)/4;
+const locationSet=(value?:string)=>new Set((value||'').split(',').map(normalize).filter(Boolean));
 
 export type PayrollReportRow={
   employee_id:string; employee_name:string; locations:string[]; roles:string[]; location_hours:Record<string,number>; location_gross_hours:Record<string,number>; location_break_hours:Record<string,number>;
@@ -39,6 +40,13 @@ export function buildPayrollReport(punches:Punch[],rules:EmployeeRule[],periodEn
     const rounded=roundQuarterHour(payable);const wage=payable>0?weightedWage/payable:Number(first.wage||0);const rule=ruleFor(employeeId,first.employee_name,rules,periodEnd);
     let cap=88;let cheque=Math.min(rounded,cap),cash=Math.max(0,rounded-cheque),status=rounded>88?'Over 88 → cash':'',notes=rule?.notes||'';
     if(rule?.rule_type==='CASH_ONLY'){cheque=0;cash=rounded;status='CASH (all)';}
+    if(rule?.rule_type==='PARTIAL_CASH'){
+      const cashLocations=locationSet(rule.combined_locations);
+      const rawCash=Object.entries(locationHours).reduce((sum,[location,hours])=>sum+(cashLocations.has(normalize(location))?hours:0),0);
+      cash=Math.min(rounded,roundQuarterHour(rawCash));
+      cheque=round2(Math.max(0,rounded-cash));
+      status=cash>0?'Partial cash by location':'Partial cash rule';
+    }
     if(rule?.rule_type==='HOLD_PAYROLL'){cheque=0;cash=0;status='HOLD — NO PAY';}
     if(rule?.rule_type==='PAYROLL_HOURS_CAP'||rule?.rule_type==='COMBINED_LOCATION_CAP'){
       cap=Math.max(0,Number(rule.rule_value||0));cheque=Math.min(rounded,cap);cash=Math.max(0,rounded-cheque);status=`Exception ${cap}h`;

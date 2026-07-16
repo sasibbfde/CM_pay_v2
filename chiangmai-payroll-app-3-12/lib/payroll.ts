@@ -158,6 +158,9 @@ export function calculatePayroll(punches: Punch[], rules: EmployeeRule[]): Payro
         if (type === 'HOLD_PAYROLL') continue;
         if (type === 'CASH_ONLY') {
           addPay(punch, 0, hours, totals);
+        } else if (type === 'PARTIAL_CASH') {
+          if (capLocations.has(norm(punch.location))) addPay(punch, 0, hours, totals);
+          else addPay(punch, hours, 0, totals);
         } else if (type === 'PAYROLL_HOURS_CAP') {
           const payrollHours = Math.min(hours, Math.max(remaining, 0));
           addPay(punch, payrollHours, hours - payrollHours, totals);
