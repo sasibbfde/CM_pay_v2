@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
 import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
+import type { EmployeeRule } from '@/lib/types';
 
 type Employee = {
   id: string; seven_shifts_user_id: string; full_name: string;
@@ -24,12 +25,15 @@ function isoDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 function cad(n: number) { return `$${n.toFixed(2)}`; }
+const normName = (value: string) => value.trim().toLowerCase().replace(/\s+/g,' ');
 
 export default function EmployeesPage() {
   const today = new Date();
   const initialEmployeeUrl = '/api/employees?active=true';
   const initialEmployees = peekJson<{employees:Employee[]}>(initialEmployeeUrl);
+  const initialRules = peekJson<{rules:EmployeeRule[]}>('/api/rules');
   const [employees, setEmployees]  = useState<Employee[]>(() => initialEmployees?.employees || []);
+  const [rules, setRules]          = useState<EmployeeRule[]>(() => initialRules?.rules || []);
   const [selected,  setSelected]   = useState<Employee | null>(null);
   const [punches,   setPunches]    = useState<Punch[]>([]);
   const [loading,   setLoading]    = useState(() => !initialEmployees);
@@ -77,6 +81,12 @@ export default function EmployeesPage() {
       .finally(()=>setLoading(false));
   }, [showInactive]);
 
+  useEffect(() => {
+    cachedJson<{rules:EmployeeRule[]}>('/api/rules', 120_000)
+      .then(data=>setRules(data.rules || []))
+      .catch(()=>{});
+  }, []);
+
   const loadPunches = (emp: Employee) => setSelected(emp);
 
   useEffect(() => {
@@ -119,6 +129,7 @@ export default function EmployeesPage() {
   },0);
   const cashRates = [...new Set(completedPunches.map(p=>Number(p.cash_wage||0)).filter(rate=>rate>0).map(rate=>rate.toFixed(2)))];
   const cashRateLabel = cashRates.length === 0 ? '—' : cashRates.length === 1 ? `$${cashRates[0]}/hr` : 'Multiple';
+  const selectedRule = selected ? rules.find(rule=>rule.active!==false && normName(rule.employee_name) === normName(selected.full_name)) : undefined;
 
   const syncSelectedPeriod = async () => {
     if (!selected || periodSyncing) return;
@@ -161,6 +172,7 @@ export default function EmployeesPage() {
       ['Employee Logbook Export'],
       [`Employee: ${selected.full_name}`],
       [`Location: ${selected.location||'—'} | Role: ${selected.role||'—'} | Cheque Wage: $${selected.wage}/hr | Cash Wage: ${cashRateLabel}`],
+      [`Payroll rule: ${selectedRule ? `${selectedRule.rule_type}${selectedRule.rule_value !== undefined && selectedRule.rule_value !== null ? ` (${selectedRule.rule_value})` : ''}${selectedRule.notes ? ` — ${selectedRule.notes}` : ''}` : 'None'}`],
       [`Worked locations: ${workedLocations.map(([location,hours])=>`${location} (actual ${hours.actual.toFixed(2)}h, breaks ${(hours.breakMinutes/60).toFixed(2)}h, payroll ${hours.payroll.toFixed(2)}h)`).join('; ')||'—'}`],
       [`Period: ${fromDate} to ${toDate}`],
       [],
@@ -257,6 +269,13 @@ export default function EmployeesPage() {
                   <div style={{fontSize:16,fontWeight:700,color:'#f9fafb'}}>{selected.full_name}</div>
                   <div style={{fontSize:11,color:'#6b7280',marginTop:2}}>{selected.location} · {selected.department} · {selected.role}</div>
                   {(!selected.wage||+selected.wage===0)&&<div style={{fontSize:10,color:'#f87171',marginTop:2}}>⚠ No wage set</div>}
+                  {selectedRule&&<div style={{fontSize:10,color:'#a78bfa',marginTop:3}}>
+                    Payroll rule: <span style={{fontWeight:700}}>{selectedRule.rule_type.replaceAll('_',' ')}</span>
+                    {selectedRule.rule_value !== undefined && selectedRule.rule_value !== null ? ` · Value ${selectedRule.rule_value}` : ''}
+                    {selectedRule.combined_locations ? ` · ${selectedRule.combined_locations}` : ''}
+                    {selectedRule.payroll_location ? ` · Payroll location: ${selectedRule.payroll_location}` : ''}
+                    {selectedRule.notes ? ` · ${selectedRule.notes}` : ''}
+                  </div>}
                 </div>
               </div>
               <button onClick={downloadExcel} disabled={punches.length===0} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:punches.length?'#34d399':'#4b5563',borderRadius:7,padding:'6px 14px',fontSize:12,cursor:punches.length?'pointer':'not-allowed',fontWeight:500,flexShrink:0}}>

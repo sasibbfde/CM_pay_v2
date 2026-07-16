@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
 import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache';
+import type { EmployeeRule, RuleType } from '@/lib/types';
 
 type Employee = {
   id: string; seven_shifts_user_id: string | null; full_name: string;
@@ -8,12 +9,31 @@ type Employee = {
   wage: number; cash_wage?: number; wage_locked?: boolean; wage_source?: string; active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
 };
 
+type RuleForm = {
+  id?: string;
+  employee_name: string;
+  rule_type: RuleType;
+  rule_value: string;
+  combined_locations: string;
+  payroll_location: string;
+  notes: string;
+};
+
 const sel: React.CSSProperties = { background:'#1a1f2e',border:'1px solid rgba(255,255,255,0.1)',borderRadius:7,color:'#e5e7eb',padding:'7px 12px',fontSize:13,outline:'none',cursor:'pointer' };
 const PAGE_SIZE = 50;
+const RULE_TYPES: RuleType[] = ['CASH_ONLY','PARTIAL_CASH','PAYROLL_HOURS_CAP','COMBINED_LOCATION_CAP','SALARY_FIXED','HOLD_PAYROLL','PAY_UNDER_OTHER_LOCATION','NOTE_ONLY'];
+const emptyRuleForm: RuleForm = { employee_name:'', rule_type:'CASH_ONLY', rule_value:'', combined_locations:'', payroll_location:'', notes:'' };
+const normName = (value: string) => value.trim().toLowerCase().replace(/\s+/g,' ');
 
 export default function WagesPage() {
   const initial = peekJson<{employees:Employee[]}>('/api/employees?active=true');
   const [employees, setEmployees]   = useState<Employee[]>(() => initial?.employees || []);
+  const initialRules = peekJson<{rules:EmployeeRule[]}>('/api/rules');
+  const [rules, setRules]           = useState<EmployeeRule[]>(() => initialRules?.rules || []);
+  const [rulesLoading, setRulesLoading] = useState(() => !initialRules);
+  const [ruleForm, setRuleForm]     = useState<RuleForm>(emptyRuleForm);
+  const [ruleSaving, setRuleSaving] = useState(false);
+  const [ruleSearch, setRuleSearch] = useState('');
   const [loading, setLoading]       = useState(() => !initial);
   const [saving,  setSaving]        = useState<Set<string>>(new Set());
   const [saved,   setSaved]         = useState<Set<string>>(new Set());
@@ -39,9 +59,30 @@ export default function WagesPage() {
       .finally(()=>setLoading(false));
   };
 
-  useEffect(()=>{ load(); },[]);
+  const loadRules = (force = false) => {
+    const url = '/api/rules';
+    const cached = !force ? peekJson<{rules:EmployeeRule[]}>(url) : undefined;
+    if (cached) setRules(cached.rules || []);
+    setRulesLoading(!cached);
+    cachedJson<{rules:EmployeeRule[]}>(url, 120_000, force)
+      .then(d => setRules((d.rules||[]).sort((a,b)=>(a.employee_name||'').localeCompare(b.employee_name||''))))
+      .catch(()=>{})
+      .finally(()=>setRulesLoading(false));
+  };
+
+  useEffect(()=>{ load(); loadRules(); },[]);
 
   const locations = useMemo(()=>['ALL',...[...new Set(employees.map(e=>e.location).filter(Boolean))].sort()],[employees]);
+  const ruleByName = useMemo(()=>{
+    const map = new Map<string,EmployeeRule>();
+    rules.filter(rule=>rule.active!==false).forEach(rule=>map.set(normName(rule.employee_name), rule));
+    return map;
+  },[rules]);
+  const filteredRules = useMemo(()=>rules.filter(rule=>{
+    if (!ruleSearch) return true;
+    const needle = ruleSearch.toLowerCase();
+    return `${rule.employee_name} ${rule.rule_type} ${rule.notes||''} ${rule.combined_locations||''} ${rule.payroll_location||''}`.toLowerCase().includes(needle);
+  }),[rules,ruleSearch]);
 
   const filtered = useMemo(()=>employees.filter(e=>{
     if (locFilter!=='ALL'&&e.location!==locFilter) return false;
@@ -88,6 +129,67 @@ export default function WagesPage() {
     if(!toSave.length){setMsg({text:'No changes to save',ok:false});return;}
     for(const e of toSave) await saveOne(e);
     setMsg({text:`✓ Saved ${toSave.length} employees`,ok:true});
+  };
+
+  const setRuleField = (field: keyof RuleForm, value: string) => setRuleForm(previous=>({...previous,[field]:value}));
+
+  const editRule = (rule: EmployeeRule) => setRuleForm({
+    id: rule.id,
+    employee_name: rule.employee_name || '',
+    rule_type: rule.rule_type,
+    rule_value: rule.rule_value === undefined || rule.rule_value === null ? '' : String(rule.rule_value),
+    combined_locations: rule.combined_locations || '',
+    payroll_location: rule.payroll_location || '',
+    notes: rule.notes || '',
+  });
+
+  const saveRule = async () => {
+    if (!ruleForm.employee_name.trim()) { setMsg({text:'Employee name is required for rule',ok:false}); return; }
+    setRuleSaving(true);
+    try {
+      const body = {
+        ...ruleForm,
+        employee_name: ruleForm.employee_name.trim(),
+        rule_value: ruleForm.rule_value.trim() ? Number(ruleForm.rule_value) : null,
+        active: true,
+      };
+      const res = await fetch(ruleForm.id ? '/api/rules' : '/api/rules', {
+        method: ruleForm.id ? 'PATCH' : 'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Rule save failed');
+      invalidateClientCache(['/api/rules','/api/payroll','/api/payroll-report','/api/employees']);
+      await loadRules(true);
+      setRuleForm(emptyRuleForm);
+      setMsg({text:'✓ Payroll rule saved and will apply on next refresh/sync',ok:true});
+    } catch (error:any) {
+      setMsg({text:error.message,ok:false});
+    } finally {
+      setRuleSaving(false);
+      setTimeout(()=>setMsg(null),3000);
+    }
+  };
+
+  const deleteRule = async (rule: EmployeeRule) => {
+    if (!rule.id) return;
+    if (!confirm(`Delete payroll rule for ${rule.employee_name}? It will be made inactive, not erased.`)) return;
+    setRuleSaving(true);
+    try {
+      const res = await fetch(`/api/rules?id=${encodeURIComponent(rule.id)}`, { method:'DELETE' });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Rule delete failed');
+      invalidateClientCache(['/api/rules','/api/payroll','/api/payroll-report','/api/employees']);
+      await loadRules(true);
+      if (ruleForm.id === rule.id) setRuleForm(emptyRuleForm);
+      setMsg({text:'✓ Rule deleted; payroll will no longer apply it',ok:true});
+    } catch (error:any) {
+      setMsg({text:error.message,ok:false});
+    } finally {
+      setRuleSaving(false);
+      setTimeout(()=>setMsg(null),3000);
+    }
   };
 
   const syncFrom7shifts = async () => {
@@ -146,6 +248,52 @@ export default function WagesPage() {
 
       {missingWages.length>0&&<div style={{marginBottom:16,padding:'12px 14px',borderRadius:10,background:'rgba(248,113,113,.08)',border:'1px solid rgba(248,113,113,.28)'}}><div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}><div><div style={{fontSize:13,fontWeight:700,color:'#f87171'}}>⚠ {missingWages.length} active employees need a wage</div><div style={{fontSize:11,color:'#9ca3af',marginTop:3}}>{missingWages.slice(0,12).map(employee=>`${employee.full_name} (${employee.location||'No location'})`).join(' · ')}{missingWages.length>12?' …':''}</div></div><button onClick={()=>{setMissingOnly(true);setLocFilter('ALL');setSearch('');}} style={{...sel,borderColor:'rgba(248,113,113,.35)',color:'#f87171'}}>Show missing wages</button></div></div>}
 
+      <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:12,padding:16,marginBottom:18}}>
+        <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',flexWrap:'wrap',marginBottom:12}}>
+          <div>
+            <h2 style={{fontSize:16,fontWeight:700,color:'#f9fafb',margin:0}}>Payroll Rules</h2>
+            <p style={{fontSize:12,color:'#6b7280',margin:'4px 0 0'}}>Add, edit, apply, or delete standing employee rules. Active rules apply in Payroll Hours, Labour Cost, By Location, Dashboard, exports, and are visible in Logbook.</p>
+          </div>
+          <input placeholder="Search rules…" value={ruleSearch} onChange={event=>setRuleSearch(event.target.value)} style={{...sel,width:220,cursor:'text'}}/>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'minmax(180px,1.4fr) minmax(170px,1fr) 110px minmax(180px,1fr) minmax(160px,1fr) minmax(180px,1.2fr) auto auto',gap:8,alignItems:'center',marginBottom:14}}>
+          <input list="employee-rule-names" placeholder="Employee name" value={ruleForm.employee_name} onChange={event=>setRuleField('employee_name',event.target.value)} style={{...sel,cursor:'text'}}/>
+          <datalist id="employee-rule-names">{employees.map(employee=><option key={employee.id} value={employee.full_name}/>)}</datalist>
+          <select value={ruleForm.rule_type} onChange={event=>setRuleField('rule_type',event.target.value)} style={sel}>
+            {RULE_TYPES.map(type=><option key={type} value={type}>{type.replaceAll('_',' ')}</option>)}
+          </select>
+          <input placeholder="Value" type="number" step="0.01" value={ruleForm.rule_value} onChange={event=>setRuleField('rule_value',event.target.value)} style={{...sel,cursor:'text'}}/>
+          <input placeholder="Combined/cash locations" value={ruleForm.combined_locations} onChange={event=>setRuleField('combined_locations',event.target.value)} style={{...sel,cursor:'text'}}/>
+          <input placeholder="Payroll location" value={ruleForm.payroll_location} onChange={event=>setRuleField('payroll_location',event.target.value)} style={{...sel,cursor:'text'}}/>
+          <input placeholder="Notes" value={ruleForm.notes} onChange={event=>setRuleField('notes',event.target.value)} style={{...sel,cursor:'text'}}/>
+          <button onClick={saveRule} disabled={ruleSaving} style={{background:'rgba(34,211,238,0.12)',border:'1px solid rgba(34,211,238,0.3)',color:'#22d3ee',borderRadius:7,padding:'8px 14px',fontSize:12,fontWeight:700,cursor:ruleSaving?'wait':'pointer',whiteSpace:'nowrap'}}>{ruleForm.id?'Update rule':'Apply rule'}</button>
+          <button onClick={()=>setRuleForm(emptyRuleForm)} style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)',color:'#9ca3af',borderRadius:7,padding:'8px 12px',fontSize:12,cursor:'pointer'}}>Clear</button>
+        </div>
+        <div style={{border:'1px solid rgba(255,255,255,0.06)',borderRadius:10,overflow:'hidden',maxHeight:260,overflowY:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+            <thead><tr style={{background:'rgba(0,0,0,0.22)'}}>
+              {['EMPLOYEE','RULE','VALUE / LOCATIONS','NOTES',''].map(header=><th key={header} style={{padding:'8px 10px',textAlign:'left',color:'#6b7280',fontSize:10,fontWeight:600,letterSpacing:'.06em'}}>{header}</th>)}
+            </tr></thead>
+            <tbody>
+              {rulesLoading ? <tr><td colSpan={5} style={{padding:18,color:'#6b7280',textAlign:'center'}}>Loading rules…</td></tr> :
+              filteredRules.length===0 ? <tr><td colSpan={5} style={{padding:18,color:'#6b7280',textAlign:'center'}}>No active rules found</td></tr> :
+              filteredRules.map(rule=>(
+                <tr key={rule.id || `${rule.employee_name}-${rule.rule_type}`} style={{borderTop:'1px solid rgba(255,255,255,0.05)'}}>
+                  <td style={{padding:'8px 10px',fontWeight:600,color:'#f9fafb'}}>{rule.employee_name}</td>
+                  <td style={{padding:'8px 10px'}}><span style={{fontSize:10,color:'#a78bfa',background:'rgba(167,139,250,.12)',border:'1px solid rgba(167,139,250,.22)',borderRadius:5,padding:'3px 6px'}}>{rule.rule_type.replaceAll('_',' ')}</span></td>
+                  <td style={{padding:'8px 10px',color:'#9ca3af'}}>{rule.rule_value !== null && rule.rule_value !== undefined ? `Value ${rule.rule_value}` : '—'}{rule.combined_locations?` · ${rule.combined_locations}`:''}{rule.payroll_location?` · Payroll ${rule.payroll_location}`:''}</td>
+                  <td style={{padding:'8px 10px',color:'#6b7280'}}>{rule.notes || '—'}</td>
+                  <td style={{padding:'8px 10px',textAlign:'right',whiteSpace:'nowrap'}}>
+                    <button onClick={()=>editRule(rule)} style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)',color:'#22d3ee',borderRadius:6,padding:'5px 10px',fontSize:11,cursor:'pointer',marginRight:6}}>Edit</button>
+                    <button onClick={()=>deleteRule(rule)} disabled={!rule.id || ruleSaving} style={{background:'rgba(248,113,113,0.08)',border:'1px solid rgba(248,113,113,0.25)',color:'#f87171',borderRadius:6,padding:'5px 10px',fontSize:11,cursor:ruleSaving?'wait':'pointer'}}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Filters */}
       <div style={{display:'flex',gap:10,marginBottom:20,flexWrap:'wrap'}}>
         <input placeholder="Search employee…" value={search} onChange={e=>setSearch(e.target.value)}
@@ -181,6 +329,7 @@ export default function WagesPage() {
                 const hasEdit  = !!edits[emp.id];
                 const curWage  = parseFloat(getEdit(emp.id,'wage',emp.wage||0));
                 const noWage   = !emp.wage || emp.wage===0;
+                const activeRule = ruleByName.get(normName(emp.full_name));
                 return (
                   <tr key={emp.id} style={{borderTop:'1px solid rgba(255,255,255,0.05)',background:emp.is_new?'rgba(34,211,238,.07)':i%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
                     <td style={{padding:'10px 16px'}}>
@@ -190,6 +339,7 @@ export default function WagesPage() {
                         {noWage&&<span style={{fontSize:9,background:'rgba(248,113,113,0.2)',color:'#f87171',borderRadius:3,padding:'1px 5px'}}>$0</span>}
                         {hasEdit&&<span style={{fontSize:9,background:'rgba(251,191,36,0.2)',color:'#fbbf24',borderRadius:3,padding:'1px 5px'}}>edited</span>}
                         {emp.wage_locked&&<span style={{fontSize:9,background:'rgba(52,211,153,0.14)',color:'#34d399',borderRadius:3,padding:'1px 5px'}}>{emp.wage_source==='roster-2026'?'roster locked':'saved'}</span>}
+                        {activeRule&&<span title={activeRule.notes || activeRule.rule_type} style={{fontSize:9,background:'rgba(167,139,250,0.16)',color:'#a78bfa',borderRadius:3,padding:'1px 5px'}}>{activeRule.rule_type.replaceAll('_',' ')}</span>}
                       </div>
                     </td>
                     <td style={{padding:'10px 16px',color:'#6b7280',fontSize:12}}>{emp.location||'—'}</td>
