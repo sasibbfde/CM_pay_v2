@@ -7,6 +7,7 @@ type HoursWagesEntry = {
   location_id?: string;
   location?: string;
   role?: string;
+  shift_details?: string;
   wage?: number;
   date?: string;
   clocked_in?: string;
@@ -92,6 +93,11 @@ function attachBreakToPreviousEntry(output: HoursWagesEntry[], parent: Partial<H
       ? true
       : keyLocation(parent.location_id || parent.location) === keyLocation(entry.location_id || entry.location);
     if (!sameEmployee || !sameLocation) continue;
+    const existingMinutes = Math.max(0, (Number(entry.gross_hours || 0) - Number(entry.regular_hours || 0)) * 60);
+    if (existingMinutes >= minutes - 0.5) {
+      entry.break_minutes = Math.max(entry.break_minutes || 0, Math.round(existingMinutes));
+      return;
+    }
     entry.break_minutes = (entry.break_minutes || 0) + minutes;
     const regular = Number(entry.regular_hours || 0);
     const gross = Number(entry.gross_hours || 0);
@@ -166,6 +172,7 @@ function entryFromObject(value: any, parent: Partial<HoursWagesEntry>): HoursWag
   const clockedOut = clockOutTime(value) || clockOutTime(punchObject);
   const regularHours = regular ?? gross ?? 0;
   const grossHours = gross ?? regularHours;
+  const shiftDetails = firstString(value, ['shift_details', 'shiftDetails', 'details', 'description']);
   return {
     punch_id: firstString(value, ['punch_id', 'time_punch_id', 'id']) || firstString(punchObject, ['id', 'punch_id']) || parent.punch_id,
     user_id: firstString(value, ['user_id', 'employee_id']) || firstString(userObject, ['id', 'user_id', 'employee_id']) || parent.user_id,
@@ -173,6 +180,7 @@ function entryFromObject(value: any, parent: Partial<HoursWagesEntry>): HoursWag
     location_id: firstString(value, ['location_id']) || firstString(locationObject, ['id', 'location_id']) || parent.location_id,
     location: firstString(value, ['location_name']) || firstString(locationObject, ['name']) || parent.location,
     role: firstString(value, ['role_name']) || firstString(roleObject, ['name']) || parent.role,
+    ...(shiftDetails ? { shift_details: shiftDetails } : {}),
     wage: firstNumber(value, ['wage', 'hourly_wage', 'rate', 'hourly_rate']) ?? parent.wage,
     date: workDate(value, clockedIn) || parent.date,
     clocked_in: clockedIn,
@@ -229,9 +237,9 @@ export function flattenHoursAndWagesReport(payload: any): HoursWagesEntry[] {
   const seen = new Set<string>();
   return output.filter(entry => {
     // 7shifts split shifts can share the same employee/date/location/payable
-    // hours. Include clock-out, gross hours, and break minutes in the duplicate
-    // key so equal-payable split shifts are kept while exact nested duplicates
-    // from the report payload are still collapsed.
+    // hours. Include the report shift details, clock-out, gross hours, and
+    // break minutes in the duplicate key so equal-payable split shifts are kept
+    // while exact nested duplicates from the report payload are still collapsed.
     const key = [
       entry.punch_id,
       entry.user_id,
@@ -239,6 +247,7 @@ export function flattenHoursAndWagesReport(payload: any): HoursWagesEntry[] {
       entry.date,
       entry.clocked_in,
       entry.clocked_out,
+      entry.shift_details,
       entry.location_id || entry.location,
       entry.regular_hours,
       entry.gross_hours,

@@ -82,9 +82,12 @@ function reportPunchId(entry: any, index: number) {
     entry.user_id || nameKey(entry.employee_name),
     entry.date || String(entry.clocked_in || '').slice(0, 10),
     normalizeLocation(entry.location_id, entry.location),
+    entry.shift_details || '',
     entry.clocked_in || '',
     entry.clocked_out || '',
     entry.regular_hours,
+    entry.gross_hours ?? '',
+    entry.break_minutes ?? '',
     index,
   ].join('|').replace(/[^a-zA-Z0-9|._:-]/g, '');
   return `HW-${stable}`;
@@ -299,6 +302,7 @@ async function runSync(body: any): Promise<NextResponse> {
       a.date || String(a.clocked_in || '').slice(0, 10),
       normalizeLocation(a.location_id, a.location),
       a.employee_name || a.user_id || '',
+      a.shift_details || '',
       a.clocked_in || '',
       a.clocked_out || '',
       String(a.regular_hours ?? ''),
@@ -306,6 +310,7 @@ async function runSync(body: any): Promise<NextResponse> {
       b.date || String(b.clocked_in || '').slice(0, 10),
       normalizeLocation(b.location_id, b.location),
       b.employee_name || b.user_id || '',
+      b.shift_details || '',
       b.clocked_in || '',
       b.clocked_out || '',
       String(b.regular_hours ?? ''),
@@ -351,10 +356,11 @@ async function runSync(body: any): Promise<NextResponse> {
       const cashWage = resolveCashWage({ name, location, cash_wage: dbEmp?.cash_wage });
       const department = dbEmp?.department || 'Unknown';
       const role = entry.role || dbEmp?.role || 'Unknown';
-      const rawPunchId = rawPunch?.id ?? rawPunch?.punch_id;
-      const punchId = rawPunchId != null && rawPunchId !== ''
-        ? `7S-${String(rawPunchId)}`
-        : reportPunchId(entry, index);
+      // The Hours & Wages report is the payroll authority. Use its row identity
+      // as the stored punch id so same-day split shifts with identical payable
+      // hours cannot overwrite each other. Raw punch ids are used only to enrich
+      // clock/break details, because a raw match can be ambiguous for doubles.
+      const punchId = reportPunchId(entry, index);
 
       if (location && location !== 'Unknown') {
         locBreakdown[location] = round2((locBreakdown[location] || 0) + payrollHours);

@@ -130,3 +130,23 @@ test('ignores totals and break note rows from worked hours and wages reports', (
   assert.equal(rows[0].gross_hours, 7.25);
   assert.equal(rows[0].location, 'Chiang Mai Junction');
 });
+
+test('keeps same-day split shifts when both halves have identical payable hours', () => {
+  const rows = flattenHoursAndWagesReport({
+    location_id:'461096',
+    location_name:'Chiang Mai Junction',
+    data: [{
+      employee_name:'Periyasamy, Gopinath',
+      shifts: [
+        { date:'2026-07-05', shift_details:'10:30AM - 4:00PM', role_name:'Curry', regular_hours:5.5, total_hours:5.5 },
+        { date:'2026-07-05', shift_details:'4:00PM - 10:00PM', role_name:'Prep', regular_hours:5.5, total_hours:6.0 },
+        { date:null, shift_details:'Unpaid Break - 30 min (7:00pm - 7:30pm)' },
+      ],
+    }],
+  });
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map(row => row.shift_details), ['10:30AM - 4:00PM', '4:00PM - 10:00PM']);
+  assert.deepEqual(rows.map(row => row.regular_hours), [5.5, 5.5]);
+  assert.deepEqual(rows.map(row => row.gross_hours), [5.5, 6]);
+  assert.deepEqual(rows.map(row => row.break_minutes || 0), [0, 30]);
+});
