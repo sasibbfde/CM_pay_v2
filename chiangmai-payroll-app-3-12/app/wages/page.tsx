@@ -6,7 +6,9 @@ import type { EmployeeRule, RuleType } from '@/lib/types';
 type Employee = {
   id: string; seven_shifts_user_id: string | null; full_name: string;
   location: string; department: string; role: string;
-  wage: number; cash_wage?: number; wage_locked?: boolean; wage_source?: string; active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
+  wage: number; cash_wage?: number; wage_locked?: boolean; wage_source?: string;
+  wage_updated_at?: string | null; wage_upgrade_note?: string | null;
+  active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
 };
 
 type RuleForm = {
@@ -205,7 +207,8 @@ export default function WagesPage() {
       invalidateClientCache(['/api/employees','/api/payroll','/api/synclog']);
       load(true);
       const failed = result.wage_errors?.length || 0;
-      setMsg({text:failed ? `Synced employee data; ${failed} wage lookups failed` : '✓ Employee data synced; locked wages preserved',ok:failed===0});
+      const upgraded = result.wage_upgrades?.length || 0;
+      setMsg({text:failed ? `Synced employee data; ${failed} wage lookups failed` : `✓ Employee data synced${upgraded ? `; ${upgraded} wage upgraded from 7shifts` : '; no higher 7shifts wages found'}`,ok:failed===0});
     } catch (error:any) {
       setMsg({text:error.message,ok:false});
     } finally {
@@ -338,9 +341,11 @@ export default function WagesPage() {
                         {emp.is_new&&<span title={`New through ${emp.new_until}`} style={{fontSize:9,background:'rgba(34,211,238,.18)',color:'#22d3ee',borderRadius:3,padding:'1px 5px'}}>NEW</span>}
                         {noWage&&<span style={{fontSize:9,background:'rgba(248,113,113,0.2)',color:'#f87171',borderRadius:3,padding:'1px 5px'}}>$0</span>}
                         {hasEdit&&<span style={{fontSize:9,background:'rgba(251,191,36,0.2)',color:'#fbbf24',borderRadius:3,padding:'1px 5px'}}>edited</span>}
+                        {emp.wage_source==='7shifts-upgraded'&&<span title={emp.wage_upgrade_note || 'Wage upgraded from 7shifts'} style={{fontSize:9,background:'rgba(34,211,238,0.16)',color:'#22d3ee',borderRadius:3,padding:'1px 5px'}}>7shifts upgraded</span>}
                         {emp.wage_locked&&<span style={{fontSize:9,background:'rgba(52,211,153,0.14)',color:'#34d399',borderRadius:3,padding:'1px 5px'}}>{emp.wage_source==='roster-2026'?'roster locked':'saved'}</span>}
                         {activeRule&&<span title={activeRule.notes || activeRule.rule_type} style={{fontSize:9,background:'rgba(167,139,250,0.16)',color:'#a78bfa',borderRadius:3,padding:'1px 5px'}}>{activeRule.rule_type.replaceAll('_',' ')}</span>}
                       </div>
+                      {emp.wage_upgrade_note&&<div style={{fontSize:10,color:'#22d3ee',marginTop:4}}>{emp.wage_upgrade_note}</div>}
                     </td>
                     <td style={{padding:'10px 16px',color:'#6b7280',fontSize:12}}>{emp.location||'—'}</td>
                     <td style={{padding:'10px 16px',color:'#6b7280',fontSize:12}}>{emp.department} · {emp.role}</td>

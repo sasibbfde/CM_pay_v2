@@ -6,7 +6,8 @@ import type { EmployeeRule } from '@/lib/types';
 type Employee = {
   id: string; seven_shifts_user_id: string; full_name: string;
   location: string; department: string; role: string;
-  wage: number; cash_wage: number; active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
+  wage: number; cash_wage: number; wage_source?: string | null; wage_updated_at?: string | null; wage_upgrade_note?: string | null;
+  active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
 };
 type Punch = {
   punch_id: string; location: string; department: string; role: string;
@@ -269,6 +270,7 @@ export default function EmployeesPage() {
                   <div style={{fontSize:16,fontWeight:700,color:'#f9fafb'}}>{selected.full_name}</div>
                   <div style={{fontSize:11,color:'#6b7280',marginTop:2}}>{selected.location} · {selected.department} · {selected.role}</div>
                   {(!selected.wage||+selected.wage===0)&&<div style={{fontSize:10,color:'#f87171',marginTop:2}}>⚠ No wage set</div>}
+                  {selected.wage_upgrade_note&&<div style={{fontSize:10,color:'#22d3ee',marginTop:3}}>↗ {selected.wage_upgrade_note}</div>}
                   {selectedRule&&<div style={{fontSize:10,color:'#a78bfa',marginTop:3}}>
                     Payroll rule: <span style={{fontWeight:700}}>{selectedRule.rule_type.replaceAll('_',' ')}</span>
                     {selectedRule.rule_value !== undefined && selectedRule.rule_value !== null ? ` · Value ${selectedRule.rule_value}` : ''}

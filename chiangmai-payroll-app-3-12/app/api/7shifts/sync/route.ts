@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchUsers, fetchTimePunches, fetchDepartments, fetchRoles, fetchUserWages, fetchHoursAndWages } from '@/lib/7shifts';
 import { getSupabaseAdmin } from '@/lib/supabase';
-import { resolveEmployeeWage, selectHourlyWage, SevenShiftsWage } from '@/lib/wages';
+import { resolveEmployeeWage, selectHourlyWage, shouldUpgradeEmployeeWage, wageUpgradeNote, SevenShiftsWage } from '@/lib/wages';
 import { calculateBreaks, calculateGrossHours, calculatePayrollHours } from '@/lib/time-punch';
 import { fillMissingRosterDetails } from '@/lib/roster-details';
 import { flattenHoursAndWagesReport, hoursWagesLookup, supplementEqualPayableSplitPunches } from '@/lib/hours-wages';
@@ -108,7 +108,6 @@ async function runSync(body: any): Promise<NextResponse> {
   const startIso = body.start || new Date(new Date().setDate(new Date().getDate() - 1)).toISOString().replace(/T.*/, 'T00:00:00.000Z');
   const endIso   = body.end   || new Date().toISOString().replace(/T.*/, 'T23:59:59.999Z');
   const triggeredBy = body.triggered_by || 'manual';
-  const shouldSyncWages = body.sync_wages !== false;
   const allowDecrease = body.allow_decrease === true || body.force === true;
   const expectedPayableHours = Number(body.expected_payable_hours || body.expectedPayableHours || 0);
 
@@ -148,11 +147,7 @@ async function runSync(body: any): Promise<NextResponse> {
   // bounded batches to avoid overwhelming the API.
   const wagesByUser = new Map<string, SevenShiftsWage[]>();
   const wageErrors: string[] = [];
-  const activeUsers = [...userById.values()].filter((user:any) => {
-    if (user.active === false) return false;
-    const existing = existingBy7shiftsId.get(String(user.id));
-    return shouldSyncWages || Number(existing?.wage || 0) <= 0;
-  });
+  const activeUsers = [...userById.values()].filter((user:any) => user.active !== false);
   for (let index = 0; index < activeUsers.length; index += 10) {
     await Promise.all(activeUsers.slice(index, index + 10).map(async (user:any) => {
       try {
@@ -165,10 +160,16 @@ async function runSync(body: any): Promise<NextResponse> {
   }
 
   // ─── 2. Upsert employees (never overwrite good wage/location with nulls) ───
+  const syncNow = new Date();
+  const syncNowIso = syncNow.toISOString();
+  const wageUpgrades: any[] = [];
   const userRows = [...userById.values()].map((u: any) => {
     const existing = existingBy7shiftsId.get(String(u.id));
     const sevenShiftsWage = selectHourlyWage(wagesByUser.get(String(u.id)) || [], u.role_id);
     const wage = resolveEmployeeWage(existing, sevenShiftsWage);
+    const oldWage = Number(existing?.wage || 0);
+    const upgradedFrom7shifts = shouldUpgradeEmployeeWage(existing, sevenShiftsWage);
+    const upgradeNote = upgradedFrom7shifts ? wageUpgradeNote(oldWage, wage, syncNow) : '';
     const loc  = mapLoc(u.location_id ?? u.home_location_id ?? '');
     const dept = u.department_name || mapDept(u.department_id) || null;
     const role = u.role_name || mapRole(u.role_id) || null;
@@ -180,6 +181,19 @@ async function runSync(body: any): Promise<NextResponse> {
       wage,
     });
     const cashWage = resolveCashWage({ name: fullName(u), location: completed.location, cash_wage: existing?.cash_wage });
+    if (upgradedFrom7shifts) {
+      wageUpgrades.push({
+        employee_id: existing?.employee_id || `7S-${u.id}`,
+        seven_shifts_user_id: String(u.id),
+        employee_name: fullName(u),
+        old_wage: oldWage,
+        new_wage: wage,
+        source: '7shifts',
+        reason: upgradeNote,
+        changed_at: syncNowIso,
+        sync_triggered_by: triggeredBy,
+      });
+    }
     return {
       employee_id:          `7S-${u.id}`,
       seven_shifts_user_id: String(u.id),
@@ -188,9 +202,9 @@ async function runSync(body: any): Promise<NextResponse> {
       full_name:            fullName(u),
       active:               Boolean(u.active),
       source:               '7shifts',
-      wage_locked:          Boolean(existing?.wage_locked),
-      wage_source:          existing?.wage_locked ? (existing.wage_source || 'manual') : '7shifts',
-      updated_at:           new Date().toISOString(),
+      wage_locked:          upgradedFrom7shifts ? false : Boolean(existing?.wage_locked),
+      wage_source:          upgradedFrom7shifts ? '7shifts-upgraded' : (existing?.wage_source || '7shifts'),
+      updated_at:           syncNowIso,
       // Only set these if 7shifts has a real value — never overwrite DB data with null
       ...(Number(completed.wage||0)>0 ? { wage:completed.wage } : {}),
       ...(Number(cashWage||0)>0 ? { cash_wage:cashWage } : {}),
@@ -205,6 +219,21 @@ async function runSync(body: any): Promise<NextResponse> {
     const { error } = await supabase.from('employees')
       .upsert(userRows.slice(i, i + BATCH), { onConflict: 'seven_shifts_user_id', ignoreDuplicates: false });
     if (error) throw new Error(`Employee upsert failed: ${error.message}`);
+  }
+
+  if (wageUpgrades.length > 0) {
+    for (let i = 0; i < wageUpgrades.length; i += BATCH) {
+      const { error } = await supabase.from('audit_log').insert(wageUpgrades.slice(i, i + BATCH).map(item => ({
+        action: 'wage_upgraded_from_7shifts',
+        table_name: 'employees',
+        record_id: item.employee_id,
+        old_value: { wage: item.old_wage },
+        new_value: { wage: item.new_wage, seven_shifts_user_id: item.seven_shifts_user_id, employee_name: item.employee_name },
+        notes: `${item.reason} · triggered_by=${item.sync_triggered_by}`,
+        created_at: item.changed_at,
+      })));
+      if (error) throw new Error(`Wage history write failed: ${error.message}`);
+    }
   }
 
   // ─── 3. Load DB employee map ───────────────────────────────────────────────
@@ -550,6 +579,7 @@ async function runSync(body: any): Promise<NextResponse> {
     supplementedHoursAndWages.supplemented
       ? `supplemented ${supplementedHoursAndWages.supplemented} equal-payable split punches from raw API`
       : '',
+    wageUpgrades.length ? `wage upgraded for ${wageUpgrades.length} employees from 7shifts` : '',
     hoursAndWagesError ? `hours&wages fallback: ${hoursAndWagesError}` : '',
   ].filter(Boolean).join(' · ');
   const { error: logError } = await supabase.from('sync_log').insert({ triggered_by: triggeredBy, date_from: startDate, date_to: endDate, users_synced: userRows.length, punches_synced: punchesSynced, duration_ms: duration, location_breakdown: locBreakdown, notes });
@@ -561,6 +591,12 @@ async function runSync(body: any): Promise<NextResponse> {
     date_range: `${startDate} to ${endDate}`,
     duration_ms: duration,
     location_breakdown: locBreakdown,
+    wage_upgrades: wageUpgrades.map(item => ({
+      employee: item.employee_name,
+      old_wage: item.old_wage,
+      new_wage: item.new_wage,
+      note: item.reason,
+    })),
     breaks_found: rawPunches.filter((p: any) => (p.breaks||[]).length > 0).length,
     hours_and_wages_matched: reportMatchedPunches,
     hours_and_wages_rows: hoursAndWagesEntries.length,
