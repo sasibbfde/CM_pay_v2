@@ -7,6 +7,7 @@ import { fillMissingRosterDetails } from '@/lib/roster-details';
 import { flattenHoursAndWagesReport, hoursWagesLookup, supplementEqualPayableSplitPunches } from '@/lib/hours-wages';
 import { resolveCashWage } from '@/lib/cash-rates';
 import { evaluateSyncSafety } from '@/lib/sync-safety';
+import { getPayrollDate } from '@/lib/payroll';
 
 export const maxDuration = 300;
 
@@ -533,12 +534,16 @@ async function runSync(body: any): Promise<NextResponse> {
   // changed punch-id strategy can leave stale rows beside fresh rows.
   const { data: existingPunchRows, error: existingPunchError } = await supabase
     .from('punches')
-    .select('clocked_in,hours,payroll_hours,gross_hours,break_minutes,source')
+    .select('id,clocked_in,hours,payroll_hours,gross_hours,break_minutes,source')
     .in('source', ['7shifts', '7shifts-hours-wages'])
     .gte('clocked_in', queryStart.toISOString())
     .lte('clocked_in', queryEnd.toISOString());
   if (existingPunchError) throw new Error(`Existing payroll safety check failed: ${existingPunchError.message}`);
-  const safety = evaluateSyncSafety(existingPunchRows || [], punchRows, {
+  const existingPunchRowsInPeriod = (existingPunchRows || []).filter(row => {
+    const payrollDate = getPayrollDate(row.clocked_in);
+    return Boolean(payrollDate && payrollDate >= startDate && payrollDate <= endDate);
+  });
+  const safety = evaluateSyncSafety(existingPunchRowsInPeriod, punchRows, {
     start: startDate,
     end: endDate,
     allowDecrease,
@@ -548,13 +553,14 @@ async function runSync(body: any): Promise<NextResponse> {
     throw new Error(`${safety.reason} Existing: ${safety.existing.rows} rows / ${safety.existing.payrollHours.toFixed(2)}h. Incoming: ${safety.incoming.rows} rows / ${safety.incoming.payrollHours.toFixed(2)}h. To override, send allow_decrease=true.`);
   }
 
-  const { error: deleteError } = await supabase
-    .from('punches')
-    .delete()
-    .in('source', ['7shifts', '7shifts-hours-wages'])
-    .gte('clocked_in', queryStart.toISOString())
-    .lte('clocked_in', queryEnd.toISOString());
-  if (deleteError) throw new Error(`Old 7shifts punch cleanup failed: ${deleteError.message}`);
+  const deleteIds = existingPunchRowsInPeriod.map(row => row.id).filter(Boolean);
+  for (let i = 0; i < deleteIds.length; i += BATCH) {
+    const { error: deleteError } = await supabase
+      .from('punches')
+      .delete()
+      .in('id', deleteIds.slice(i, i + BATCH));
+    if (deleteError) throw new Error(`Old 7shifts punch cleanup failed: ${deleteError.message}`);
+  }
 
   let punchesSynced = 0;
   for (let i = 0; i < punchRows.length; i += BATCH) {
