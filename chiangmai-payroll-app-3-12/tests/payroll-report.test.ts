@@ -5,7 +5,7 @@ import { Punch } from '../lib/types';
 
 const punch=(overrides:Partial<Punch>):Punch=>({employee_id:'7S-1',employee_name:'Test Employee',location:'Location A',department:'Back of House',role:'Wok',clocked_in:'2026-06-16T14:00:00Z',clocked_out:'2026-06-16T22:00:00Z',hours:8,payroll_hours:8,gross_hours:8,break_minutes:0,wage:20,...overrides});
 
-test('payroll report rounds combined multi-location hours to the nearest quarter hour',()=>{
+test('payroll report applies the default 88h cheque cap separately per location',()=>{
   assert.equal(roundQuarterHour(73.1),73);
   assert.equal(roundQuarterHour(73.23),73.25);
   assert.equal(roundQuarterHour(73.4),73.5);
@@ -14,9 +14,22 @@ test('payroll report rounds combined multi-location hours to the nearest quarter
     punch({location:'Location A',hours:50.13,payroll_hours:50.13,gross_hours:52,break_minutes:112}),
     punch({location:'Location B',hours:43.22,payroll_hours:43.22,gross_hours:44,break_minutes:47}),
   ],[],'2026-06-30');
-  assert.equal(rows[0].rounded_hours,93.25);assert.equal(rows[0].cheque_hours,88);assert.equal(rows[0].cash_hours,5.25);
+  assert.equal(rows[0].rounded_hours,93.5);assert.equal(rows[0].cheque_hours,93.5);assert.equal(rows[0].cash_hours,0);
   assert.deepEqual(rows[0].locations,['Location A','Location B']);
   assert.equal(rows[0].payable_hours,93.35);assert.equal(rows[0].gross_hours,96);
+});
+
+test('explicit employee hour caps still apply once across all locations',()=>{
+  const [row]=buildPayrollReport([
+    punch({location:'Location A',hours:50,payroll_hours:50,gross_hours:50}),
+    punch({location:'Location B',hours:50,payroll_hours:50,gross_hours:50}),
+  ],[{employee_name:'Test Employee',rule_type:'PAYROLL_HOURS_CAP',rule_value:88}],'2026-06-30');
+  assert.equal(row.rounded_hours,100);
+  assert.equal(row.cheque_hours,88);
+  assert.equal(row.cash_hours,12);
+  const local=payrollLocationView(row,'Location A');
+  assert.equal(local.cheque_hours,44);
+  assert.equal(local.cash_hours,6);
 });
 
 test('payroll report applies cash, cap, and hold rules after quarter-hour rounding',()=>{
@@ -47,6 +60,21 @@ test('location-filtered payroll shows only hours worked at that location',()=>{
   assert.equal(imm.rounded_hours,18);
   assert.equal(imm.cheque_hours,18);
   assert.equal(imm.cash_hours,0);
+});
+
+test('location-filtered payroll gives each worked location its own 88h cheque allocation',()=>{
+  const [combined]=buildPayrollReport([
+    punch({location:'Chiang Mai Junction',hours:64.28,payroll_hours:64.28,gross_hours:67.5,break_minutes:193,wage:25}),
+    punch({location:'Chiang Mai Mississauga',hours:36.02,payroll_hours:36.02,gross_hours:37.75,break_minutes:104,wage:25}),
+  ],[],'2026-07-15');
+  const junction=payrollLocationView(combined,'Chiang Mai Junction');
+  const mississauga=payrollLocationView(combined,'Chiang Mai Mississauga');
+  assert.equal(junction.cheque_hours,64.25);
+  assert.equal(junction.cash_hours,0);
+  assert.equal(mississauga.cheque_hours,36);
+  assert.equal(mississauga.cash_hours,0);
+  assert.equal(combined.cheque_hours,100.25);
+  assert.equal(combined.cash_hours,0);
 });
 
 test('Ontario public holiday hours are separated from regular cheque cash hours',()=>{

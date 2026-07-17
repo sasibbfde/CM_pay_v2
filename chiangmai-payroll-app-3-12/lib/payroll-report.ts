@@ -23,6 +23,30 @@ function ruleFor(employeeId:string,name:string,rules:EmployeeRule[],periodEnd:st
     .sort((a,b)=>(b.effective_from||'').localeCompare(a.effective_from||''))[0];
 }
 
+function usesPerLocationDefaultCap(rule?:EmployeeRule){
+  return !rule || rule.rule_type === 'NOTE_ONLY' || rule.rule_type === 'PAY_UNDER_OTHER_LOCATION';
+}
+
+function locationDefaultAllocation(
+  locationRegularHours:Record<string,number>,
+  wage:number,
+  cashWage:number,
+  cap=88,
+){
+  return Object.values(locationRegularHours).reduce((sum,hours)=>{
+    const rounded=roundQuarterHour(Number(hours||0));
+    const cheque=Math.min(rounded,cap);
+    const cash=Math.max(0,rounded-cheque);
+    return {
+      rounded:round2(sum.rounded+rounded),
+      cheque:round2(sum.cheque+cheque),
+      cash:round2(sum.cash+cash),
+      chequePay:round2(sum.chequePay+cheque*wage),
+      cashPay:round2(sum.cashPay+cash*cashWage),
+    };
+  },{rounded:0,cheque:0,cash:0,chequePay:0,cashPay:0});
+}
+
 export function buildPayrollReport(punches:Punch[],rules:EmployeeRule[],periodEnd:string):PayrollReportRow[]{
   const holidayMap = ontarioHolidayMapForRange(
     punches.reduce((min,punch)=>{const date=getPayrollDate(punch.clocked_in);return date&&date<min?date:min;},periodEnd),
@@ -46,8 +70,13 @@ export function buildPayrollReport(punches:Punch[],rules:EmployeeRule[],periodEn
       else{regularPayable+=hours;locationRegularHours[location]=(locationRegularHours[location]||0)+hours;}
       if(punch.role||punch.department)roles.add(punch.role||punch.department||'');
     }
-    const rounded=roundQuarterHour(regularPayable);const wage=payable>0?weightedWage/payable:Number(first.wage||0);const rule=ruleFor(employeeId,first.employee_name,rules,periodEnd);
-    let cap=88;let cheque=Math.min(rounded,cap),cash=Math.max(0,rounded-cheque),status=rounded>88?'Over 88 → cash':'',notes=rule?.notes||'';
+    const combinedRounded=roundQuarterHour(regularPayable);const wage=payable>0?weightedWage/payable:Number(first.wage||0);const cashWage=Number(first.cash_wage||0)||wage;const rule=ruleFor(employeeId,first.employee_name,rules,periodEnd);
+    let cap=88;let rounded=combinedRounded;let cheque=Math.min(rounded,cap),cash=Math.max(0,rounded-cheque),status=rounded>88?'Over 88 → cash':'',notes=rule?.notes||'';
+    if(usesPerLocationDefaultCap(rule)){
+      const locationAllocation=locationDefaultAllocation(locationRegularHours,wage,cashWage,cap);
+      rounded=locationAllocation.rounded;cheque=locationAllocation.cheque;cash=locationAllocation.cash;
+      status=cash>0?'Over 88 at one or more locations → cash':(rule?.rule_type==='PAY_UNDER_OTHER_LOCATION'?`Pay under ${rule.payroll_location||'other location'}`:(rule?.rule_type==='NOTE_ONLY'&&notes?'Review note':''));
+    }
     if(rule?.rule_type==='CASH_ONLY'){cheque=0;cash=rounded;status='CASH (all)';}
     if(rule?.rule_type==='PARTIAL_CASH'){
       const cashLocations=locationSet(rule.combined_locations);
@@ -60,15 +89,18 @@ export function buildPayrollReport(punches:Punch[],rules:EmployeeRule[],periodEn
     if(rule?.rule_type==='PAYROLL_HOURS_CAP'||rule?.rule_type==='COMBINED_LOCATION_CAP'){
       cap=Math.max(0,Number(rule.rule_value||0));cheque=Math.min(rounded,cap);cash=Math.max(0,rounded-cheque);status=`Exception ${cap}h`;
     }
-    if(rule?.rule_type==='PAY_UNDER_OTHER_LOCATION')status=`Pay under ${rule.payroll_location||'other location'}`;
     if(rule?.rule_type==='NOTE_ONLY'&&notes)status='Review note';
-    let chequePay=cheque*wage,cashPay=cash*(Number(first.cash_wage||0)||wage);
+    let chequePay=cheque*wage,cashPay=cash*cashWage;
+    if(usesPerLocationDefaultCap(rule)){
+      const locationAllocation=locationDefaultAllocation(locationRegularHours,wage,cashWage,cap);
+      chequePay=locationAllocation.chequePay;cashPay=locationAllocation.cashPay;
+    }
     if(rule?.rule_type==='SALARY_FIXED'){cheque=rounded;cash=0;chequePay=Number(rule.rule_value||0);cashPay=0;status='SALARY FIXED';}
     const unpaidBreak=Math.max(0,gross-payable);const totalBreak=breakMinutes/60;const paidBreak=Math.max(0,totalBreak-unpaidBreak);
     const holidayNoteText=[...holidayNotes].join('; ');
     const finalNotes=[holidayNoteText,notes].filter(Boolean).join('; ');
     return {employee_id:employeeId,employee_name:first.employee_name,locations:[...locations].sort(),roles:[...roles].filter(Boolean).sort(),
-      location_hours:Object.fromEntries(Object.entries(locationHours).map(([key,value])=>[key,round2(value)])),location_regular_hours:Object.fromEntries(Object.entries(locationRegularHours).map(([key,value])=>[key,round2(value)])),location_holiday_hours:Object.fromEntries(Object.entries(locationHolidayHours).map(([key,value])=>[key,round2(value)])),location_holiday_pay:Object.fromEntries(Object.entries(locationHolidayPay).map(([key,value])=>[key,round2(value)])),location_gross_hours:Object.fromEntries(Object.entries(locationGross).map(([key,value])=>[key,round2(value)])),location_break_hours:Object.fromEntries(Object.entries(locationBreaks).map(([key,value])=>[key,round2(value)])),wage:round2(wage),cash_wage:round2(Number(first.cash_wage||0)||wage),rule_type:rule?.rule_type||'STANDARD',rule_value:Number(rule?.rule_value||0),cheque_cap:cap,gross_hours:round2(gross),break_hours:round2(totalBreak),
+      location_hours:Object.fromEntries(Object.entries(locationHours).map(([key,value])=>[key,round2(value)])),location_regular_hours:Object.fromEntries(Object.entries(locationRegularHours).map(([key,value])=>[key,round2(value)])),location_holiday_hours:Object.fromEntries(Object.entries(locationHolidayHours).map(([key,value])=>[key,round2(value)])),location_holiday_pay:Object.fromEntries(Object.entries(locationHolidayPay).map(([key,value])=>[key,round2(value)])),location_gross_hours:Object.fromEntries(Object.entries(locationGross).map(([key,value])=>[key,round2(value)])),location_break_hours:Object.fromEntries(Object.entries(locationBreaks).map(([key,value])=>[key,round2(value)])),wage:round2(wage),cash_wage:round2(cashWage),rule_type:rule?.rule_type||'STANDARD',rule_value:Number(rule?.rule_value||0),cheque_cap:cap,gross_hours:round2(gross),break_hours:round2(totalBreak),
       unpaid_break_hours:round2(unpaidBreak),paid_break_hours:round2(paidBreak),payable_hours:round2(payable),regular_payable_hours:round2(regularPayable),holiday_hours:round2(holidayHours),holiday_pay:round2(holidayPay),rounded_hours:round2(rounded),cheque_hours:round2(cheque),cash_hours:round2(cash),
       cheque_pay:round2(chequePay),cash_pay:round2(cashPay),total_pay:round2(chequePay+cashPay+holidayPay),status,notes:finalNotes,holiday_notes:[...holidayNotes]};
   }).sort((a,b)=>a.employee_name.localeCompare(b.employee_name));
@@ -84,11 +116,13 @@ export function payrollLocationView(row:PayrollReportRow, location:string):Payro
   const holidayHours = Number(row.location_holiday_hours[location] || 0);
   const holidayPay = Number(row.location_holiday_pay[location] || 0);
   const unpaidBreak = Math.max(0, gross - payable);
+  const localRounded = roundQuarterHour(regularPayable);
+  const perLocationDefaultCap = row.rule_type === 'STANDARD' || row.rule_type === 'NOTE_ONLY' || row.rule_type === 'PAY_UNDER_OTHER_LOCATION';
   const share = row.regular_payable_hours > 0 ? regularPayable / row.regular_payable_hours : 0;
-  const chequeHours = round2(row.cheque_hours * share);
-  const cashHours = round2(row.cash_hours * share);
-  const chequePay = round2(row.cheque_pay * share);
-  const cashPay = round2(row.cash_pay * share);
+  const chequeHours = perLocationDefaultCap ? round2(Math.min(localRounded,row.cheque_cap||88)) : round2(row.cheque_hours * share);
+  const cashHours = perLocationDefaultCap ? round2(Math.max(0,localRounded-chequeHours)) : round2(row.cash_hours * share);
+  const chequePay = perLocationDefaultCap ? round2(chequeHours*row.wage) : round2(row.cheque_pay * share);
+  const cashPay = perLocationDefaultCap ? round2(cashHours*row.cash_wage) : round2(row.cash_pay * share);
   return {
     ...row,
     gross_hours:round2(gross),
@@ -99,13 +133,13 @@ export function payrollLocationView(row:PayrollReportRow, location:string):Payro
     regular_payable_hours:round2(regularPayable),
     holiday_hours:round2(holidayHours),
     holiday_pay:round2(holidayPay),
-    rounded_hours:roundQuarterHour(regularPayable),
+    rounded_hours:localRounded,
     cheque_hours:chequeHours,
     cash_hours:cashHours,
     cheque_pay:chequePay,
     cash_pay:cashPay,
     total_pay:round2(chequePay+cashPay+holidayPay),
     status:`${row.status ? `${row.status} · ` : ''}Location hours`,
-    notes:`Showing ${location} hours and its proportional share of the combined cheque/cash allocation. ${row.notes || ''}`.trim(),
+    notes:`Showing ${location} hours with its own ${row.cheque_cap || 88}h cheque cap${perLocationDefaultCap ? '' : ' (special employee rule allocated from the combined result)'}. ${row.notes || ''}`.trim(),
   };
 }
