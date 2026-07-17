@@ -48,3 +48,20 @@ test('location-filtered payroll shows only hours worked at that location',()=>{
   assert.equal(imm.cheque_hours,18);
   assert.equal(imm.cash_hours,0);
 });
+
+test('Ontario public holiday hours are separated from regular cheque cash hours',()=>{
+  const [row]=buildPayrollReport([
+    punch({clocked_in:'2026-07-01T14:00:00-04:00',clocked_out:'2026-07-01T20:00:00-04:00',hours:6,payroll_hours:6,gross_hours:6,break_minutes:0,wage:20}),
+    punch({clocked_in:'2026-07-02T14:00:00-04:00',clocked_out:'2026-07-02T22:00:00-04:00',hours:8,payroll_hours:8,gross_hours:8,break_minutes:0,wage:20}),
+  ],[],'2026-07-15');
+  assert.equal(row.payable_hours,14);
+  assert.equal(row.regular_payable_hours,8);
+  assert.equal(row.holiday_hours,6);
+  assert.equal(row.rounded_hours,8);
+  assert.equal(row.cheque_hours,8);
+  assert.equal(row.cash_hours,0);
+  assert.equal(row.holiday_pay,180);
+  assert.equal(row.total_pay,340);
+  assert.equal(row.location_holiday_hours['Location A'],6);
+  assert.match(row.notes,/Canada Day/);
+});
