@@ -47,6 +47,20 @@ function mapLoc(id: any): string {
 
 const round2 = (value: number) => Math.round(Math.max(0, value) * 100) / 100;
 const nameKey = (value?: string | null) => (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const SUPABASE_PAGE = 1000;
+
+async function fetchAllSupabaseRows(makeQuery: (from: number, to: number) => any) {
+  const rows: any[] = [];
+  for (let from = 0; ; from += SUPABASE_PAGE) {
+    const { data, error } = await makeQuery(from, from + SUPABASE_PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < SUPABASE_PAGE) break;
+  }
+  return rows;
+}
+
 function torontoDate(value?: string | null) {
   if (!value) return '';
   const date = new Date(value);
@@ -532,13 +546,17 @@ async function runSync(body: any): Promise<NextResponse> {
   // the same one-day safety window as payroll reads. Always clean up old
   // 7shifts-derived rows before inserting the rebuilt period, otherwise a
   // changed punch-id strategy can leave stale rows beside fresh rows.
-  const { data: existingPunchRows, error: existingPunchError } = await supabase
+  const existingPunchRows = await fetchAllSupabaseRows((from, to) => supabase
     .from('punches')
     .select('id,clocked_in,hours,payroll_hours,gross_hours,break_minutes,source')
     .in('source', ['7shifts', '7shifts-hours-wages'])
     .gte('clocked_in', queryStart.toISOString())
-    .lte('clocked_in', queryEnd.toISOString());
-  if (existingPunchError) throw new Error(`Existing payroll safety check failed: ${existingPunchError.message}`);
+    .lte('clocked_in', queryEnd.toISOString())
+    .order('clocked_in')
+    .range(from, to),
+  ).catch(error => {
+    throw new Error(`Existing payroll safety check failed: ${error.message}`);
+  });
   const existingPunchRowsInPeriod = (existingPunchRows || []).filter(row => {
     const payrollDate = getPayrollDate(row.clocked_in);
     return Boolean(payrollDate && payrollDate >= startDate && payrollDate <= endDate);
