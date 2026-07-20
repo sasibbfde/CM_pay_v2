@@ -322,6 +322,70 @@ const reportInstanceKey = (
   payrollHours: number,
 ) => `${userId}|${date}|${location}|${payrollHours.toFixed(2)}`;
 
+const reportInstancePrefix = (
+  userId: string,
+  date: string,
+  location: string,
+) => `${userId}|${date}|${location}|`;
+
+const PAYROLL_HOURS_MATCH_TOLERANCE = 0.03;
+const MIN_EQUAL_SPLIT_SUPPLEMENT_HOURS = 3;
+
+function nearbyReportKeys(
+  counts: Map<string, number>,
+  userId: string,
+  date: string,
+  location: string,
+  payrollHours: number,
+) {
+  const prefix = reportInstancePrefix(userId, date, location);
+  return [...counts.keys()]
+    .filter(key => {
+      if (!key.startsWith(prefix)) return false;
+      const candidateHours = Number(key.slice(prefix.length));
+      return Number.isFinite(candidateHours)
+        && Math.abs(candidateHours - payrollHours) <= PAYROLL_HOURS_MATCH_TOLERANCE;
+    })
+    .sort((a, b) => {
+      const aHours = Number(a.slice(prefix.length));
+      const bHours = Number(b.slice(prefix.length));
+      return Math.abs(aHours - payrollHours) - Math.abs(bHours - payrollHours);
+    });
+}
+
+function takeReportInstance(
+  counts: Map<string, number>,
+  userId: string,
+  date: string,
+  location: string,
+  payrollHours: number,
+) {
+  const exact = reportInstanceKey(userId, date, location, payrollHours);
+  const exactRemaining = counts.get(exact) || 0;
+  if (exactRemaining > 0) {
+    counts.set(exact, exactRemaining - 1);
+    return true;
+  }
+  for (const key of nearbyReportKeys(counts, userId, date, location, payrollHours)) {
+    const remaining = counts.get(key) || 0;
+    if (remaining <= 0) continue;
+    counts.set(key, remaining - 1);
+    return true;
+  }
+  return false;
+}
+
+function reportInstanceCountNear(
+  counts: Map<string, number>,
+  userId: string,
+  date: string,
+  location: string,
+  payrollHours: number,
+) {
+  return nearbyReportKeys(counts, userId, date, location, payrollHours)
+    .reduce((sum, key) => sum + (counts.get(key) || 0), 0);
+}
+
 /**
  * 7shifts' Hours & Wages API can collapse one half of a same-day double shift
  * when both halves have identical payable hours. The raw time-punch API still
@@ -354,6 +418,28 @@ export function supplementEqualPayableSplitPunches(
   const sortedRawPunches = [...(rawPunches || [])].sort((a, b) =>
     String(a?.clocked_in || a?.clock_in || '').localeCompare(String(b?.clocked_in || b?.clock_in || '')),
   );
+  const rawInstanceCounts = new Map<string, number>();
+
+  for (const punch of sortedRawPunches) {
+    const clockedIn = punch?.clocked_in || punch?.clock_in || null;
+    const clockedOut = punch?.clocked_out || punch?.clock_out || null;
+    if (!clockedIn || !clockedOut) continue;
+    const userId = String(punch.user_id || punch.userId || '');
+    if (!userId) continue;
+    const date = options.workDate?.(clockedIn) || String(clockedIn).slice(0, 10);
+    if (options.startDate && date < options.startDate) continue;
+    if (options.endDate && date > options.endDate) continue;
+    const locationId = String(punch.location_id || options.locationIdForUser?.(userId) || '');
+    const location = options.normalizeLocation(locationId, undefined);
+    if (!location || location === 'Unknown') continue;
+    const grossHours = calculateGrossHours(clockedIn, clockedOut);
+    if (!grossHours) continue;
+    const breakTotals = calculateBreaks(Array.isArray(punch.breaks) ? punch.breaks : []);
+    const payrollHours = calculatePayrollHours(grossHours, breakTotals.unpaidMinutes);
+    if (payrollHours < MIN_EQUAL_SPLIT_SUPPLEMENT_HOURS) continue;
+    const key = reportInstanceKey(userId, date, location, payrollHours);
+    rawInstanceCounts.set(key, (rawInstanceCounts.get(key) || 0) + 1);
+  }
 
   for (const punch of sortedRawPunches) {
     const clockedIn = punch?.clocked_in || punch?.clock_in || null;
@@ -376,16 +462,17 @@ export function supplementEqualPayableSplitPunches(
 
     const breakTotals = calculateBreaks(Array.isArray(punch.breaks) ? punch.breaks : []);
     const payrollHours = calculatePayrollHours(grossHours, breakTotals.unpaidMinutes);
-    const key = reportInstanceKey(userId, date, location, payrollHours);
-    const remaining = remainingReportCounts.get(key) || 0;
-    if (remaining > 0) {
-      remainingReportCounts.set(key, remaining - 1);
+    if (payrollHours < MIN_EQUAL_SPLIT_SUPPLEMENT_HOURS) continue;
+    if (takeReportInstance(remainingReportCounts, userId, date, location, payrollHours)) {
       continue;
     }
 
     // Conservative guard: supplement only extra raw instances for keys the
     // Hours & Wages report already represented at least once.
-    if ((originalReportCounts.get(key) || 0) <= 0) continue;
+    const key = reportInstanceKey(userId, date, location, payrollHours);
+    const originalCount = reportInstanceCountNear(originalReportCounts, userId, date, location, payrollHours);
+    if (originalCount <= 0) continue;
+    if ((rawInstanceCounts.get(key) || 0) <= originalCount) continue;
 
     const roleId = String(punch.role_id || punch.roleId || '');
     supplements.push({

@@ -201,3 +201,97 @@ test('supplements identical-payable split shifts collapsed by the 7shifts report
   assert.equal(result.supplements[0].gross_hours, 6);
   assert.equal(result.supplements[0].break_minutes, 30);
 });
+
+test('does not supplement tiny raw correction fragments missing from 7shifts payroll export', () => {
+  const reportRows = flattenHoursAndWagesReport({
+    location_id:'500371',
+    location_name:'Chiang Mai Mississauga',
+    data: [{
+      user: { id:'small-fragment-user' },
+      employee_name:'Nukranad, Pailin',
+      shifts: [
+        { date:'2026-07-14', regular_hours:1.71, total_hours:1.71 },
+      ],
+    }],
+  });
+
+  const rawPunches = [
+    {
+      id:'report-represented-fragment',
+      user_id:'small-fragment-user',
+      location_id:'500371',
+      clocked_in:'2026-07-14T12:00:00-04:00',
+      clocked_out:'2026-07-14T13:42:36-04:00',
+      breaks:[],
+    },
+    {
+      id:'raw-correction-fragment',
+      user_id:'small-fragment-user',
+      location_id:'500371',
+      clocked_in:'2026-07-14T13:42:36-04:00',
+      clocked_out:'2026-07-14T15:25:12-04:00',
+      breaks:[],
+    },
+  ];
+
+  const result = supplementEqualPayableSplitPunches(reportRows, rawPunches, {
+    startDate:'2026-07-01',
+    endDate:'2026-07-15',
+    normalizeLocation: locationId => locationId === '500371' ? 'Chiang Mai Mississauga' : 'Unknown',
+    workDate: value => String(value).slice(0, 10),
+    employeeNameForUser: () => 'Pailin Nukranad',
+    roleNameForId: () => 'Expo',
+  });
+
+  assert.equal(result.supplemented, 0);
+  assert.equal(result.entries.length, 1);
+  assert.equal(result.entries.reduce((sum, row) => sum + Number(row.regular_hours || 0), 0), 1.71);
+});
+
+test('matches raw punches to report rows with small payroll-hour rounding differences before supplementing', () => {
+  const reportRows = flattenHoursAndWagesReport({
+    location_id:'461096',
+    location_name:'Chiang Mai Junction',
+    data: [{
+      user: { id:'rounding-user' },
+      employee_name:'Example, Rounding',
+      shifts: [
+        { date:'2026-07-05', regular_hours:5.52, total_hours:5.52 },
+        { date:'2026-07-05', regular_hours:5.52, total_hours:6.02 },
+      ],
+    }],
+  });
+
+  const rawPunches = [
+    {
+      id:'rounding-first-half',
+      user_id:'rounding-user',
+      location_id:'461096',
+      role_id:'prep',
+      clocked_in:'2026-07-05T10:30:00-04:00',
+      clocked_out:'2026-07-05T16:00:00-04:00',
+      breaks:[],
+    },
+    {
+      id:'rounding-second-half',
+      user_id:'rounding-user',
+      location_id:'461096',
+      role_id:'prep',
+      clocked_in:'2026-07-05T16:00:00-04:00',
+      clocked_out:'2026-07-05T22:00:00-04:00',
+      breaks:[{ in:'2026-07-05T19:00:00-04:00', out:'2026-07-05T19:30:00-04:00', paid:false }],
+    },
+  ];
+
+  const result = supplementEqualPayableSplitPunches(reportRows, rawPunches, {
+    startDate:'2026-07-01',
+    endDate:'2026-07-15',
+    normalizeLocation: locationId => locationId === '461096' ? 'Chiang Mai Junction' : 'Unknown',
+    workDate: value => String(value).slice(0, 10),
+    employeeNameForUser: () => 'Rounding Example',
+    roleNameForId: () => 'Prep',
+  });
+
+  assert.equal(result.supplemented, 0);
+  assert.equal(result.entries.length, 2);
+});
