@@ -14,6 +14,15 @@ type Punch = {
   clocked_in: string; clocked_out: string | null;
   hours: number; payroll_hours: number; gross_hours: number; break_minutes: number; wage: number; cash_wage: number;
 };
+type PayrollAlert = {
+  id: string;
+  type: string;
+  employee_name: string;
+  location: string;
+  alert_date: string;
+  severity: 'warning' | 'critical';
+  message: string;
+};
 
 const sel: React.CSSProperties = { background:'#1a1f2e', border:'1px solid rgba(255,255,255,0.1)', borderRadius:7, color:'#e5e7eb', padding:'7px 10px', fontSize:12, outline:'none', cursor:'pointer' };
 const inp: React.CSSProperties = { background:'#0d1117', border:'1px solid rgba(255,255,255,0.12)', borderRadius:6, color:'#f9fafb', padding:'5px 8px', fontSize:12, outline:'none' };
@@ -43,6 +52,7 @@ export default function EmployeesPage() {
   const [punchRefresh, setPunchRefresh] = useState(0);
   const [periodSyncing, setPeriodSyncing] = useState(false);
   const [periodSyncMessage, setPeriodSyncMessage] = useState('');
+  const [alerts, setAlerts] = useState<PayrollAlert[]>([]);
   const [search,    setSearch]     = useState('');
   const [locFilter, setLocFilter]  = useState('ALL');
   const [showInactive, setShowInactive] = useState(false);
@@ -83,6 +93,13 @@ export default function EmployeesPage() {
   }, [showInactive]);
 
   useEffect(() => {
+    const requested = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('alert');
+    if (!requested || selected || employees.length === 0) return;
+    const match = employees.find(employee => employee.full_name.toLowerCase().includes(requested.toLowerCase()));
+    if (match) setSelected(match);
+  }, [employees, selected]);
+
+  useEffect(() => {
     cachedJson<{rules:EmployeeRule[]}>('/api/rules', 120_000)
       .then(data=>setRules(data.rules || []))
       .catch(()=>{});
@@ -102,6 +119,15 @@ export default function EmployeesPage() {
       .then(d=>setPunches(d.punches||[]))
       .catch(error=>{setPunches([]);setPunchError(error.message || 'Unable to load punches');})
       .finally(()=>setPunchLoad(false));
+  }, [fromDate, toDate, selected, punchRefresh]);
+
+  useEffect(() => {
+    if (!selected) { setAlerts([]); return; }
+    const alertUrl = `/api/alerts?from=${fromDate}&to=${toDate}&employee=${encodeURIComponent(selected.full_name)}`;
+    fetch(alertUrl)
+      .then(response=>response.json())
+      .then(data=>setAlerts(data.alerts || []))
+      .catch(()=>setAlerts([]));
   }, [fromDate, toDate, selected, punchRefresh]);
 
   const locations = useMemo(()=>['ALL',...[...new Set(employees.map(e=>e.location).filter(Boolean))].sort()],[employees]);
@@ -286,6 +312,21 @@ export default function EmployeesPage() {
             </div>
 
             {workedLocations.length>0&&<div style={{display:'flex',gap:6,flexWrap:'wrap',margin:'-8px 0 14px 50px'}}>{workedLocations.map(([location,hours])=><span key={location} style={{fontSize:10,color:'#22d3ee',background:'rgba(34,211,238,.08)',border:'1px solid rgba(34,211,238,.16)',borderRadius:5,padding:'3px 7px'}}>{location}: {hours.actual.toFixed(2)} actual · {(hours.breakMinutes/60).toFixed(2)} break · {hours.payroll.toFixed(2)} payroll</span>)}</div>}
+
+            {alerts.length>0&&(
+              <div style={{margin:'-4px 0 14px 50px',background:'rgba(251,191,36,.08)',border:'1px solid rgba(251,191,36,.24)',borderRadius:10,padding:'10px 12px'}}>
+                <div style={{fontSize:12,fontWeight:700,color:'#fbbf24',marginBottom:6}}>⚠ Saved logbook alerts for this period</div>
+                <div style={{display:'grid',gap:5}}>
+                  {alerts.map(alert=>(
+                    <div key={alert.id} style={{fontSize:11,color:'#e5e7eb',lineHeight:1.35}}>
+                      <span style={{color:alert.severity==='critical'?'#f87171':'#fbbf24',fontWeight:700}}>{alert.alert_date} · {alert.type.replaceAll('_',' ')}</span>
+                      <span style={{color:'#9ca3af'}}> · {alert.location || 'Unknown'} · </span>
+                      {alert.message}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Date range controls */}
             <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10,padding:'12px 14px',marginBottom:14}}>

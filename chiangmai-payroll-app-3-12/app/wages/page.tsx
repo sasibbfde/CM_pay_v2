@@ -241,6 +241,37 @@ export default function WagesPage() {
     }
   };
 
+  const exportWages = () => {
+    const rows = [
+      ['Employee','Location','Department','Role','Cheque Wage','Cash Wage','Wage Source','Wage Locked','Active Rule','Rule Details','Wage Updated','Notes'],
+      ...filtered.map(employee => {
+        const activeRule = ruleByName.get(normName(employee.full_name));
+        return [
+          employee.full_name,
+          employee.location || '',
+          employee.department || '',
+          employee.role || '',
+          Number(employee.wage || 0).toFixed(2),
+          Number(employee.cash_wage || 0).toFixed(2),
+          employee.wage_source || '',
+          employee.wage_locked ? 'Yes' : 'No',
+          activeRule ? activeRule.rule_type : 'Normal 88h / location',
+          ruleDetails(activeRule),
+          employee.wage_updated_at || '',
+          employee.wage_upgrade_note || '',
+        ];
+      }),
+    ];
+    const csv = rows.map(row => row.map(cell => JSON.stringify(cell ?? '')).join(',')).join('\n');
+    const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cm-pay-wages_${new Date().toISOString().slice(0,10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const missingWages = employees.filter(e=>!e.wage||e.wage===0);
   const zeroWageCount = filtered.filter(e=>!e.wage||e.wage===0).length;
   const editCount = Object.keys(edits).filter(id=>filtered.find(e=>e.id===id)).length;
@@ -262,6 +293,9 @@ export default function WagesPage() {
           {msg&&<span style={{fontSize:12,color:msg.ok?'#34d399':'#f87171',background:msg.ok?'rgba(52,211,153,0.1)':'rgba(248,113,113,0.1)',padding:'5px 12px',borderRadius:6}}>{msg.text}</span>}
           <button onClick={syncFrom7shifts} disabled={syncing} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:'#34d399',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:syncing?'wait':'pointer'}}>
             {syncing?'Syncing…':'↻ Sync employee data'}
+          </button>
+          <button onClick={exportWages} disabled={filtered.length===0} style={{background:'rgba(52,211,153,0.08)',border:'1px solid rgba(52,211,153,0.25)',color:filtered.length?'#34d399':'#4b5563',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:filtered.length?'pointer':'not-allowed'}}>
+            ↓ Export CSV
           </button>
           {editCount>0&&(
             <button onClick={saveAll} style={{background:'rgba(34,211,238,0.12)',border:'1px solid rgba(34,211,238,0.3)',color:'#22d3ee',borderRadius:7,padding:'7px 16px',fontSize:13,fontWeight:600,cursor:'pointer'}}>
