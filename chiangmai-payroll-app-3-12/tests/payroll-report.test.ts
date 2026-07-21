@@ -93,3 +93,48 @@ test('Ontario public holiday hours are separated from regular cheque cash hours'
   assert.equal(row.location_holiday_hours['Location A'],6);
   assert.match(row.notes,/Canada Day/);
 });
+
+test('Ontario holiday pay consumes the 88h cheque cap and moves holiday excess to cash',()=>{
+  const [row]=buildPayrollReport([
+    punch({clocked_in:'2026-07-01T10:00:00-04:00',clocked_out:'2026-07-01T19:15:00-04:00',hours:9.25,payroll_hours:9.25,gross_hours:9.25,break_minutes:0,wage:20,cash_wage:20}),
+    punch({clocked_in:'2026-07-02T10:00:00-04:00',clocked_out:'2026-07-02T18:00:00-04:00',hours:80,payroll_hours:80,gross_hours:80,break_minutes:0,wage:20,cash_wage:20}),
+  ],[],'2026-07-15');
+  assert.equal(row.regular_payable_hours,80);
+  assert.equal(row.holiday_hours,9.25);
+  assert.equal(row.rounded_hours,80);
+  assert.equal(row.cheque_hours,80);
+  assert.equal(row.cash_hours,1.25);
+  assert.equal(row.cheque_pay,1600);
+  assert.equal(row.cash_pay,25);
+  assert.equal(row.holiday_pay,240);
+  assert.equal(row.total_pay,1865);
+  assert.match(row.notes,/Holiday payroll capped at 8h/);
+});
+
+test('Ontario holiday pay reduces regular cheque hours when regular hours already hit 88',()=>{
+  const [row]=buildPayrollReport([
+    punch({clocked_in:'2026-07-01T10:00:00-04:00',clocked_out:'2026-07-01T18:00:00-04:00',hours:8,payroll_hours:8,gross_hours:8,break_minutes:0,wage:20,cash_wage:20}),
+    punch({clocked_in:'2026-07-02T10:00:00-04:00',clocked_out:'2026-07-02T18:00:00-04:00',hours:88,payroll_hours:88,gross_hours:88,break_minutes:0,wage:20,cash_wage:20}),
+  ],[],'2026-07-15');
+  assert.equal(row.regular_payable_hours,88);
+  assert.equal(row.holiday_hours,8);
+  assert.equal(row.rounded_hours,88);
+  assert.equal(row.cheque_hours,80);
+  assert.equal(row.cash_hours,8);
+  assert.equal(row.cheque_pay,1600);
+  assert.equal(row.cash_pay,160);
+  assert.equal(row.holiday_pay,240);
+  assert.equal(row.total_pay,2000);
+});
+
+test('location-filtered payroll applies holiday cap inside that location allocation',()=>{
+  const [row]=buildPayrollReport([
+    punch({location:'Chiang Mai Junction',clocked_in:'2026-07-01T10:00:00-04:00',clocked_out:'2026-07-01T19:15:00-04:00',hours:9.25,payroll_hours:9.25,gross_hours:9.25,break_minutes:0,wage:20,cash_wage:20}),
+    punch({location:'Chiang Mai Junction',clocked_in:'2026-07-02T10:00:00-04:00',clocked_out:'2026-07-02T18:00:00-04:00',hours:80,payroll_hours:80,gross_hours:80,break_minutes:0,wage:20,cash_wage:20}),
+  ],[],'2026-07-15');
+  const local=payrollLocationView(row,'Chiang Mai Junction');
+  assert.equal(local.cheque_hours,80);
+  assert.equal(local.cash_hours,1.25);
+  assert.equal(local.holiday_pay,240);
+  assert.equal(local.total_pay,1865);
+});
