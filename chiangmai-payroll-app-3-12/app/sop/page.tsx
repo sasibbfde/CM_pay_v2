@@ -22,6 +22,18 @@ const pill: CSSProperties = {
 
 const sections = [
   {
+    title: 'Command Center',
+    href: '/command-center',
+    purpose: 'Owner/manager front page for daily overview, payroll readiness, location budget pressure, and action items.',
+    use: [
+      'Start here each day to see today sales, today labour, pay-period cheque/cash hours, total payroll, alerts, and readiness checks.',
+      'Use Payroll readiness cards to jump directly to Wages, Payroll Hours, or Logbook when something needs attention.',
+      'Use Location budget pressure to see which locations are over or under labour based on current sales and synced labour.',
+      'Use Owner report actions to download payroll-ready Excel, full owner workbook, or insights workbook for the selected period.',
+      'Forecast is marked as Phase 2 because it needs 7shifts schedule sync before it can predict future hours.',
+    ],
+  },
+  {
     title: 'Dashboard',
     href: '/',
     purpose: 'Payroll overview for the selected year, month, and pay period.',
@@ -156,10 +168,11 @@ export default function SopPage() {
           <div style={card}>
             <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Correct payroll workflow</h2>
             <ol style={{...muted,margin:'0 0 0 18px',padding:0}}>
-              <li>Go to <Link href="/payroll-hours" style={{color:'#22d3ee'}}>Payroll Hours</Link>.</li>
+              <li>Start in <Link href="/command-center" style={{color:'#22d3ee'}}>Command Center</Link> to check readiness and alerts.</li>
+              <li>Go to <Link href="/payroll-hours" style={{color:'#22d3ee'}}>Payroll Hours</Link> for the exact payroll run.</li>
               <li>Select the exact year, month, and pay period.</li>
               <li>Click <strong>Sync selected period</strong>. Do not use top Sync Now for a past payroll period.</li>
-              <li>Review alerts, rule exceptions, missing wages, and location totals.</li>
+              <li>Return to Command Center and review alerts, rule exceptions, missing wages, and location totals.</li>
               <li>Export Excel only after totals match the 7shifts Hours & Wages report.</li>
             </ol>
           </div>

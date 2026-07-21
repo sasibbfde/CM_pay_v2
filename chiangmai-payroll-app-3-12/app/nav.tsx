@@ -7,6 +7,7 @@ import { invalidateClientCache } from '@/lib/client-cache';
 
 const links = [
   { href: '/sop',       label: 'SOP'         },
+  { href: '/command-center', label: 'Command Center' },
   { href: '/',         label: 'Dashboard'   },
   { href: '/budget',   label: 'Budget Tool' },
   { href: '/insights', label: 'Insights'    },
