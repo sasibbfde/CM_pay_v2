@@ -28,9 +28,10 @@ const sections = [
     use: [
       'Start here each day to see today sales, today labour, pay-period cheque/cash hours, total payroll, alerts, and readiness checks.',
       'Use Payroll readiness cards to jump directly to Wages, Payroll Hours, or Logbook when something needs attention.',
-      'Use Location budget pressure to see which locations are over or under labour based on current sales and synced labour.',
-      'Use Owner report actions to download payroll-ready Excel, full owner workbook, or insights workbook for the selected period.',
-      'Forecast is marked as Phase 2 because it needs 7shifts schedule sync before it can predict future hours.',
+      'Use Location budget pressure to see actual labour versus sales, future scheduled hours, and the suggested action for each location.',
+      'Click Sync 7shifts schedule in the Schedule forecast card to pull future scheduled shifts for the selected period. This is planning-only and does not change payroll punches.',
+      'Review Projected over 88h and Projected near 88h before approving the next schedule.',
+      'Use Owner report actions to download payroll-ready Excel, the Command Center workbook, or insights workbook for the selected period.',
     ],
   },
   {
@@ -173,12 +174,17 @@ export default function SopPage() {
               <li>Select the exact year, month, and pay period.</li>
               <li>Click <strong>Sync selected period</strong>. Do not use top Sync Now for a past payroll period.</li>
               <li>Return to Command Center and review alerts, rule exceptions, missing wages, and location totals.</li>
+              <li>Click <strong>Sync 7shifts schedule</strong> in Command Center if you want projected hours for the rest of the period.</li>
               <li>Export Excel only after totals match the 7shifts Hours & Wages report.</li>
             </ol>
           </div>
           <div style={card}>
             <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Top-right Sync Now</h2>
             <p style={muted}>The top navigation Sync Now is a quick daily sync for yesterday and today. It is useful for live management views, but it is not the button for a closed payroll run.</p>
+          </div>
+          <div style={card}>
+            <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Forecast and management planning</h2>
+            <p style={muted}>Schedule forecast uses 7shifts scheduled shifts from today through the selected period end. It helps managers see future scheduled hours, projected over-88 employees, and locations that may be over-budget before payroll is finalized. It never edits historical punches or payroll-hour totals.</p>
           </div>
           <div style={card}>
             <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Notifications</h2>

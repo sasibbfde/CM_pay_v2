@@ -15,6 +15,11 @@ type ReportApi = { rows:PayrollReportRow[]; summary:ReportSummary; start:string;
 type SaleRow = { sale_date:string; location:string; net_sales:number|null; gross_sales:number|null; projected_sales:number|null };
 type AlertRow = { id:string; type:string; employee_name:string; location:string; alert_date:string; severity:'warning'|'critical'; message:string };
 type EmployeeRow = { full_name:string; location:string|null; role:string|null; wage:number|null; cash_wage:number|null; active:boolean; is_new?:boolean; wage_upgrade_note?:string|null };
+type ScheduledShift = {
+  shift_id:string; employee_id:string|null; seven_shifts_user_id:string|null; employee_name:string;
+  location:string; department:string|null; role:string|null; start_at:string; end_at:string;
+  scheduled_hours:number|string; status:string|null;
+};
 
 const card:React.CSSProperties = { background:'#131720', border:'1px solid rgba(255,255,255,.08)', borderRadius:14, padding:16 };
 const muted:React.CSSProperties = { color:'#6b7280', fontSize:12, lineHeight:1.45 };
@@ -30,6 +35,7 @@ const cad = (value:number) => new Intl.NumberFormat('en-CA',{style:'currency',cu
 const cadFull = (value:number) => new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD'}).format(value||0);
 const hrs = (value:number) => `${(value||0).toFixed(2)}h`;
 const pct = (value:number) => Number.isFinite(value) ? `${(value*100).toFixed(1)}%` : '—';
+const toNum = (value:unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
 
 function periodRange(year:number,month:number,period:string){
   const prefix = `${year}-${pad2(month)}`;
@@ -58,12 +64,14 @@ export default function CommandCenterPage() {
   const [forceToken,setForceToken] = useState(0);
   const range = useMemo(()=>periodRange(year,month,period),[year,month,period]);
   const today = isoDate(now);
+  const futureStart = today > range.start && today <= range.end ? today : range.start;
   const reportUrl = `/api/payroll-report?start=${range.start}&end=${range.end}`;
   const todayReportUrl = `/api/payroll-report?start=${today}&end=${today}`;
   const salesUrl = `/api/sales?from=${range.start}&to=${range.end}`;
   const todaySalesUrl = `/api/sales?from=${today}&to=${today}`;
   const alertsUrl = `/api/alerts?from=${range.start}&to=${range.end}`;
   const employeesUrl = '/api/employees?active=true';
+  const scheduleUrl = `/api/schedule?start=${futureStart}&end=${range.end}`;
 
   const [report,setReport] = useState<ReportApi|undefined>(()=>peekJson<ReportApi>(reportUrl));
   const [todayReport,setTodayReport] = useState<ReportApi|undefined>(()=>peekJson<ReportApi>(todayReportUrl));
@@ -71,6 +79,9 @@ export default function CommandCenterPage() {
   const [todaySales,setTodaySales] = useState<SaleRow[]>(()=>peekJson<{sales:SaleRow[]}>(todaySalesUrl)?.sales || []);
   const [alerts,setAlerts] = useState<AlertRow[]>(()=>peekJson<{alerts:AlertRow[]}>(alertsUrl)?.alerts || []);
   const [employees,setEmployees] = useState<EmployeeRow[]>(()=>peekJson<{employees:EmployeeRow[]}>(employeesUrl)?.employees || []);
+  const [schedule,setSchedule] = useState<ScheduledShift[]>(()=>peekJson<{shifts:ScheduledShift[]}>(scheduleUrl)?.shifts || []);
+  const [scheduleSyncing,setScheduleSyncing] = useState(false);
+  const [scheduleMsg,setScheduleMsg] = useState('');
   const [loading,setLoading] = useState(!report);
   const [error,setError] = useState('');
 
@@ -85,15 +96,37 @@ export default function CommandCenterPage() {
       cachedJson<{sales:SaleRow[]}>(todaySalesUrl,60_000,forceToken>0),
       cachedJson<{alerts:AlertRow[]}>(alertsUrl,60_000,forceToken>0),
       cachedJson<{employees:EmployeeRow[]}>(employeesUrl,120_000,forceToken>0),
-    ]).then(([periodReport,todayData,salesData,todaySalesData,alertData,employeeData])=>{
+      cachedJson<{shifts:ScheduledShift[]}>(scheduleUrl,120_000,forceToken>0),
+    ]).then(([periodReport,todayData,salesData,todaySalesData,alertData,employeeData,scheduleData])=>{
       if (cancelled) return;
       setReport(periodReport); setTodayReport(todayData);
       setSales(salesData.sales || []); setTodaySales(todaySalesData.sales || []);
       setAlerts(alertData.alerts || []); setEmployees(employeeData.employees || []);
+      setSchedule(scheduleData.shifts || []);
     }).catch((err:any)=>{ if(!cancelled) setError(err.message || 'Command Center failed to load'); })
       .finally(()=>{ if(!cancelled) setLoading(false); });
     return ()=>{cancelled=true;};
-  },[reportUrl,todayReportUrl,salesUrl,todaySalesUrl,alertsUrl,employeesUrl,forceToken]);
+  },[reportUrl,todayReportUrl,salesUrl,todaySalesUrl,alertsUrl,employeesUrl,scheduleUrl,forceToken]);
+
+  async function syncSchedule() {
+    setScheduleSyncing(true);
+    setScheduleMsg('');
+    try {
+      const response = await fetch('/api/schedule', {
+        method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({ start:futureStart, end:range.end }),
+      });
+      const json = await response.json();
+      if (!response.ok || json.ok === false) throw new Error(json.error || 'Schedule sync failed');
+      setScheduleMsg(`Synced ${json.synced || 0} scheduled shifts for forecast.`);
+      setForceToken(value=>value+1);
+    } catch (err:any) {
+      setScheduleMsg(err.message || 'Schedule sync failed');
+    } finally {
+      setScheduleSyncing(false);
+    }
+  }
 
   const periodSales = useMemo(()=>sales.reduce((sum,row)=>sum+Number(row.net_sales ?? row.gross_sales ?? 0),0),[sales]);
   const todaySalesTotal = useMemo(()=>todaySales.reduce((sum,row)=>sum+Number(row.net_sales ?? row.gross_sales ?? 0),0),[todaySales]);
@@ -134,6 +167,62 @@ export default function CommandCenterPage() {
       .sort((a,b)=>(b.labourPct-a.labourPct)||(b.cost-a.cost));
   },[report?.rows,sales,alerts]);
 
+  const scheduleSummary = useMemo(()=>{
+    const byLocation = new Map<string,{location:string; hours:number; shifts:number; staff:Set<string>}>();
+    let hoursTotal = 0;
+    for (const shift of schedule) {
+      const hoursValue = toNum(shift.scheduled_hours);
+      if (hoursValue <= 0) continue;
+      hoursTotal += hoursValue;
+      const location = shift.location || 'Unknown';
+      const row = byLocation.get(location) || { location, hours:0, shifts:0, staff:new Set<string>() };
+      row.hours += hoursValue;
+      row.shifts += 1;
+      row.staff.add(shift.employee_id || shift.seven_shifts_user_id || shift.employee_name);
+      byLocation.set(location,row);
+    }
+    return {
+      hoursTotal,
+      shifts: schedule.length,
+      byLocation: [...byLocation.values()].map(row=>({...row,staffCount:row.staff.size})).sort((a,b)=>b.hours-a.hours),
+    };
+  },[schedule]);
+
+  const forecastByEmployee = useMemo(()=>{
+    const byEmployee = new Map<string,{employee:string; current:number; scheduled:number; projected:number; locations:Set<string>}>();
+    for (const row of report?.rows || []) {
+      const key = row.employee_id || row.employee_name.toLowerCase();
+      byEmployee.set(key,{ employee:row.employee_name, current:toNum(row.rounded_hours), scheduled:0, projected:toNum(row.rounded_hours), locations:new Set(row.locations) });
+    }
+    for (const shift of schedule) {
+      const key = shift.employee_id || shift.seven_shifts_user_id || shift.employee_name.toLowerCase();
+      const row = byEmployee.get(key) || { employee:shift.employee_name, current:0, scheduled:0, projected:0, locations:new Set<string>() };
+      row.scheduled += toNum(shift.scheduled_hours);
+      row.projected = row.current + row.scheduled;
+      if (shift.location) row.locations.add(shift.location);
+      byEmployee.set(key,row);
+    }
+    return [...byEmployee.values()].map(row=>({...row,locations:[...row.locations]}))
+      .filter(row=>row.scheduled>0 || row.current>=75)
+      .sort((a,b)=>b.projected-a.projected);
+  },[report?.rows,schedule]);
+
+  const locationPressureRows = useMemo(()=>{
+    const map = new Map<string, any>(locationRows.map(row=>[row.location,{...row,scheduled:0}]));
+    for (const item of scheduleSummary.byLocation) {
+      const row = map.get(item.location) || { location:item.location, staffCount:0, payable:0, cheque:0, cash:0, cost:0, sales:0, alerts:0, labourPct:0 };
+      row.scheduled = item.hours;
+      row.staffCount = Math.max(row.staffCount || 0, item.staffCount || 0);
+      map.set(item.location,row);
+    }
+    return [...map.values()].sort((a,b)=>(b.labourPct-a.labourPct)||(b.cost-a.cost)||(b.scheduled-a.scheduled));
+  },[locationRows,scheduleSummary.byLocation]);
+
+  const forecastRisks = useMemo(()=>({
+    projectedOver88: forecastByEmployee.filter(row=>row.projected>88),
+    projectedNear88: forecastByEmployee.filter(row=>row.projected<=88 && row.projected>=75),
+  }),[forecastByEmployee]);
+
   const risks = useMemo(()=>{
     const rows = report?.rows || [];
     return {
@@ -155,11 +244,12 @@ export default function CommandCenterPage() {
     {label:'Payroll exceptions / cash split', count:risks.overCash.length, status:statusFor(risks.overCash.length>0,true), href:'/payroll-hours'},
     {label:'Critical punch alerts', count:risks.criticalAlerts.length, status:statusFor(risks.criticalAlerts.length>0), href:'/employees'},
     {label:'Near 88h watchlist', count:risks.nearCap.length, status:statusFor(risks.nearCap.length>0,true), href:'/payroll-hours'},
+    {label:'Forecast over 88h', count:forecastRisks.projectedOver88.length, status:statusFor(forecastRisks.projectedOver88.length>0,true), href:'/command-center'},
     {label:'Holiday pay rows', count:risks.holiday.length, status:'green' as const, href:'/payroll-hours'},
   ];
 
   const payrollExport = `/api/payroll-report/export?start=${range.start}&end=${range.end}`;
-  const ownerExport = `/api/export?from=${range.start}&to=${range.end}`;
+  const ownerExport = `/api/command-center/export?start=${range.start}&end=${range.end}&schedule_start=${futureStart}`;
   const insightsExport = `/api/insights/export?from=${range.start}&to=${range.end}`;
 
   return (
@@ -187,6 +277,8 @@ export default function CommandCenterPage() {
           ['Today Labour %', todayLabourPct ? pct(todayLabourPct) : '—', todayLabourPct>.35?'#f87171':todayLabourPct>.3?'#fbbf24':'#34d399'],
           ['Period Cheque Hrs', hrs(summary.cheque_hours), '#a78bfa'],
           ['Period Cash Hrs', hrs(summary.cash_hours), '#fbbf24'],
+          ['Future Scheduled Hrs', hrs(scheduleSummary.hoursTotal), '#22d3ee'],
+          ['Projected Over 88h', String(forecastRisks.projectedOver88.length), forecastRisks.projectedOver88.length?'#f87171':'#34d399'],
           ['Period Total Pay', cad(summary.total_pay), '#34d399'],
         ].map(([label,value,color])=><div key={label} style={card}><div style={{fontSize:11,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.08em'}}>{label}</div><div style={{fontSize:24,fontWeight:800,color:String(color),marginTop:7}}>{value}</div></div>)}
       </section>
@@ -225,13 +317,16 @@ export default function CommandCenterPage() {
       <section style={{display:'grid',gridTemplateColumns:'minmax(360px,1fr) minmax(320px,.8fr)',gap:14,marginBottom:16}}>
         <div style={card}>
           <h2 style={{fontSize:17,margin:'0 0 4px',color:'#f9fafb'}}>Location budget pressure</h2>
-          <p style={{...muted,margin:'0 0 12px'}}>Compares period labour cost to sales by location. Use red/yellow rows to decide where to reduce or rebalance hours.</p>
+          <p style={{...muted,margin:'0 0 12px'}}>Compares actual labour cost to sales, then adds future scheduled hours so managers can rebalance before payroll closes.</p>
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-              <thead><tr style={{color:'#6b7280',textTransform:'uppercase',letterSpacing:'.07em'}}><th style={th}>Location</th><th style={th}>Staff</th><th style={th}>Payable</th><th style={th}>Labour</th><th style={th}>Sales</th><th style={th}>Labour %</th><th style={th}>Alerts</th></tr></thead>
-              <tbody>{locationRows.slice(0,12).map(row=>{
+              <thead><tr style={{color:'#6b7280',textTransform:'uppercase',letterSpacing:'.07em'}}><th style={th}>Location</th><th style={th}>Staff</th><th style={th}>Payable</th><th style={th}>Scheduled</th><th style={th}>Labour</th><th style={th}>Sales</th><th style={th}>Labour %</th><th style={th}>Action</th><th style={th}>Alerts</th></tr></thead>
+              <tbody>{locationPressureRows.slice(0,12).map(row=>{
                 const color = row.sales ? (row.labourPct>.35?'#f87171':row.labourPct>.3?'#fbbf24':'#34d399') : '#6b7280';
-                return <tr key={row.location} style={{borderTop:'1px solid rgba(255,255,255,.06)'}}><td style={td}><Link href={`/location`} style={{color:'#e5e7eb',textDecoration:'none',fontWeight:700}}>{row.location}</Link></td><td style={td}>{row.staffCount}</td><td style={{...td,color:'#22d3ee'}}>{hrs(row.payable)}</td><td style={{...td,color:'#a78bfa'}}>{cad(row.cost)}</td><td style={{...td,color:'#34d399'}}>{row.sales?cad(row.sales):'—'}</td><td style={{...td,color,fontWeight:800}}>{row.sales?pct(row.labourPct):'No sales'}</td><td style={{...td,color:row.alerts?'#fbbf24':'#6b7280'}}>{row.alerts || '—'}</td></tr>;
+                const scheduled = toNum(row.scheduled);
+                const action = !row.sales ? 'Add sales' : row.labourPct > .35 ? 'Cut / review' : row.labourPct > .3 ? 'Watch' : scheduled > row.payable*.5 ? 'Future heavy' : 'OK';
+                const actionColor = action === 'OK' ? '#34d399' : action === 'Watch' || action === 'Future heavy' ? '#fbbf24' : '#f87171';
+                return <tr key={row.location} style={{borderTop:'1px solid rgba(255,255,255,.06)'}}><td style={td}><Link href={`/location`} style={{color:'#e5e7eb',textDecoration:'none',fontWeight:700}}>{row.location}</Link></td><td style={td}>{row.staffCount}</td><td style={{...td,color:'#22d3ee'}}>{hrs(row.payable)}</td><td style={{...td,color:'#38bdf8'}}>{scheduled?hrs(scheduled):'—'}</td><td style={{...td,color:'#a78bfa'}}>{cad(row.cost)}</td><td style={{...td,color:'#34d399'}}>{row.sales?cad(row.sales):'—'}</td><td style={{...td,color,fontWeight:800}}>{row.sales?pct(row.labourPct):'No sales'}</td><td style={{...td,color:actionColor,fontWeight:800}}>{action}</td><td style={{...td,color:row.alerts?'#fbbf24':'#6b7280'}}>{row.alerts || '—'}</td></tr>;
               })}</tbody>
             </table>
           </div>
@@ -239,8 +334,9 @@ export default function CommandCenterPage() {
 
         <div style={card}>
           <h2 style={{fontSize:17,margin:'0 0 4px',color:'#f9fafb'}}>People to watch</h2>
-          <p style={{...muted,margin:'0 0 12px'}}>Current pay-period risks from actual synced punches. Forecast from future schedules is marked as a Phase 2 item.</p>
+          <p style={{...muted,margin:'0 0 12px'}}>Current pay-period risks from actual synced punches, plus projected risks when future scheduled hours are synced.</p>
           <WatchList title="Near 88h" color="#fbbf24" rows={risks.nearCap.slice(0,7).map(row=>`${row.employee_name} · ${hrs(row.rounded_hours)}`)} empty="No one near 88h from current punches." />
+          <WatchList title="Projected over 88h" color="#f87171" rows={forecastRisks.projectedOver88.slice(0,7).map(row=>`${row.employee} · ${hrs(row.current)} actual + ${hrs(row.scheduled)} scheduled = ${hrs(row.projected)}`)} empty="No projected over-88 risk from synced schedules." />
           <WatchList title="Cash / exception rows" color="#f97316" rows={risks.overCash.slice(0,7).map(row=>`${row.employee_name} · ${hrs(row.cash_hours)} cash`)} empty="No cash split rows." />
           <WatchList title="Missing wages" color="#f87171" rows={risks.missingWages.slice(0,7).map(row=>row.full_name)} empty="No missing wages." />
         </div>
@@ -248,8 +344,18 @@ export default function CommandCenterPage() {
 
       <section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:14}}>
         <div style={card}>
-          <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Forecast — Phase 2</h2>
-          <p style={muted}>To predict expense ahead, the next engineering step is syncing 7shifts scheduled shifts. Then this card can show projected final hours, over-88 risks, and location over/under staffing before staff clock in.</p>
+          <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',marginBottom:8}}>
+            <div>
+              <h2 style={{fontSize:16,margin:'0 0 4px',color:'#f9fafb'}}>Schedule forecast</h2>
+              <p style={{...muted,margin:0}}>Planning only: combines actual payroll hours with scheduled future hours. It does not change payroll punches.</p>
+            </div>
+            <button onClick={syncSchedule} disabled={scheduleSyncing} style={{...btn,cursor:scheduleSyncing?'wait':'pointer',opacity:scheduleSyncing?0.7:1}}>{scheduleSyncing?'Syncing…':'Sync 7shifts schedule'}</button>
+          </div>
+          <div style={{fontSize:11,color:'#9ca3af',marginBottom:10}}>Forecast window: {futureStart} → {range.end} · {scheduleSummary.shifts} shifts · {hrs(scheduleSummary.hoursTotal)}</div>
+          {scheduleMsg && <div style={{fontSize:11,color:scheduleMsg.toLowerCase().includes('failed')?'#f87171':'#34d399',marginBottom:10}}>{scheduleMsg}</div>}
+          <WatchList title="Projected over 88h" color="#f87171" rows={forecastRisks.projectedOver88.slice(0,5).map(row=>`${row.employee} · ${hrs(row.projected)} projected`)} empty="No projected over-88 employees." />
+          <WatchList title="Projected near 88h" color="#fbbf24" rows={forecastRisks.projectedNear88.slice(0,5).map(row=>`${row.employee} · ${hrs(row.projected)} projected`)} empty="No projected near-88 employees." />
+          <WatchList title="Future hours by location" color="#22d3ee" rows={scheduleSummary.byLocation.slice(0,5).map(row=>`${row.location} · ${hrs(row.hours)} · ${row.staffCount} staff`)} empty="No future schedule synced for this window." />
         </div>
         <div style={card}>
           <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Alerts</h2>
