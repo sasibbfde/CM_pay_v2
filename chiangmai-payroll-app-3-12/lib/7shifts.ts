@@ -111,11 +111,21 @@ export async function fetchDailySalesAndLabor(startDate: string, endDate: string
 }
 
 /** Fetch scheduled shifts for a date range */
+export function buildShiftsPath(companyId: string, startDate: string, endDate: string, locationId?: string) {
+  const params = new URLSearchParams({
+    'start[gte]': `${startDate}T00:00:00Z`,
+    'start[lte]': `${endDate}T23:59:59Z`,
+    sort_by: 'start',
+    sort_dir: 'asc',
+  });
+  if (locationId) params.set('location_id', locationId);
+  return `/company/${companyId}/shifts?${params.toString()}`;
+}
+
 export async function fetchShifts(startDate: string, endDate: string, locationId?: string) {
   const COMPANY = process.env.SEVENSHIFTS_COMPANY_ID;
-  let base = companyPath(`/shifts?start_date=${startDate}&end_date=${endDate}`);
-  if (locationId) base += `&location_id=${locationId}`;
-  const data = await fetchAllPages(base, 200);
+  if (!COMPANY) throw new Error('Missing SEVENSHIFTS_COMPANY_ID');
+  const data = await fetchAllPages(buildShiftsPath(COMPANY, startDate, endDate, locationId), 200);
   return { data };
 }
 
