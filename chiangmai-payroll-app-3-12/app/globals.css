@@ -16,6 +16,31 @@
   --amber:     #fbbf24;
   --red:       #f87171;
   --blue:      #60a5fa;
+  --nav-bg:    #0d1117;
+  --nav-active-bg: rgba(255,255,255,0.08);
+  --nav-active-text: #ffffff;
+  --shadow-lg: 0 16px 40px rgba(0,0,0,.45);
+}
+
+:root[data-theme="light"] {
+  --bg:        #f5f7fb;
+  --surface:   #ffffff;
+  --surface2:  #eef2f7;
+  --border:    rgba(15,23,42,0.10);
+  --border2:   rgba(15,23,42,0.16);
+  --text:      #111827;
+  --muted:     #64748b;
+  --accent:    #0891b2;
+  --accent2:   #7c3aed;
+  --green:     #047857;
+  --amber:     #b45309;
+  --red:       #dc2626;
+  --blue:      #2563eb;
+  --nav-bg:    #ffffff;
+  --nav-active-bg: #e0f2fe;
+  --nav-active-text: #0f172a;
+  --shadow-lg: 0 16px 40px rgba(15,23,42,.16);
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -29,6 +54,97 @@ body {
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+}
+
+/* ── Light mode compatibility for existing inline-styled pages ───────────────
+   Many older tabs use inline dark colors. These targeted overrides keep light
+   mode readable without changing payroll/data logic in those pages. */
+:root[data-theme="light"] body { background: var(--bg) !important; color: var(--text) !important; }
+:root[data-theme="light"] main[style*="background:#0a0c10"],
+:root[data-theme="light"] main[style*="background:#090c10"],
+:root[data-theme="light"] main[style*="background:#080b10"],
+:root[data-theme="light"] main[style*="background:'#0a0c10'"] {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+}
+
+:root[data-theme="light"] [style*="background:#0a0c10"],
+:root[data-theme="light"] [style*="background:#090c10"],
+:root[data-theme="light"] [style*="background:#080b10"],
+:root[data-theme="light"] [style*="background:#0d1117"],
+:root[data-theme="light"] [style*="background:#111827"],
+:root[data-theme="light"] [style*="background: #0a0c10"],
+:root[data-theme="light"] [style*="background: #090c10"],
+:root[data-theme="light"] [style*="background: #080b10"],
+:root[data-theme="light"] [style*="background: #0d1117"],
+:root[data-theme="light"] [style*="background: #111827"] {
+  background: var(--surface) !important;
+}
+
+:root[data-theme="light"] [style*="background:#131720"],
+:root[data-theme="light"] [style*="background:#111318"],
+:root[data-theme="light"] [style*="background:#151922"],
+:root[data-theme="light"] [style*="background:#171923"],
+:root[data-theme="light"] [style*="background:#181c23"],
+:root[data-theme="light"] [style*="background:#1a1f2e"],
+:root[data-theme="light"] [style*="background: #131720"],
+:root[data-theme="light"] [style*="background: #111318"],
+:root[data-theme="light"] [style*="background: #151922"],
+:root[data-theme="light"] [style*="background: #171923"],
+:root[data-theme="light"] [style*="background: #181c23"],
+:root[data-theme="light"] [style*="background: #1a1f2e"] {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 1px 2px rgba(15,23,42,.04);
+}
+
+:root[data-theme="light"] [style*="background:rgba(255,255,255,.03)"],
+:root[data-theme="light"] [style*="background:rgba(255,255,255,.04)"],
+:root[data-theme="light"] [style*="background:rgba(255,255,255,0.03)"],
+:root[data-theme="light"] [style*="background:rgba(255,255,255,0.04)"] {
+  background: #f8fafc !important;
+}
+
+:root[data-theme="light"] [style*="border:1px solid rgba(255,255,255"],
+:root[data-theme="light"] [style*="border:'1px solid rgba(255,255,255"] {
+  border-color: var(--border) !important;
+}
+
+:root[data-theme="light"] [style*="borderTop:'1px solid rgba(255,255,255"],
+:root[data-theme="light"] [style*="border-top:1px solid rgba(255,255,255"] {
+  border-top-color: var(--border) !important;
+}
+
+:root[data-theme="light"] [style*="color:#f9fafb"],
+:root[data-theme="light"] [style*="color:#f0f2f5"],
+:root[data-theme="light"] [style*="color:#e5e7eb"],
+:root[data-theme="light"] [style*="color:#ffffff"],
+:root[data-theme="light"] [style*="color: '#f9fafb'"],
+:root[data-theme="light"] [style*="color: '#e5e7eb'"] {
+  color: var(--text) !important;
+}
+
+:root[data-theme="light"] [style*="color:#9ca3af"],
+:root[data-theme="light"] [style*="color:#6b7280"],
+:root[data-theme="light"] [style*="color:#4b5563"] {
+  color: var(--muted) !important;
+}
+
+:root[data-theme="light"] input,
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea {
+  background-color: #ffffff !important;
+  color: var(--text) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-theme="light"] .recharts-cartesian-grid line {
+  stroke: rgba(15,23,42,.12);
+}
+
+:root[data-theme="light"] .recharts-text,
+:root[data-theme="light"] .recharts-label {
+  fill: var(--muted);
 }
 
 /* ── Scrollbar ────────────────────────────────────── */

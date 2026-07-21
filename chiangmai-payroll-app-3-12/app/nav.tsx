@@ -37,6 +37,7 @@ export default function Nav() {
   const [msg,     setMsg]     = useState('');
   const [alerts, setAlerts]   = useState<PayrollAlert[]>([]);
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [theme, setTheme] = useState<'dark'|'light'>('dark');
 
   async function loadAlerts() {
     try {
@@ -54,6 +55,12 @@ export default function Nav() {
     const timer = setInterval(loadAlerts, 60_000);
     return () => clearInterval(timer);
   }, [path]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem('cm-pay-theme') === 'light' ? 'light' : 'dark';
+    setTheme(saved);
+    document.documentElement.dataset.theme = saved;
+  }, []);
 
   if (path === '/login' || path === '/signup' || path.startsWith('/auth/')) return null;
 
@@ -98,14 +105,21 @@ export default function Nav() {
     window.location.assign('/login');
   }
 
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    window.localStorage.setItem('cm-pay-theme', next);
+  }
+
   return (
-    <nav style={{background:'#0d1117',borderBottom:'1px solid rgba(255,255,255,0.07)',padding:'0 16px',display:'flex',alignItems:'center',gap:2,height:48,position:'sticky',top:0,zIndex:100}}>
-      <span style={{color:'#22d3ee',fontWeight:700,fontSize:14,marginRight:12,letterSpacing:'0.05em',whiteSpace:'nowrap',flexShrink:0}}>CM PAY</span>
+    <nav style={{background:'var(--nav-bg)',borderBottom:'1px solid var(--border)',padding:'0 16px',display:'flex',alignItems:'center',gap:2,height:48,position:'sticky',top:0,zIndex:100}}>
+      <span style={{color:'var(--accent)',fontWeight:700,fontSize:14,marginRight:12,letterSpacing:'0.05em',whiteSpace:'nowrap',flexShrink:0}}>CM PAY</span>
       <div style={{display:'flex',gap:2,overflowX:'auto',flex:1}}>
         {links.map(l=>{
           const active = path===l.href;
           return (
-            <Link key={l.href} href={l.href} style={{color:active?'#ffffff':'#6b7280',background:active?'rgba(255,255,255,0.08)':'transparent',borderRadius:6,padding:'5px 11px',fontSize:12,fontWeight:active?500:400,textDecoration:'none',whiteSpace:'nowrap'}}>
+            <Link key={l.href} href={l.href} style={{color:active?'var(--nav-active-text)':'var(--muted)',background:active?'var(--nav-active-bg)':'transparent',borderRadius:6,padding:'5px 11px',fontSize:12,fontWeight:active?500:400,textDecoration:'none',whiteSpace:'nowrap'}}>
               {l.label}
             </Link>
           );
@@ -117,9 +131,9 @@ export default function Nav() {
           🔔 {alerts.length}
         </button>
         {alertsOpen&&(
-          <div style={{position:'absolute',right:0,top:34,width:360,maxHeight:420,overflowY:'auto',background:'#111827',border:'1px solid rgba(255,255,255,0.12)',borderRadius:10,boxShadow:'0 16px 40px rgba(0,0,0,.45)',padding:10,zIndex:200}}>
+          <div style={{position:'absolute',right:0,top:34,width:360,maxHeight:420,overflowY:'auto',background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:10,boxShadow:'var(--shadow-lg)',padding:10,zIndex:200}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:8}}>
-              <div style={{fontSize:12,fontWeight:700,color:'#f9fafb'}}>Saved payroll alerts</div>
+              <div style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>Saved payroll alerts</div>
               <button onClick={loadAlerts} style={{background:'transparent',border:'1px solid rgba(255,255,255,.1)',color:'#9ca3af',borderRadius:5,padding:'3px 7px',fontSize:10,cursor:'pointer'}}>Refresh</button>
             </div>
             {alerts.length===0 ? <div style={{fontSize:11,color:'#6b7280',padding:12,textAlign:'center'}}>No overnight or 14h+ alerts in the last 7 days.</div> :
@@ -135,6 +149,9 @@ export default function Nav() {
         )}
       </div>
       <span title="Auto-syncs daily at 3am EST" style={{fontSize:10,color:'#4b5563',marginRight:6,whiteSpace:'nowrap',cursor:'default',flexShrink:0}}>🔄 Auto 3am</span>
+      <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} style={{background:'var(--surface2)',border:'1px solid var(--border2)',color:'var(--text)',borderRadius:6,padding:'5px 9px',fontSize:12,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+        {theme === 'dark' ? '☀️' : '🌙'}
+      </button>
       <button onClick={quickSync} disabled={syncing} title="Sync punches + Snappy sales" style={{background:syncing?'rgba(34,211,238,0.05)':'rgba(34,211,238,0.12)',border:'1px solid rgba(34,211,238,0.3)',color:syncing?'#6b7280':'#22d3ee',borderRadius:6,padding:'5px 12px',fontSize:11,fontWeight:500,cursor:syncing?'wait':'pointer',whiteSpace:'nowrap',flexShrink:0}}>
         {syncing?'Syncing…':'↻ Sync Now'}
       </button>
