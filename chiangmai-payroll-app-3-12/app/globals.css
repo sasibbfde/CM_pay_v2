@@ -29,12 +29,12 @@
   --border:    rgba(15,23,42,0.10);
   --border2:   rgba(15,23,42,0.16);
   --text:      #111827;
-  --muted:     #64748b;
-  --accent:    #0891b2;
-  --accent2:   #7c3aed;
-  --green:     #047857;
-  --amber:     #b45309;
-  --red:       #dc2626;
+  --muted:     #475569;
+  --accent:    #075985;
+  --accent2:   #5b21b6;
+  --green:     #166534;
+  --amber:     #92400e;
+  --red:       #b91c1c;
   --blue:      #2563eb;
   --nav-bg:    #ffffff;
   --nav-active-bg: #e0f2fe;
@@ -77,7 +77,17 @@ body {
 :root[data-theme="light"] [style*="background: #090c10"],
 :root[data-theme="light"] [style*="background: #080b10"],
 :root[data-theme="light"] [style*="background: #0d1117"],
-:root[data-theme="light"] [style*="background: #111827"] {
+:root[data-theme="light"] [style*="background: #111827"],
+:root[data-theme="light"] [style*="background: rgb(10, 12, 16)"],
+:root[data-theme="light"] [style*="background-color: rgb(10, 12, 16)"],
+:root[data-theme="light"] [style*="background: rgb(9, 12, 16)"],
+:root[data-theme="light"] [style*="background-color: rgb(9, 12, 16)"],
+:root[data-theme="light"] [style*="background: rgb(8, 11, 16)"],
+:root[data-theme="light"] [style*="background-color: rgb(8, 11, 16)"],
+:root[data-theme="light"] [style*="background: rgb(13, 17, 23)"],
+:root[data-theme="light"] [style*="background-color: rgb(13, 17, 23)"],
+:root[data-theme="light"] [style*="background: rgb(17, 24, 39)"],
+:root[data-theme="light"] [style*="background-color: rgb(17, 24, 39)"] {
   background: var(--surface) !important;
 }
 
@@ -92,7 +102,19 @@ body {
 :root[data-theme="light"] [style*="background: #151922"],
 :root[data-theme="light"] [style*="background: #171923"],
 :root[data-theme="light"] [style*="background: #181c23"],
-:root[data-theme="light"] [style*="background: #1a1f2e"] {
+:root[data-theme="light"] [style*="background: #1a1f2e"],
+:root[data-theme="light"] [style*="background: rgb(19, 23, 32)"],
+:root[data-theme="light"] [style*="background-color: rgb(19, 23, 32)"],
+:root[data-theme="light"] [style*="background: rgb(17, 19, 24)"],
+:root[data-theme="light"] [style*="background-color: rgb(17, 19, 24)"],
+:root[data-theme="light"] [style*="background: rgb(21, 25, 34)"],
+:root[data-theme="light"] [style*="background-color: rgb(21, 25, 34)"],
+:root[data-theme="light"] [style*="background: rgb(23, 25, 35)"],
+:root[data-theme="light"] [style*="background-color: rgb(23, 25, 35)"],
+:root[data-theme="light"] [style*="background: rgb(24, 28, 35)"],
+:root[data-theme="light"] [style*="background-color: rgb(24, 28, 35)"],
+:root[data-theme="light"] [style*="background: rgb(26, 31, 46)"],
+:root[data-theme="light"] [style*="background-color: rgb(26, 31, 46)"] {
   background: var(--surface) !important;
   border-color: var(--border) !important;
   box-shadow: 0 1px 2px rgba(15,23,42,.04);
@@ -101,18 +123,56 @@ body {
 :root[data-theme="light"] [style*="background:rgba(255,255,255,.03)"],
 :root[data-theme="light"] [style*="background:rgba(255,255,255,.04)"],
 :root[data-theme="light"] [style*="background:rgba(255,255,255,0.03)"],
-:root[data-theme="light"] [style*="background:rgba(255,255,255,0.04)"] {
+:root[data-theme="light"] [style*="background:rgba(255,255,255,0.04)"],
+:root[data-theme="light"] [style*="background: rgba(255, 255, 255, 0.03)"],
+:root[data-theme="light"] [style*="background: rgba(255, 255, 255, 0.04)"],
+:root[data-theme="light"] [style*="background: rgba(255, 255, 255, 0.05)"],
+:root[data-theme="light"] [style*="background-color: rgba(255, 255, 255, 0.03)"],
+:root[data-theme="light"] [style*="background-color: rgba(255, 255, 255, 0.04)"],
+:root[data-theme="light"] [style*="background-color: rgba(255, 255, 255, 0.05)"] {
   background: #f8fafc !important;
 }
 
+:root[data-theme="light"] [style*="background: rgba(34, 211, 238"],
+:root[data-theme="light"] [style*="background-color: rgba(34, 211, 238"] {
+  background: #e0f2fe !important;
+}
+
+:root[data-theme="light"] [style*="background: rgba(52, 211, 153"],
+:root[data-theme="light"] [style*="background-color: rgba(52, 211, 153"] {
+  background: #dcfce7 !important;
+}
+
+:root[data-theme="light"] [style*="background: rgba(248, 113, 113"],
+:root[data-theme="light"] [style*="background-color: rgba(248, 113, 113"] {
+  background: #fee2e2 !important;
+}
+
+:root[data-theme="light"] [style*="background: rgba(167, 139, 250"],
+:root[data-theme="light"] [style*="background-color: rgba(167, 139, 250"] {
+  background: #ede9fe !important;
+}
+
+:root[data-theme="light"] [style*="background: rgba(251, 191, 36"],
+:root[data-theme="light"] [style*="background-color: rgba(251, 191, 36"] {
+  background: #fef3c7 !important;
+}
+
 :root[data-theme="light"] [style*="border:1px solid rgba(255,255,255"],
-:root[data-theme="light"] [style*="border:'1px solid rgba(255,255,255"] {
+:root[data-theme="light"] [style*="border:'1px solid rgba(255,255,255"],
+:root[data-theme="light"] [style*="border: 1px solid rgba(255, 255, 255"],
+:root[data-theme="light"] [style*="border-color: rgba(255, 255, 255"] {
   border-color: var(--border) !important;
 }
 
 :root[data-theme="light"] [style*="borderTop:'1px solid rgba(255,255,255"],
-:root[data-theme="light"] [style*="border-top:1px solid rgba(255,255,255"] {
+:root[data-theme="light"] [style*="border-top:1px solid rgba(255,255,255"],
+:root[data-theme="light"] [style*="border-top: 1px solid rgba(255, 255, 255"] {
   border-top-color: var(--border) !important;
+}
+
+:root[data-theme="light"] [style*="border-bottom: 1px solid rgba(255, 255, 255"] {
+  border-bottom-color: var(--border) !important;
 }
 
 :root[data-theme="light"] [style*="color:#f9fafb"],
@@ -120,14 +180,46 @@ body {
 :root[data-theme="light"] [style*="color:#e5e7eb"],
 :root[data-theme="light"] [style*="color:#ffffff"],
 :root[data-theme="light"] [style*="color: '#f9fafb'"],
-:root[data-theme="light"] [style*="color: '#e5e7eb'"] {
+:root[data-theme="light"] [style*="color: '#e5e7eb'"],
+:root[data-theme="light"] [style*="color: rgb(249, 250, 251)"],
+:root[data-theme="light"] [style*="color: rgb(240, 242, 245)"],
+:root[data-theme="light"] [style*="color: rgb(229, 231, 235)"],
+:root[data-theme="light"] [style*="color: rgb(255, 255, 255)"] {
   color: var(--text) !important;
 }
 
 :root[data-theme="light"] [style*="color:#9ca3af"],
 :root[data-theme="light"] [style*="color:#6b7280"],
-:root[data-theme="light"] [style*="color:#4b5563"] {
+:root[data-theme="light"] [style*="color:#4b5563"],
+:root[data-theme="light"] [style*="color: rgb(156, 163, 175)"],
+:root[data-theme="light"] [style*="color: rgb(107, 114, 128)"],
+:root[data-theme="light"] [style*="color: rgb(75, 85, 99)"] {
   color: var(--muted) !important;
+}
+
+:root[data-theme="light"] [style*="color:#22d3ee"],
+:root[data-theme="light"] [style*="color: rgb(34, 211, 238)"] {
+  color: var(--accent) !important;
+}
+
+:root[data-theme="light"] [style*="color:#34d399"],
+:root[data-theme="light"] [style*="color: rgb(52, 211, 153)"] {
+  color: var(--green) !important;
+}
+
+:root[data-theme="light"] [style*="color:#f87171"],
+:root[data-theme="light"] [style*="color: rgb(248, 113, 113)"] {
+  color: var(--red) !important;
+}
+
+:root[data-theme="light"] [style*="color:#a78bfa"],
+:root[data-theme="light"] [style*="color: rgb(167, 139, 250)"] {
+  color: var(--accent2) !important;
+}
+
+:root[data-theme="light"] [style*="color:#fbbf24"],
+:root[data-theme="light"] [style*="color: rgb(251, 191, 36)"] {
+  color: var(--amber) !important;
 }
 
 :root[data-theme="light"] input,
@@ -136,6 +228,11 @@ body {
   background-color: #ffffff !important;
   color: var(--text) !important;
   border-color: var(--border2) !important;
+}
+
+:root[data-theme="light"] select option {
+  background: #ffffff;
+  color: var(--text);
 }
 
 :root[data-theme="light"] .recharts-cartesian-grid line {
