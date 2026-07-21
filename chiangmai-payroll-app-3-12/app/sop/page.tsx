@@ -27,11 +27,12 @@ const sections = [
     purpose: 'Owner/manager front page for daily overview, payroll readiness, location budget pressure, and action items.',
     use: [
       'Start here each day to see today sales, today labour, pay-period cheque/cash hours, total payroll, alerts, and readiness checks.',
+      'Use Today, Yesterday, Last 7 days, Payroll period, This month, or Last month to change the whole Command Center date range.',
       'Use Payroll readiness cards to jump directly to Wages, Payroll Hours, or Logbook when something needs attention.',
       'Use Location budget pressure to see actual labour versus sales, future scheduled hours, and the suggested action for each location.',
       'Click Sync 7shifts schedule in the Schedule forecast card to pull future scheduled shifts for the selected period. This is planning-only and does not change payroll punches.',
       'Review Projected over 88h and Projected near 88h before approving the next schedule.',
-      'Use Owner report actions to download payroll-ready Excel, the Command Center workbook, or insights workbook for the selected period.',
+      'Use Owner report actions to download payroll-ready Excel, the Command Center workbook, or insights workbook for the selected filter/date range.',
     ],
   },
   {
@@ -170,6 +171,7 @@ export default function SopPage() {
             <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Correct payroll workflow</h2>
             <ol style={{...muted,margin:'0 0 0 18px',padding:0}}>
               <li>Start in <Link href="/command-center" style={{color:'#22d3ee'}}>Command Center</Link> to check readiness and alerts.</li>
+              <li>Choose the correct quick filter: Today, Yesterday, Last 7 days, Payroll period, This month, or Last month.</li>
               <li>Go to <Link href="/payroll-hours" style={{color:'#22d3ee'}}>Payroll Hours</Link> for the exact payroll run.</li>
               <li>Select the exact year, month, and pay period.</li>
               <li>Click <strong>Sync selected period</strong>. Do not use top Sync Now for a past payroll period.</li>

@@ -31,11 +31,13 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 
 const pad2 = (value:number) => String(value).padStart(2,'0');
 const isoDate = (date:Date) => `${date.getFullYear()}-${pad2(date.getMonth()+1)}-${pad2(date.getDate())}`;
+const addDays = (date:Date, days:number) => { const next = new Date(date); next.setDate(next.getDate()+days); return next; };
 const cad = (value:number) => new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:0}).format(value||0);
 const cadFull = (value:number) => new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD'}).format(value||0);
 const hrs = (value:number) => `${(value||0).toFixed(2)}h`;
 const pct = (value:number) => Number.isFinite(value) ? `${(value*100).toFixed(1)}%` : '—';
 const toNum = (value:unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
+type RangeMode = 'today'|'yesterday'|'last7'|'pay-period'|'this-month'|'last-month';
 
 function periodRange(year:number,month:number,period:string){
   const prefix = `${year}-${pad2(month)}`;
@@ -43,6 +45,20 @@ function periodRange(year:number,month:number,period:string){
   if (period === '1-15') return { start:`${prefix}-01`, end:`${prefix}-15`, label:`${MONTHS[month-1]} 1–15, ${year}` };
   if (period === '16-end') return { start:`${prefix}-16`, end:`${prefix}-${last}`, label:`${MONTHS[month-1]} 16–${Number(last)}, ${year}` };
   return { start:`${prefix}-01`, end:`${prefix}-${last}`, label:`${MONTHS[month-1]} full month, ${year}` };
+}
+
+function selectedRange(mode:RangeMode, year:number, month:number, period:string, now:Date) {
+  const today = isoDate(now);
+  if (mode === 'today') return { start:today, end:today, label:'Today' };
+  const yesterday = isoDate(addDays(now,-1));
+  if (mode === 'yesterday') return { start:yesterday, end:yesterday, label:'Yesterday' };
+  if (mode === 'last7') return { start:isoDate(addDays(now,-6)), end:today, label:'Last 7 days' };
+  if (mode === 'this-month') return periodRange(now.getFullYear(),now.getMonth()+1,'month');
+  if (mode === 'last-month') {
+    const previous = new Date(now.getFullYear(),now.getMonth()-1,1);
+    return periodRange(previous.getFullYear(),previous.getMonth()+1,'month');
+  }
+  return periodRange(year,month,period);
 }
 
 function scoreColor(status:'green'|'yellow'|'red') {
@@ -57,26 +73,24 @@ function statusFor(value:boolean, warn=false):'green'|'yellow'|'red' {
 }
 
 export default function CommandCenterPage() {
-  const now = new Date();
+  const now = useMemo(()=>new Date(),[]);
   const [year,setYear] = useState(now.getFullYear());
   const [month,setMonth] = useState(now.getMonth()+1);
   const [period,setPeriod] = useState(now.getDate() <= 15 ? '1-15' : '16-end');
+  const [rangeMode,setRangeMode] = useState<RangeMode>('pay-period');
   const [forceToken,setForceToken] = useState(0);
-  const range = useMemo(()=>periodRange(year,month,period),[year,month,period]);
+  const range = useMemo(()=>selectedRange(rangeMode,year,month,period,now),[rangeMode,year,month,period,now]);
   const today = isoDate(now);
-  const futureStart = today > range.start && today <= range.end ? today : range.start;
+  const hasFutureScheduleWindow = range.end >= today;
+  const futureStart = hasFutureScheduleWindow && today > range.start && today <= range.end ? today : range.start;
   const reportUrl = `/api/payroll-report?start=${range.start}&end=${range.end}`;
-  const todayReportUrl = `/api/payroll-report?start=${today}&end=${today}`;
   const salesUrl = `/api/sales?from=${range.start}&to=${range.end}`;
-  const todaySalesUrl = `/api/sales?from=${today}&to=${today}`;
   const alertsUrl = `/api/alerts?from=${range.start}&to=${range.end}`;
   const employeesUrl = '/api/employees?active=true';
   const scheduleUrl = `/api/schedule?start=${futureStart}&end=${range.end}`;
 
   const [report,setReport] = useState<ReportApi|undefined>(()=>peekJson<ReportApi>(reportUrl));
-  const [todayReport,setTodayReport] = useState<ReportApi|undefined>(()=>peekJson<ReportApi>(todayReportUrl));
   const [sales,setSales] = useState<SaleRow[]>(()=>peekJson<{sales:SaleRow[]}>(salesUrl)?.sales || []);
-  const [todaySales,setTodaySales] = useState<SaleRow[]>(()=>peekJson<{sales:SaleRow[]}>(todaySalesUrl)?.sales || []);
   const [alerts,setAlerts] = useState<AlertRow[]>(()=>peekJson<{alerts:AlertRow[]}>(alertsUrl)?.alerts || []);
   const [employees,setEmployees] = useState<EmployeeRow[]>(()=>peekJson<{employees:EmployeeRow[]}>(employeesUrl)?.employees || []);
   const [schedule,setSchedule] = useState<ScheduledShift[]>(()=>peekJson<{shifts:ScheduledShift[]}>(scheduleUrl)?.shifts || []);
@@ -91,22 +105,20 @@ export default function CommandCenterPage() {
     setError('');
     Promise.all([
       cachedJson<ReportApi>(reportUrl,120_000,forceToken>0),
-      cachedJson<ReportApi>(todayReportUrl,60_000,forceToken>0),
       cachedJson<{sales:SaleRow[]}>(salesUrl,120_000,forceToken>0),
-      cachedJson<{sales:SaleRow[]}>(todaySalesUrl,60_000,forceToken>0),
       cachedJson<{alerts:AlertRow[]}>(alertsUrl,60_000,forceToken>0),
       cachedJson<{employees:EmployeeRow[]}>(employeesUrl,120_000,forceToken>0),
       cachedJson<{shifts:ScheduledShift[]}>(scheduleUrl,120_000,forceToken>0),
-    ]).then(([periodReport,todayData,salesData,todaySalesData,alertData,employeeData,scheduleData])=>{
+    ]).then(([periodReport,salesData,alertData,employeeData,scheduleData])=>{
       if (cancelled) return;
-      setReport(periodReport); setTodayReport(todayData);
-      setSales(salesData.sales || []); setTodaySales(todaySalesData.sales || []);
+      setReport(periodReport);
+      setSales(salesData.sales || []);
       setAlerts(alertData.alerts || []); setEmployees(employeeData.employees || []);
       setSchedule(scheduleData.shifts || []);
     }).catch((err:any)=>{ if(!cancelled) setError(err.message || 'Command Center failed to load'); })
       .finally(()=>{ if(!cancelled) setLoading(false); });
     return ()=>{cancelled=true;};
-  },[reportUrl,todayReportUrl,salesUrl,todaySalesUrl,alertsUrl,employeesUrl,scheduleUrl,forceToken]);
+  },[reportUrl,salesUrl,alertsUrl,employeesUrl,scheduleUrl,forceToken]);
 
   async function syncSchedule() {
     setScheduleSyncing(true);
@@ -129,11 +141,8 @@ export default function CommandCenterPage() {
   }
 
   const periodSales = useMemo(()=>sales.reduce((sum,row)=>sum+Number(row.net_sales ?? row.gross_sales ?? 0),0),[sales]);
-  const todaySalesTotal = useMemo(()=>todaySales.reduce((sum,row)=>sum+Number(row.net_sales ?? row.gross_sales ?? 0),0),[todaySales]);
-  const todaySummary = todayReport?.summary;
   const summary = report?.summary || {employees:0,gross_hours:0,break_hours:0,payable_hours:0,regular_payable_hours:0,holiday_hours:0,holiday_pay:0,rounded_hours:0,cheque_hours:0,cash_hours:0,cheque_pay:0,cash_pay:0,total_pay:0};
   const labourPct = periodSales ? summary.total_pay / periodSales : 0;
-  const todayLabourPct = todaySalesTotal && todaySummary ? todaySummary.total_pay / todaySalesTotal : 0;
 
   const locationRows = useMemo(()=>{
     const map = new Map<string,{location:string; staff:Set<string>; payable:number; cheque:number; cash:number; cost:number; sales:number; alerts:number}>();
@@ -261,25 +270,40 @@ export default function CommandCenterPage() {
           <p style={{...muted,margin:0}}>One-page overview using existing synced 7shifts punches, wages, sales, payroll rules, and saved alerts.</p>
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-          <select value={year} onChange={event=>setYear(Number(event.target.value))} style={sel}>{[2025,2026,2027].map(item=><option key={item} value={item}>{item}</option>)}</select>
-          <select value={month} onChange={event=>setMonth(Number(event.target.value))} style={sel}>{MONTHS.map((item,index)=><option key={item} value={index+1}>{item}</option>)}</select>
-          <select value={period} onChange={event=>setPeriod(event.target.value)} style={sel}><option value="1-15">1–15</option><option value="16-end">16–End</option><option value="month">Full month</option></select>
+          {[
+            ['today','Today'],
+            ['yesterday','Yesterday'],
+            ['last7','Last 7 days'],
+            ['pay-period','Payroll period'],
+            ['this-month','This month'],
+            ['last-month','Last month'],
+          ].map(([mode,label])=><button key={mode} onClick={()=>setRangeMode(mode as RangeMode)} style={rangeMode===mode?btn:btnGhost}>{label}</button>)}
+          {rangeMode==='pay-period'&&<>
+            <select value={year} onChange={event=>setYear(Number(event.target.value))} style={sel}>{[2025,2026,2027].map(item=><option key={item} value={item}>{item}</option>)}</select>
+            <select value={month} onChange={event=>setMonth(Number(event.target.value))} style={sel}>{MONTHS.map((item,index)=><option key={item} value={index+1}>{item}</option>)}</select>
+            <select value={period} onChange={event=>setPeriod(event.target.value)} style={sel}><option value="1-15">1–15</option><option value="16-end">16–End</option><option value="month">Full month</option></select>
+          </>}
           <button onClick={()=>setForceToken(value=>value+1)} style={btnGhost}>{loading?'Refreshing…':'Refresh'}</button>
         </div>
+      </div>
+
+      <div style={{...card,display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap',marginBottom:16,padding:'12px 14px'}}>
+        <div><strong style={{color:'#f9fafb'}}>Showing:</strong> <span style={{color:'#22d3ee',fontWeight:800}}>{range.label}</span> <span style={{color:'#6b7280'}}>({range.start} → {range.end})</span></div>
+        <div style={{...muted}}>All cards, location pressure, alerts, forecast, and exports use this selected range.</div>
       </div>
 
       {error&&<div role="alert" style={{...card,border:'1px solid rgba(248,113,113,.35)',color:'#f87171',marginBottom:16}}>{error}</div>}
 
       <section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:12,marginBottom:16}}>
         {[
-          ['Today Sales', todaySalesTotal ? cad(todaySalesTotal) : 'No sales yet', '#34d399'],
-          ['Today Labour', todaySummary ? cad(todaySummary.total_pay) : '—', '#a78bfa'],
-          ['Today Labour %', todayLabourPct ? pct(todayLabourPct) : '—', todayLabourPct>.35?'#f87171':todayLabourPct>.3?'#fbbf24':'#34d399'],
-          ['Period Cheque Hrs', hrs(summary.cheque_hours), '#a78bfa'],
-          ['Period Cash Hrs', hrs(summary.cash_hours), '#fbbf24'],
+          ['Selected Sales', periodSales ? cad(periodSales) : 'No sales yet', '#34d399'],
+          ['Selected Labour', report ? cad(summary.total_pay) : '—', '#a78bfa'],
+          ['Selected Labour %', labourPct ? pct(labourPct) : '—', labourPct>.35?'#f87171':labourPct>.3?'#fbbf24':'#34d399'],
+          ['Selected Cheque Hrs', hrs(summary.cheque_hours), '#a78bfa'],
+          ['Selected Cash Hrs', hrs(summary.cash_hours), '#fbbf24'],
           ['Future Scheduled Hrs', hrs(scheduleSummary.hoursTotal), '#22d3ee'],
           ['Projected Over 88h', String(forecastRisks.projectedOver88.length), forecastRisks.projectedOver88.length?'#f87171':'#34d399'],
-          ['Period Total Pay', cad(summary.total_pay), '#34d399'],
+          ['Selected Total Pay', cad(summary.total_pay), '#34d399'],
         ].map(([label,value,color])=><div key={label} style={card}><div style={{fontSize:11,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.08em'}}>{label}</div><div style={{fontSize:24,fontWeight:800,color:String(color),marginTop:7}}>{value}</div></div>)}
       </section>
 
