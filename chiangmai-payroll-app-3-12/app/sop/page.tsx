@@ -169,7 +169,7 @@ export default function SopPage() {
           </div>
           <div style={card}>
             <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Notifications</h2>
-            <p style={muted}>The bell in the top-right shows saved alerts from synced punches: overnight/early-morning punch activity between 12:00am and 7:00am, shifts crossing midnight, and any employee over 14 gross hours in one Toronto date.</p>
+            <p style={muted}>The bell in the top-right shows saved alerts from synced punches: overnight/early-morning punch activity that touches 12:05am to 7:00am Toronto time, and any employee over 14 gross hours in one Toronto date.</p>
           </div>
         </div>
 

@@ -29,6 +29,8 @@ type PayrollAlert = {
 
 const TORONTO_TZ = 'America/Toronto';
 const DAY_MS = 24 * 60 * 60 * 1000;
+const OVERNIGHT_ALERT_START_MINUTE = 5; // 12:05am Toronto time
+const OVERNIGHT_ALERT_END_HOUR = 7; // 7:00am Toronto time
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -62,6 +64,31 @@ function localTimeLabel(iso: string) {
   }).format(new Date(iso));
 }
 
+function minuteOfDay(parts: { hour: number; minute: number }) {
+  return parts.hour * 60 + parts.minute;
+}
+
+function isInOvernightAlertWindow(parts: { hour: number; minute: number }) {
+  const minute = minuteOfDay(parts);
+  return minute >= OVERNIGHT_ALERT_START_MINUTE && minute < OVERNIGHT_ALERT_END_HOUR * 60;
+}
+
+function touchesOvernightAlertWindow(
+  inParts: { date: string; hour: number; minute: number },
+  outParts: { date: string; hour: number; minute: number } | null,
+) {
+  const startMinute = minuteOfDay(inParts);
+  const endMinute = outParts ? minuteOfDay(outParts) : startMinute;
+  const windowStart = OVERNIGHT_ALERT_START_MINUTE;
+  const windowEnd = OVERNIGHT_ALERT_END_HOUR * 60;
+
+  if (!outParts || outParts.date === inParts.date) {
+    return startMinute < windowEnd && endMinute > windowStart;
+  }
+
+  return isInOvernightAlertWindow(inParts) || endMinute > windowStart;
+}
+
 function employeeKey(punch: PunchRow) {
   return punch.employee_id || (punch.seven_shifts_user_id ? `7S-${punch.seven_shifts_user_id}` : punch.employee_name);
 }
@@ -70,7 +97,7 @@ function alertRecordId(alert: PayrollAlert) {
   return `${alert.type}|${alert.employee_id}|${alert.alert_date}|${alert.location}`;
 }
 
-function buildAlerts(punches: PunchRow[]) {
+export function buildAlerts(punches: PunchRow[]) {
   const alerts: PayrollAlert[] = [];
   const daily = new Map<string, { hours: number; employee_id: string; employee_name: string; date: string; locations: Set<string>; punches: number }>();
 
@@ -88,10 +115,7 @@ function buildAlerts(punches: PunchRow[]) {
     row.punches += 1;
     daily.set(dailyKey, row);
 
-    const crossesMidnight = Boolean(outParts && outParts.date !== inParts.date);
-    const earlyIn = inParts.hour >= 0 && inParts.hour < 7;
-    const earlyOut = Boolean(outParts && outParts.hour >= 0 && outParts.hour < 7);
-    if (!crossesMidnight && !earlyIn && !earlyOut) continue;
+    if (!touchesOvernightAlertWindow(inParts,outParts)) continue;
 
     const timeWindow = punch.clocked_out
       ? `${localTimeLabel(punch.clocked_in)} → ${localTimeLabel(punch.clocked_out)}`
@@ -113,7 +137,7 @@ function buildAlerts(punches: PunchRow[]) {
       location,
       alert_date: inParts.date,
       severity: 'warning',
-      message: `Punch touches 12:00am–7:00am or crosses midnight: ${timeWindow}.`,
+      message: `Punch touches 12:05am–7:00am: ${timeWindow}.`,
       details: {
         punch_id: punch.punch_id,
         clocked_in: punch.clocked_in,
