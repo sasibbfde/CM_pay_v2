@@ -36,6 +36,7 @@ function isoDate(d: Date) {
 }
 function cad(n: number) { return `$${n.toFixed(2)}`; }
 const normName = (value: string) => value.trim().toLowerCase().replace(/\s+/g,' ');
+const isIsoDate = (value: string | null) => !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 export default function EmployeesPage() {
   const today = new Date();
@@ -98,6 +99,18 @@ export default function EmployeesPage() {
     const match = employees.find(employee => employee.full_name.toLowerCase().includes(requested.toLowerCase()));
     if (match) setSelected(match);
   }, [employees, selected]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const from = params.get('from');
+    const to = params.get('to');
+    if (!isIsoDate(from) && !isIsoDate(to)) return;
+    if (isIsoDate(from)) setFromDate(from!);
+    if (isIsoDate(to)) setToDate(to!);
+    setPreset('custom');
+    setFilterPeriod('custom');
+  }, []);
 
   useEffect(() => {
     cachedJson<{rules:EmployeeRule[]}>('/api/rules', 120_000)

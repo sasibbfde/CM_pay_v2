@@ -251,7 +251,7 @@ export default function CommandCenterPage() {
     {label:'Missing wage', count:risks.missingWages.length, status:statusFor(risks.missingWages.length>0), href:'/wages'},
     {label:'Missing location / role', count:risks.missingDetails.length, status:statusFor(risks.missingDetails.length>0,true), href:'/wages'},
     {label:'Payroll exceptions / cash split', count:risks.overCash.length, status:statusFor(risks.overCash.length>0,true), href:'/payroll-hours'},
-    {label:'Critical punch alerts', count:risks.criticalAlerts.length, status:statusFor(risks.criticalAlerts.length>0), href:'/employees'},
+    {label:'Critical punch alerts', count:risks.criticalAlerts.length, status:statusFor(risks.criticalAlerts.length>0), href:'#saved-alerts'},
     {label:'Near 88h watchlist', count:risks.nearCap.length, status:statusFor(risks.nearCap.length>0,true), href:'/payroll-hours'},
     {label:'Forecast over 88h', count:forecastRisks.projectedOver88.length, status:statusFor(forecastRisks.projectedOver88.length>0,true), href:'/command-center'},
     {label:'Holiday pay rows', count:risks.holiday.length, status:'green' as const, href:'/payroll-hours'},
@@ -260,6 +260,7 @@ export default function CommandCenterPage() {
   const payrollExport = `/api/payroll-report/export?start=${range.start}&end=${range.end}`;
   const ownerExport = `/api/command-center/export?start=${range.start}&end=${range.end}&schedule_start=${futureStart}`;
   const insightsExport = `/api/insights/export?from=${range.start}&to=${range.end}`;
+  const alertHref = (alert: AlertRow) => `/employees?alert=${encodeURIComponent(alert.employee_name)}&from=${range.start}&to=${range.end}`;
 
   return (
     <main style={{background:'#0a0c10',minHeight:'100vh',color:'#e5e7eb',fontFamily:'Inter, sans-serif',padding:'26px 32px'}}>
@@ -381,10 +382,10 @@ export default function CommandCenterPage() {
           <WatchList title="Projected near 88h" color="#fbbf24" rows={forecastRisks.projectedNear88.slice(0,5).map(row=>`${row.employee} · ${hrs(row.projected)} projected`)} empty="No projected near-88 employees." />
           <WatchList title="Future hours by location" color="#22d3ee" rows={scheduleSummary.byLocation.slice(0,5).map(row=>`${row.location} · ${hrs(row.hours)} · ${row.staffCount} staff`)} empty="No future schedule synced for this window." />
         </div>
-        <div style={card}>
+        <div id="saved-alerts" style={card}>
           <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Alerts</h2>
           <p style={{...muted,margin:'0 0 10px'}}>Saved punch alerts for this period.</p>
-          {alerts.length===0 ? <div style={{fontSize:12,color:'#34d399'}}>No saved alerts for this range.</div> : alerts.slice(0,5).map(alert=><Link key={alert.id} href={`/employees?alert=${encodeURIComponent(alert.employee_name)}`} style={{display:'block',textDecoration:'none',padding:'8px 0',borderTop:'1px solid rgba(255,255,255,.06)'}}><div style={{fontSize:12,color:alert.severity==='critical'?'#f87171':'#fbbf24',fontWeight:800}}>{alert.employee_name} · {alert.alert_date}</div><div style={{fontSize:11,color:'#9ca3af'}}>{alert.message}</div></Link>)}
+          {alerts.length===0 ? <div style={{fontSize:12,color:'#34d399'}}>No saved alerts for this range.</div> : <div style={{maxHeight:360,overflowY:'auto',paddingRight:4}}>{alerts.map(alert=><Link key={alert.id} href={alertHref(alert)} style={{display:'block',textDecoration:'none',padding:'8px 0',borderTop:'1px solid rgba(255,255,255,.06)'}}><div style={{fontSize:12,color:alert.severity==='critical'?'#f87171':'#fbbf24',fontWeight:800}}>{alert.employee_name} · {alert.alert_date}</div><div style={{fontSize:11,color:'#9ca3af'}}>{alert.message}</div></Link>)}</div>}
         </div>
         <div style={card}>
           <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Quick links</h2>

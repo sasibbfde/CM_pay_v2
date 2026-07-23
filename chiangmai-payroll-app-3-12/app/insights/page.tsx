@@ -70,7 +70,9 @@ export default function InsightsPage() {
   const [savingSales, setSavingSales] = useState(false);
   const [salesMsg,   setSalesMsg]   = useState('');
   const [syncingSnappy, setSyncingSnappy] = useState(false);
+  const [syncing7shifts, setSyncing7shifts] = useState(false);
   const autoSalesSync = useRef(new Set<string>());
+  const auto7shiftsSync = useRef(new Set<string>());
   const loadSeq = useRef(0);
 
   // Alert drill-down
@@ -167,11 +169,14 @@ export default function InsightsPage() {
       e.payroll+=r.payroll_amount; e.hours+=r.actual_hours; e.headcount++;
     }
     for (const s of sales) {
-      const v = map.get(s.location) || map.get(s.location?.replace(' Village',''));
-      if (v) v.sales += +s.net_sales||+s.gross_sales||0;
+      const location = s.location || 'Unknown';
+      if (locFilter !== 'ALL' && location !== locFilter) continue;
+      if (!map.has(location)) map.set(location,{loc:location,cost:0,hours:0,headcount:0,cash:0,payroll:0,sales:0});
+      const v = map.get(location);
+      v.sales += +s.net_sales||+s.gross_sales||0;
     }
-    return [...map.values()].sort((a,b)=>b.cost-a.cost);
-  }, [filteredRows, sales]);
+    return [...map.values()].sort((a,b)=>(b.cost || b.sales) - (a.cost || a.sales));
+  }, [filteredRows, sales, locFilter]);
 
   const byRole = useMemo(() => {
     const map = new Map<string,any>();
@@ -242,6 +247,45 @@ export default function InsightsPage() {
     }
   }, [fromDate, toDate, syncingSnappy]);
 
+  const sync7shiftsHours = useCallback(async (automatic = false) => {
+    if (syncing7shifts) return;
+    setSyncing7shifts(true);
+    if (!automatic) setSalesMsg('');
+    try {
+      const response = await fetch('/api/7shifts/sync', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          start:`${fromDate}T00:00:00.000Z`,
+          end:`${toDate}T23:59:59.999Z`,
+          triggered_by:'insights-range-sync',
+          sync_wages:true,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.ok === false) throw new Error(result.error || '7shifts sync failed');
+      invalidateClientCache(['/api/payroll-report','/api/payroll','/api/alerts','/api/employees']);
+      const payrollUrl = `/api/payroll-report?start=${fromDate}&end=${toDate}`;
+      const refreshed = await cachedJson<{rows:PayrollReportRow[]}>(payrollUrl, 600_000, true);
+      setRows(reportRowsToInsightRows(refreshed.rows || []));
+      const punchCount = result.synced?.punches ?? result.punches ?? 0;
+      if (!automatic) setSalesMsg(`✓ Updated ${punchCount} 7shifts punches for ${fromDate} → ${toDate}`);
+    } catch (error:any) {
+      setSalesMsg(`7shifts update failed: ${error.message}`);
+    } finally {
+      setSyncing7shifts(false);
+    }
+  }, [fromDate, toDate, syncing7shifts]);
+
+  useEffect(() => {
+    const autoPresets = new Set(['today','yesterday','week']);
+    const key = `${preset}|${fromDate}|${toDate}`;
+    const todayString = isoDate(new Date());
+    if (!autoPresets.has(preset) || loading || syncing7shifts || fromDate > todayString || auto7shiftsSync.current.has(key)) return;
+    auto7shiftsSync.current.add(key);
+    sync7shiftsHours(true);
+  }, [preset, fromDate, toDate, loading, syncing7shifts, sync7shiftsHours]);
+
   useEffect(() => {
     const key = `${fromDate}|${toDate}`;
     const todayString = isoDate(new Date());
@@ -283,6 +327,9 @@ export default function InsightsPage() {
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
           <button onClick={()=>setShowSalesModal(true)} style={{background:'rgba(251,191,36,0.1)',border:'1px solid rgba(251,191,36,0.3)',color:'#fbbf24',borderRadius:7,padding:'7px 14px',fontSize:12,cursor:'pointer',fontWeight:500}}>
             + Enter Sales
+          </button>
+          <button onClick={()=>sync7shiftsHours(false)} disabled={syncing7shifts} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:syncing7shifts?'#6b7280':'#22d3ee',borderRadius:7,padding:'7px 14px',fontSize:12,cursor:syncing7shifts?'wait':'pointer',fontWeight:500}}>
+            {syncing7shifts?'Syncing hours…':'↻ Sync 7shifts Hours'}
           </button>
           <button onClick={()=>syncSnappySales(false)} disabled={syncingSnappy} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:syncingSnappy?'#6b7280':'#22d3ee',borderRadius:7,padding:'7px 14px',fontSize:12,cursor:syncingSnappy?'wait':'pointer',fontWeight:500}}>
             {syncingSnappy?'Updating sales…':'↻ Update Snappy Sales'}
