@@ -62,7 +62,7 @@ function selectedRange(mode:RangeMode, year:number, month:number, period:string,
 }
 
 function auditHistoryRange(now: Date) {
-  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
   return { from: isoDate(start), to: isoDate(now) };
 }
 

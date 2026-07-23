@@ -33,7 +33,7 @@ type PayrollAlert = {
 
 function alertRange() {
   const today = new Date();
-  const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
   const fmt = (date: Date) => date.toISOString().slice(0, 10);
   return { from: fmt(start), to: fmt(today) };
 }
@@ -147,7 +147,7 @@ export default function Nav() {
             <Link href="/command-center#audit-history" onClick={()=>setAlertsOpen(false)} style={{display:'block',textDecoration:'none',background:'rgba(34,211,238,.08)',border:'1px solid rgba(34,211,238,.18)',color:'#22d3ee',borderRadius:7,padding:'7px 9px',fontSize:11,fontWeight:700,marginBottom:8}}>
               Open Audit History in Command Center →
             </Link>
-            {alerts.length===0 ? <div style={{fontSize:11,color:'#6b7280',padding:12,textAlign:'center'}}>No overnight or 14h+ alerts in the current or previous month.</div> :
+            {alerts.length===0 ? <div style={{fontSize:11,color:'#6b7280',padding:12,textAlign:'center'}}>No overnight or 14h+ alerts in the current month to date.</div> :
               alerts.map(alert=>(
                 <Link key={alert.id} href={`/command-center?alert=${encodeURIComponent(alert.id)}#audit-history`} onClick={()=>setAlertsOpen(false)} style={{display:'block',textDecoration:'none',borderTop:'1px solid rgba(255,255,255,.06)',padding:'8px 2px'}}>
                   <div style={{fontSize:11,fontWeight:700,color:alert.severity==='critical'?'#f87171':'#fbbf24'}}>{alert.employee_name} · {alert.alert_date}</div>
@@ -155,7 +155,7 @@ export default function Nav() {
                   <div style={{fontSize:10,color:'#e5e7eb',marginTop:3,lineHeight:1.35}}>{alert.message}</div>
                 </Link>
               ))}
-            <div style={{fontSize:10,color:'#4b5563',paddingTop:8,lineHeight:1.35}}>Showing {alerts.length} alert{alerts.length===1?'':'s'} from the current month and previous month. Alerts are saved in audit history and do not change payroll totals.</div>
+            <div style={{fontSize:10,color:'#4b5563',paddingTop:8,lineHeight:1.35}}>Showing {alerts.length} alert{alerts.length===1?'':'s'} from the current month to date. Alerts are saved in audit history and do not change payroll totals.</div>
           </div>
         )}
       </div>
