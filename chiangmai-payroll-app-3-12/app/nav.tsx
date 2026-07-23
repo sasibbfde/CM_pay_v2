@@ -145,14 +145,14 @@ export default function Nav() {
               <button onClick={loadAlerts} style={{background:'transparent',border:'1px solid rgba(255,255,255,.1)',color:'#9ca3af',borderRadius:5,padding:'3px 7px',fontSize:10,cursor:'pointer'}}>Refresh</button>
             </div>
             {alerts.length===0 ? <div style={{fontSize:11,color:'#6b7280',padding:12,textAlign:'center'}}>No overnight or 14h+ alerts in the current or previous month.</div> :
-              alerts.slice(0,20).map(alert=>(
+              alerts.map(alert=>(
                 <Link key={alert.id} href={`/employees?alert=${encodeURIComponent(alert.employee_name)}`} onClick={()=>setAlertsOpen(false)} style={{display:'block',textDecoration:'none',borderTop:'1px solid rgba(255,255,255,.06)',padding:'8px 2px'}}>
                   <div style={{fontSize:11,fontWeight:700,color:alert.severity==='critical'?'#f87171':'#fbbf24'}}>{alert.employee_name} · {alert.alert_date}</div>
                   <div style={{fontSize:10,color:'#9ca3af',marginTop:2}}>{alert.location || 'Unknown location'} · {alert.type.replaceAll('_',' ')}</div>
                   <div style={{fontSize:10,color:'#e5e7eb',marginTop:3,lineHeight:1.35}}>{alert.message}</div>
                 </Link>
               ))}
-            <div style={{fontSize:10,color:'#4b5563',paddingTop:8,lineHeight:1.35}}>Alerts scan the current month and previous month, including June/July when those are the selected months. They are saved in audit history and do not change payroll totals.</div>
+            <div style={{fontSize:10,color:'#4b5563',paddingTop:8,lineHeight:1.35}}>Showing {alerts.length} alert{alerts.length===1?'':'s'} from the current month and previous month. Alerts are saved in audit history and do not change payroll totals.</div>
           </div>
         )}
       </div>

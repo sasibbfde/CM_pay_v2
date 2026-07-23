@@ -208,18 +208,27 @@ export async function GET(req: NextRequest) {
     const from = sp.get('from') || isoDate(new Date(today.getTime() - (days - 1) * DAY_MS));
     const to = sp.get('to') || isoDate(today);
     const employee = (sp.get('employee') || '').trim().toLowerCase();
+    const queryStart = new Date(`${from}T00:00:00.000Z`);
+    queryStart.setUTCDate(queryStart.getUTCDate() - 1);
+    const queryEnd = new Date(`${to}T23:59:59.999Z`);
+    queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from('punches')
       .select('punch_id, employee_id, seven_shifts_user_id, employee_name, location, role, clocked_in, clocked_out, gross_hours, payroll_hours')
-      .gte('clocked_in', `${from}T00:00:00.000Z`)
-      .lte('clocked_in', `${to}T23:59:59.999Z`)
+      .gte('clocked_in', queryStart.toISOString())
+      .lte('clocked_in', queryEnd.toISOString())
       .order('clocked_in', { ascending: false })
       .limit(20000);
     if (error) throw error;
+    const ranged = (data || []).filter((row: PunchRow) => {
+      if (!row.clocked_in) return false;
+      const localDate = localParts(row.clocked_in).date;
+      return localDate >= from && localDate <= to;
+    });
     const filtered = employee
-      ? (data || []).filter((row: PunchRow) => row.employee_name?.toLowerCase().includes(employee) || employeeKey(row).toLowerCase() === employee)
-      : (data || []);
+      ? ranged.filter((row: PunchRow) => row.employee_name?.toLowerCase().includes(employee) || employeeKey(row).toLowerCase() === employee)
+      : ranged;
     const alerts = buildAlerts(filtered as PunchRow[]);
     await saveAlerts(supabase, alerts);
     return NextResponse.json({ alerts, from, to, saved: true });
