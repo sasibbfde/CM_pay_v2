@@ -45,6 +45,7 @@ export default function LabourPage() {
   const [editSales,setEditSales]=useState(false);
   const [salesInput,setSalesInput]=useState<Record<string,string>>({});
   const loadSeq=useRef(0);
+  const auto7shiftsSync=useRef(new Set<string>());
 
   const applyPreset=useCallback((p:string)=>{
     setPreset(p);
@@ -113,9 +114,10 @@ export default function LabourPage() {
   const managementDays=useMemo(()=>{const days:string[]=[];const current=new Date(`${fromDate}T12:00:00`);const end=new Date(`${toDate}T12:00:00`);while(current<=end&&days.length<31){days.push(isoDate(current));current.setDate(current.getDate()+1);}return days;},[fromDate,toDate]);
   const management=useMemo(()=>managementDays.map(date=>{const groups=dailyLabourGroups.filter(row=>row.date===date&&(locationFilter==='ALL'||row.location===locationFilter));const salesRows=dailySales.filter(row=>row.sale_date===date&&(locationFilter==='ALL'||row.location===locationFilter));const rawByGroup=(group:string)=>groups.filter(row=>row.group===group).reduce((sum,row)=>({hours:sum.hours+row.hours,cost:sum.cost+row.cost}),{hours:0,cost:0});const actualSales=salesRows.reduce((sum,row)=>sum+Number(row.net_sales||0),0);const projectedSales=salesRows.reduce((sum,row)=>sum+Number(row.projected_sales||0),0);const hours=groups.reduce((sum,row)=>sum+row.hours,0);const cost=groups.reduce((sum,row)=>sum+row.cost,0);const byGroup=(group:string)=>rawByGroup(group);return{date,actualSales,projectedSales,hours,cost,boh:byGroup('Back of House'),foh:byGroup('Front of House'),managers:byGroup('Managers')};}),[managementDays,dailyLabourGroups,dailySales,locationFilter]);
 
-  const syncSelectedRange=async()=>{
+  const syncSelectedRange=useCallback(async(automatic=false)=>{
     if(syncing)return;
-    setSyncing(true);setSyncMessage('');
+    setSyncing(true);
+    if(!automatic)setSyncMessage('');
     try{
       const [punchResponse,salesResponse]=await Promise.all([
         fetch('/api/7shifts/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start:`${fromDate}T00:00:00.000Z`,end:`${toDate}T23:59:59.999Z`,triggered_by:'labour-cost',sync_wages:true})}),
@@ -126,9 +128,18 @@ export default function LabourPage() {
       if(!salesResponse.ok||salesResult.ok===false)throw new Error(salesResult.error||salesResult.errors?.join(' · ')||'Sales sync failed');
       invalidateClientCache(['/api/payroll','/api/payroll-report','/api/sales']);
       setRefresh(value=>value+1);
-      setSyncMessage(`Updated ${punchResult.synced?.punches||0} punches and ${salesResult.synced||0} sales records`);
+      if(!automatic)setSyncMessage(`Updated ${punchResult.synced?.punches||0} punches and ${salesResult.synced||0} sales records`);
     }catch(error:any){setSyncMessage(`Sync failed: ${error.message}`);}finally{setSyncing(false);}
-  };
+  },[fromDate,toDate,syncing]);
+
+  useEffect(()=>{
+    const autoPresets=new Set(['today','yesterday','week']);
+    const key=`${preset}|${fromDate}|${toDate}`;
+    const todayString=isoDate(new Date());
+    if(!autoPresets.has(preset)||loading||syncing||fromDate>todayString||auto7shiftsSync.current.has(key))return;
+    auto7shiftsSync.current.add(key);
+    syncSelectedRange(true);
+  },[preset,fromDate,toDate,loading,syncing,syncSelectedRange]);
 
   const grand={
     gross:filteredRows.reduce((s,r)=>s+r.gross_hours,0),
@@ -163,7 +174,7 @@ export default function LabourPage() {
           <p style={{color:'#6b7280',fontSize:13,margin:'4px 0 0'}}>{fromDate} → {toDate}</p>
         </div>
         <div style={{display:'flex',gap:8}}>
-          <button onClick={syncSelectedRange} disabled={syncing} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:syncing?'#6b7280':'#22d3ee',borderRadius:7,padding:'7px 14px',fontSize:13,cursor:syncing?'wait':'pointer'}}>{syncing?'Syncing…':'↻ Sync 7shifts'}</button>
+          <button onClick={()=>syncSelectedRange(false)} disabled={syncing} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:syncing?'#6b7280':'#22d3ee',borderRadius:7,padding:'7px 14px',fontSize:13,cursor:syncing?'wait':'pointer'}}>{syncing?'Syncing…':'↻ Sync 7shifts'}</button>
           <button onClick={()=>window.location.href=`/api/export?from=${fromDate}&to=${toDate}&type=full`} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:'#34d399',borderRadius:7,padding:'7px 14px',fontSize:13,cursor:'pointer'}}>↓ Export Excel</button>
           <button onClick={()=>{setSalesInput(Object.fromEntries(byLocation.map(l=>[l.loc,String(sales[l.loc]??syncedSalesByLocation[l.loc]??'')])));setEditSales(true);}} style={{background:'rgba(34,211,238,0.1)',border:'1px solid rgba(34,211,238,0.3)',color:'#22d3ee',borderRadius:7,padding:'7px 14px',fontSize:13,cursor:'pointer'}}>Enter sales</button>
         </div>
