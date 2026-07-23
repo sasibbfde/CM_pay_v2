@@ -61,6 +61,11 @@ function selectedRange(mode:RangeMode, year:number, month:number, period:string,
   return periodRange(year,month,period);
 }
 
+function auditHistoryRange(now: Date) {
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return { from: isoDate(start), to: isoDate(now) };
+}
+
 function scoreColor(status:'green'|'yellow'|'red') {
   if (status === 'green') return '#34d399';
   if (status === 'yellow') return '#fbbf24';
@@ -86,12 +91,15 @@ export default function CommandCenterPage() {
   const reportUrl = `/api/payroll-report?start=${range.start}&end=${range.end}`;
   const salesUrl = `/api/sales?from=${range.start}&to=${range.end}`;
   const alertsUrl = `/api/alerts?from=${range.start}&to=${range.end}`;
+  const auditRange = useMemo(()=>auditHistoryRange(now),[now]);
+  const auditAlertsUrl = `/api/alerts?from=${auditRange.from}&to=${auditRange.to}`;
   const employeesUrl = '/api/employees?active=true';
   const scheduleUrl = `/api/schedule?start=${futureStart}&end=${range.end}`;
 
   const [report,setReport] = useState<ReportApi|undefined>(()=>peekJson<ReportApi>(reportUrl));
   const [sales,setSales] = useState<SaleRow[]>(()=>peekJson<{sales:SaleRow[]}>(salesUrl)?.sales || []);
   const [alerts,setAlerts] = useState<AlertRow[]>(()=>peekJson<{alerts:AlertRow[]}>(alertsUrl)?.alerts || []);
+  const [auditAlerts,setAuditAlerts] = useState<AlertRow[]>(()=>peekJson<{alerts:AlertRow[]}>(auditAlertsUrl)?.alerts || []);
   const [employees,setEmployees] = useState<EmployeeRow[]>(()=>peekJson<{employees:EmployeeRow[]}>(employeesUrl)?.employees || []);
   const [schedule,setSchedule] = useState<ScheduledShift[]>(()=>peekJson<{shifts:ScheduledShift[]}>(scheduleUrl)?.shifts || []);
   const [scheduleSyncing,setScheduleSyncing] = useState(false);
@@ -107,18 +115,20 @@ export default function CommandCenterPage() {
       cachedJson<ReportApi>(reportUrl,120_000,forceToken>0),
       cachedJson<{sales:SaleRow[]}>(salesUrl,120_000,forceToken>0),
       cachedJson<{alerts:AlertRow[]}>(alertsUrl,60_000,forceToken>0),
+      cachedJson<{alerts:AlertRow[]}>(auditAlertsUrl,60_000,forceToken>0),
       cachedJson<{employees:EmployeeRow[]}>(employeesUrl,120_000,forceToken>0),
       cachedJson<{shifts:ScheduledShift[]}>(scheduleUrl,120_000,forceToken>0),
-    ]).then(([periodReport,salesData,alertData,employeeData,scheduleData])=>{
+    ]).then(([periodReport,salesData,alertData,auditAlertData,employeeData,scheduleData])=>{
       if (cancelled) return;
       setReport(periodReport);
       setSales(salesData.sales || []);
       setAlerts(alertData.alerts || []); setEmployees(employeeData.employees || []);
+      setAuditAlerts(auditAlertData.alerts || []);
       setSchedule(scheduleData.shifts || []);
     }).catch((err:any)=>{ if(!cancelled) setError(err.message || 'Command Center failed to load'); })
       .finally(()=>{ if(!cancelled) setLoading(false); });
     return ()=>{cancelled=true;};
-  },[reportUrl,salesUrl,alertsUrl,employeesUrl,scheduleUrl,forceToken]);
+  },[reportUrl,salesUrl,alertsUrl,auditAlertsUrl,employeesUrl,scheduleUrl,forceToken]);
 
   async function syncSchedule() {
     setScheduleSyncing(true);
@@ -251,7 +261,7 @@ export default function CommandCenterPage() {
     {label:'Missing wage', count:risks.missingWages.length, status:statusFor(risks.missingWages.length>0), href:'/wages'},
     {label:'Missing location / role', count:risks.missingDetails.length, status:statusFor(risks.missingDetails.length>0,true), href:'/wages'},
     {label:'Payroll exceptions / cash split', count:risks.overCash.length, status:statusFor(risks.overCash.length>0,true), href:'/payroll-hours'},
-    {label:'Critical punch alerts', count:risks.criticalAlerts.length, status:statusFor(risks.criticalAlerts.length>0), href:'#saved-alerts'},
+    {label:'Critical punch alerts', count:risks.criticalAlerts.length, status:statusFor(risks.criticalAlerts.length>0), href:'#audit-history'},
     {label:'Near 88h watchlist', count:risks.nearCap.length, status:statusFor(risks.nearCap.length>0,true), href:'/payroll-hours'},
     {label:'Forecast over 88h', count:forecastRisks.projectedOver88.length, status:statusFor(forecastRisks.projectedOver88.length>0,true), href:'/command-center'},
     {label:'Holiday pay rows', count:risks.holiday.length, status:'green' as const, href:'/payroll-hours'},
@@ -260,7 +270,8 @@ export default function CommandCenterPage() {
   const payrollExport = `/api/payroll-report/export?start=${range.start}&end=${range.end}`;
   const ownerExport = `/api/command-center/export?start=${range.start}&end=${range.end}&schedule_start=${futureStart}`;
   const insightsExport = `/api/insights/export?from=${range.start}&to=${range.end}`;
-  const alertHref = (alert: AlertRow) => `/employees?alert=${encodeURIComponent(alert.employee_name)}&from=${range.start}&to=${range.end}`;
+  const alertHref = (alert: AlertRow) => `/employees?alert=${encodeURIComponent(alert.employee_name)}&from=${alert.alert_date}&to=${alert.alert_date}`;
+  const highlightedAlertId = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('alert') || '';
 
   return (
     <main style={{background:'#0a0c10',minHeight:'100vh',color:'#e5e7eb',fontFamily:'Inter, sans-serif',padding:'26px 32px'}}>
@@ -382,10 +393,22 @@ export default function CommandCenterPage() {
           <WatchList title="Projected near 88h" color="#fbbf24" rows={forecastRisks.projectedNear88.slice(0,5).map(row=>`${row.employee} · ${hrs(row.projected)} projected`)} empty="No projected near-88 employees." />
           <WatchList title="Future hours by location" color="#22d3ee" rows={scheduleSummary.byLocation.slice(0,5).map(row=>`${row.location} · ${hrs(row.hours)} · ${row.staffCount} staff`)} empty="No future schedule synced for this window." />
         </div>
-        <div id="saved-alerts" style={card}>
-          <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Alerts</h2>
-          <p style={{...muted,margin:'0 0 10px'}}>Saved punch alerts for this period.</p>
-          {alerts.length===0 ? <div style={{fontSize:12,color:'#34d399'}}>No saved alerts for this range.</div> : <div style={{maxHeight:360,overflowY:'auto',paddingRight:4}}>{alerts.map(alert=><Link key={alert.id} href={alertHref(alert)} style={{display:'block',textDecoration:'none',padding:'8px 0',borderTop:'1px solid rgba(255,255,255,.06)'}}><div style={{fontSize:12,color:alert.severity==='critical'?'#f87171':'#fbbf24',fontWeight:800}}>{alert.employee_name} · {alert.alert_date}</div><div style={{fontSize:11,color:'#9ca3af'}}>{alert.message}</div></Link>)}</div>}
+        <div id="audit-history" style={card}>
+          <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Audit History</h2>
+          <p style={{...muted,margin:'0 0 10px'}}>Saved punch alerts from {auditRange.from} → {auditRange.to}. This is the same data shown in the bell notification.</p>
+          {auditAlerts.length===0 ? <div style={{fontSize:12,color:'#34d399'}}>No saved overnight or 14h+ punch alerts in audit history.</div> : <div style={{maxHeight:460,overflowY:'auto',paddingRight:4}}>{auditAlerts.map(alert=>{
+            const active = highlightedAlertId === alert.id;
+            return <div key={alert.id} style={{padding:'8px 0',borderTop:'1px solid rgba(255,255,255,.06)',background:active?'rgba(251,191,36,.10)':'transparent',borderRadius:active?8:0}}>
+              <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'flex-start'}}>
+                <div>
+                  <div style={{fontSize:12,color:alert.severity==='critical'?'#f87171':'#fbbf24',fontWeight:800}}>{alert.employee_name} · {alert.alert_date}</div>
+                  <div style={{fontSize:11,color:'#9ca3af',marginTop:2}}>{alert.location || 'Unknown location'} · {alert.type.replaceAll('_',' ')}</div>
+                </div>
+                <Link href={alertHref(alert)} style={{fontSize:10,color:'#22d3ee',textDecoration:'none',whiteSpace:'nowrap'}}>Open Logbook →</Link>
+              </div>
+              <div style={{fontSize:11,color:'#e5e7eb',lineHeight:1.35,marginTop:5}}>{alert.message}</div>
+            </div>;
+          })}</div>}
         </div>
         <div style={card}>
           <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Quick links</h2>
