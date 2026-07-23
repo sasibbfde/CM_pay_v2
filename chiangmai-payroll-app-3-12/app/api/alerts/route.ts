@@ -97,6 +97,26 @@ function alertRecordId(alert: PayrollAlert) {
   return `${alert.type}|${alert.employee_id}|${alert.alert_date}|${alert.location}`;
 }
 
+function timestampGrossHours(punch: PunchRow) {
+  if (!punch.clocked_in || !punch.clocked_out) return 0;
+  const start = new Date(punch.clocked_in).getTime();
+  const end = new Date(punch.clocked_out).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+  return Math.round(((end - start) / 3_600_000) * 100) / 100;
+}
+
+function alertGrossHours(punch: PunchRow) {
+  const storedGross = Number(punch.gross_hours || 0);
+  const storedPayroll = Number(punch.payroll_hours || 0);
+  const timestampGross = timestampGrossHours(punch);
+  const grossCandidates = [
+    Number.isFinite(storedGross) ? storedGross : 0,
+    timestampGross,
+  ].filter(value => value > 0);
+  if (grossCandidates.length) return Math.max(...grossCandidates);
+  return Number.isFinite(storedPayroll) ? storedPayroll : 0;
+}
+
 export function buildAlerts(punches: PunchRow[]) {
   const alerts: PayrollAlert[] = [];
   const daily = new Map<string, { hours: number; employee_id: string; employee_name: string; date: string; locations: Set<string>; punches: number }>();
@@ -107,7 +127,7 @@ export function buildAlerts(punches: PunchRow[]) {
     const outParts = punch.clocked_out ? localParts(punch.clocked_out) : null;
     const id = employeeKey(punch);
     const location = punch.location || 'Unknown';
-    const gross = Number(punch.gross_hours || punch.payroll_hours || 0);
+    const gross = alertGrossHours(punch);
     const dailyKey = `${id}|${inParts.date}`;
     const row = daily.get(dailyKey) || { hours: 0, employee_id: id, employee_name: punch.employee_name, date: inParts.date, locations: new Set<string>(), punches: 0 };
     row.hours += Number.isFinite(gross) ? gross : 0;

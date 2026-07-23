@@ -66,3 +66,22 @@ test('daily 14h cap alert totals all punches in one Toronto date', () => {
   assert.equal(over14?.alert_date, '2026-06-12');
   assert.match(over14?.message || '', /14\.50 gross hours/);
 });
+
+test('daily 14h alert uses clock duration when stored gross hours are missing', () => {
+  const alerts = buildAlerts([punch({
+    punch_id: 'nitharsan-jul15',
+    employee_id: '7S-nitharsan',
+    seven_shifts_user_id: 'nitharsan',
+    employee_name: 'Nitharsan Nakeenthiran',
+    location: 'Chiang Mai Liberty Village',
+    role: 'Packer',
+    clocked_in: '2026-07-15T10:00:00-04:00',
+    clocked_out: '2026-07-16T03:15:00-04:00',
+    gross_hours: null,
+    payroll_hours: 0,
+  })]);
+
+  const over14 = alerts.find(alert => alert.type === 'DAILY_OVER_14_HOURS');
+  assert.equal(over14?.alert_date, '2026-07-15');
+  assert.match(over14?.message || '', /17\.25 gross hours/);
+});
