@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { invalidateClientCache } from '@/lib/client-cache';
 
@@ -31,6 +31,13 @@ type PayrollAlert = {
   message: string;
 };
 
+function alertRange() {
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const fmt = (date: Date) => date.toISOString().slice(0, 10);
+  return { from: fmt(start), to: fmt(today) };
+}
+
 export default function Nav() {
   const path = usePathname();
   const [syncing, setSyncing] = useState(false);
@@ -39,22 +46,23 @@ export default function Nav() {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [theme, setTheme] = useState<'dark'|'light'>('dark');
 
-  async function loadAlerts() {
+  const loadAlerts = useCallback(async () => {
     try {
-      const res = await fetch('/api/alerts?days=7');
+      const { from, to } = alertRange();
+      const res = await fetch(`/api/alerts?from=${from}&to=${to}`);
       const data = await res.json();
       if (res.ok) setAlerts(data.alerts || []);
     } catch {
       setAlerts([]);
     }
-  }
+  }, []);
 
   useEffect(() => {
     if (path === '/login' || path === '/signup' || path.startsWith('/auth/')) return;
     loadAlerts();
     const timer = setInterval(loadAlerts, 60_000);
     return () => clearInterval(timer);
-  }, [path]);
+  }, [path, loadAlerts]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem('cm-pay-theme') === 'light' ? 'light' : 'dark';
@@ -136,7 +144,7 @@ export default function Nav() {
               <div style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>Saved payroll alerts</div>
               <button onClick={loadAlerts} style={{background:'transparent',border:'1px solid rgba(255,255,255,.1)',color:'#9ca3af',borderRadius:5,padding:'3px 7px',fontSize:10,cursor:'pointer'}}>Refresh</button>
             </div>
-            {alerts.length===0 ? <div style={{fontSize:11,color:'#6b7280',padding:12,textAlign:'center'}}>No overnight or 14h+ alerts in the last 7 days.</div> :
+            {alerts.length===0 ? <div style={{fontSize:11,color:'#6b7280',padding:12,textAlign:'center'}}>No overnight or 14h+ alerts in the current or previous month.</div> :
               alerts.slice(0,20).map(alert=>(
                 <Link key={alert.id} href={`/employees?alert=${encodeURIComponent(alert.employee_name)}`} onClick={()=>setAlertsOpen(false)} style={{display:'block',textDecoration:'none',borderTop:'1px solid rgba(255,255,255,.06)',padding:'8px 2px'}}>
                   <div style={{fontSize:11,fontWeight:700,color:alert.severity==='critical'?'#f87171':'#fbbf24'}}>{alert.employee_name} · {alert.alert_date}</div>
@@ -144,7 +152,7 @@ export default function Nav() {
                   <div style={{fontSize:10,color:'#e5e7eb',marginTop:3,lineHeight:1.35}}>{alert.message}</div>
                 </Link>
               ))}
-            <div style={{fontSize:10,color:'#4b5563',paddingTop:8,lineHeight:1.35}}>Alerts are saved in audit history when the app scans synced punches. They do not change payroll totals.</div>
+            <div style={{fontSize:10,color:'#4b5563',paddingTop:8,lineHeight:1.35}}>Alerts scan the current month and previous month, including June/July when those are the selected months. They are saved in audit history and do not change payroll totals.</div>
           </div>
         )}
       </div>

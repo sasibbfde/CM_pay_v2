@@ -215,7 +215,7 @@ export async function GET(req: NextRequest) {
       .gte('clocked_in', `${from}T00:00:00.000Z`)
       .lte('clocked_in', `${to}T23:59:59.999Z`)
       .order('clocked_in', { ascending: false })
-      .limit(5000);
+      .limit(20000);
     if (error) throw error;
     const filtered = employee
       ? (data || []).filter((row: PunchRow) => row.employee_name?.toLowerCase().includes(employee) || employeeKey(row).toLowerCase() === employee)
