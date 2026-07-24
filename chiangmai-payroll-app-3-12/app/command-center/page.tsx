@@ -61,11 +61,6 @@ function selectedRange(mode:RangeMode, year:number, month:number, period:string,
   return periodRange(year,month,period);
 }
 
-function auditHistoryRange(now: Date) {
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  return { from: isoDate(start), to: isoDate(now) };
-}
-
 function scoreColor(status:'green'|'yellow'|'red') {
   if (status === 'green') return '#34d399';
   if (status === 'yellow') return '#fbbf24';
@@ -91,8 +86,8 @@ export default function CommandCenterPage() {
   const reportUrl = `/api/payroll-report?start=${range.start}&end=${range.end}`;
   const salesUrl = `/api/sales?from=${range.start}&to=${range.end}`;
   const alertsUrl = `/api/alerts?from=${range.start}&to=${range.end}`;
-  const auditRange = useMemo(()=>auditHistoryRange(now),[now]);
-  const auditAlertsUrl = `/api/alerts?from=${auditRange.from}&to=${auditRange.to}`;
+  const auditRange = range;
+  const auditAlertsUrl = alertsUrl;
   const employeesUrl = '/api/employees?active=true';
   const scheduleUrl = `/api/schedule?start=${futureStart}&end=${range.end}`;
 
@@ -395,7 +390,7 @@ export default function CommandCenterPage() {
         </div>
         <div id="audit-history" style={card}>
           <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Audit History</h2>
-          <p style={{...muted,margin:'0 0 10px'}}>Saved punch alerts from {auditRange.from} → {auditRange.to}. This is the same data shown in the bell notification.</p>
+          <p style={{...muted,margin:'0 0 10px'}}>Saved punch alerts from {auditRange.start} → {auditRange.end}. This follows the selected Command Center range.</p>
           {auditAlerts.length===0 ? <div style={{fontSize:12,color:'#34d399'}}>No saved overnight or 14h+ punch alerts in audit history.</div> : <div style={{maxHeight:460,overflowY:'auto',paddingRight:4}}>{auditAlerts.map(alert=>{
             const active = highlightedAlertId === alert.id;
             return <div key={alert.id} style={{padding:'8px 0',borderTop:'1px solid rgba(255,255,255,.06)',background:active?'rgba(251,191,36,.10)':'transparent',borderRadius:active?8:0}}>

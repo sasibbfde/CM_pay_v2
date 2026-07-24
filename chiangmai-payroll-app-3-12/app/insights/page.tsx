@@ -8,6 +8,16 @@ type Row = { employee_name:string; location:string; department:string; role:stri
   actual_hours:number; payroll_hours:number; cash_hours:number;
   wage:number; payroll_amount:number; cash_amount:number; rule_applied:string; };
 type Sale = { sale_date:string; location:string; gross_sales:number; net_sales:number; covers:number; notes:string; };
+type PunchAlert = {
+  id:string;
+  type:'OVERNIGHT_PUNCH'|'DAILY_OVER_14_HOURS'|string;
+  employee_name:string;
+  location:string;
+  alert_date:string;
+  severity:'warning'|'critical';
+  message:string;
+  details?:{ gross_hours?:number; locations?:string[]; role?:string|null };
+};
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const LOCATIONS = ['Chiang Mai Liberty Village','Chiang Mai York Mills','Chiang Mai Junction','Chiang Mai Danforth','Imm Thai Kitchen','Chiang Mai Parklawn','Chiang Mai Mississauga'];
@@ -52,14 +62,17 @@ export default function InsightsPage() {
   const initialPayrollUrl = `/api/payroll-report?start=${fromDate}&end=${toDate}`;
   const initialTrendsUrl = `/api/payroll?year=${initialYear}&month=${initialMonth}&period=month&trends_only=true`;
   const initialSalesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
+  const initialAlertsUrl = `/api/alerts?from=${fromDate}&to=${toDate}`;
   const initialPay = peekJson<{rows:PayrollReportRow[]}>(initialPayrollUrl);
   const initialTrends = peekJson<{monthly:any[]}>(initialTrendsUrl);
   const initialSales = peekJson<{sales:Sale[]}>(initialSalesUrl);
+  const initialPunchAlerts = peekJson<{alerts:PunchAlert[]}>(initialAlertsUrl);
 
   // Data
   const [rows,    setRows]    = useState<Row[]>(() => reportRowsToInsightRows(initialPay?.rows || []));
   const [monthly, setMonthly] = useState<any[]>(() => initialTrends?.monthly || []);
   const [sales,   setSales]   = useState<Sale[]>(() => initialSales?.sales || []);
+  const [punchAlerts, setPunchAlerts] = useState<PunchAlert[]>(() => initialPunchAlerts?.alerts || []);
   const [loading, setLoading] = useState(() => !initialPay || !initialSales);
   const [tab, setTab]         = useState<'overview'|'locations'|'roles'|'alerts'|'top'|'sales'>('overview');
 
@@ -110,21 +123,26 @@ export default function InsightsPage() {
     const payrollUrl = `/api/payroll-report?start=${fromDate}&end=${toDate}`;
     const trendsUrl = `/api/payroll?year=${year}&month=${month}&period=month&trends_only=true`;
     const salesUrl = `/api/sales?from=${fromDate}&to=${toDate}`;
+    const alertsUrl = `/api/alerts?from=${fromDate}&to=${toDate}`;
     const cachedPay = peekJson<{rows:PayrollReportRow[]}>(payrollUrl);
     const cachedSales = peekJson<{sales:Sale[]}>(salesUrl);
     const cachedTrends = peekJson<{monthly:any[]}>(trendsUrl);
+    const cachedAlerts = peekJson<{alerts:PunchAlert[]}>(alertsUrl);
     if (cachedPay) setRows(reportRowsToInsightRows(cachedPay.rows || []));
     if (cachedTrends) setMonthly(cachedTrends.monthly || []);
     if (cachedSales) setSales(cachedSales.sales || []);
+    if (cachedAlerts) setPunchAlerts(cachedAlerts.alerts || []);
     setLoading(!cachedPay || !cachedSales);
     const periodRequest = Promise.all([
       cachedJson<{rows:PayrollReportRow[]}>(payrollUrl, 600_000),
       cachedJson<{sales:Sale[]}>(salesUrl, 600_000),
+      cachedJson<{alerts:PunchAlert[]}>(alertsUrl, 60_000),
     ]);
-    periodRequest.then(([pay, sal]) => {
+    periodRequest.then(([pay, sal, alertData]) => {
       if (seq === loadSeq.current) {
         setRows(reportRowsToInsightRows(pay.rows || []));
         setSales(sal.sales || []);
+        setPunchAlerts(alertData.alerts || []);
       }
     }).finally(() => { if (seq === loadSeq.current) setLoading(false); });
     periodRequest.then(() =>
@@ -198,13 +216,54 @@ export default function InsightsPage() {
 
   const alerts = useMemo(()=>{
     const list:any[]=[];
+    const visiblePunchAlerts = locFilter === 'ALL'
+      ? punchAlerts
+      : punchAlerts.filter(alert => (alert.location || '').split(';').map(item=>item.trim()).includes(locFilter));
+    const over14Alerts = visiblePunchAlerts.filter(alert => alert.type === 'DAILY_OVER_14_HOURS');
+    const overnightAlerts = visiblePunchAlerts.filter(alert => alert.type === 'OVERNIGHT_PUNCH');
+    if(over14Alerts.length>0) list.push({
+      type:'Daily 14h+ cap alerts',
+      sev:'high',
+      msg:`${over14Alerts.length} employee day${over14Alerts.length===1?'':'s'} exceeded 14 gross hours in ${fromDate} → ${toDate}`,
+      rows:over14Alerts.map(alert=>({
+        employee_name:alert.employee_name,
+        location:alert.location,
+        department:'Punch alert',
+        role:alert.alert_date,
+        actual_hours:Number(alert.details?.gross_hours || 0),
+        payroll_hours:0,
+        cash_hours:0,
+        wage:0,
+        payroll_amount:0,
+        cash_amount:0,
+        rule_applied:alert.message,
+      })),
+    });
+    if(overnightAlerts.length>0) list.push({
+      type:'Overnight punch alerts',
+      sev:'medium',
+      msg:`${overnightAlerts.length} punch${overnightAlerts.length===1?'':'es'} touched 12:05am–7:00am in ${fromDate} → ${toDate}`,
+      rows:overnightAlerts.map(alert=>({
+        employee_name:alert.employee_name,
+        location:alert.location,
+        department:'Punch alert',
+        role:alert.alert_date,
+        actual_hours:Number(alert.details?.gross_hours || 0),
+        payroll_hours:0,
+        cash_hours:0,
+        wage:0,
+        payroll_amount:0,
+        cash_amount:0,
+        rule_applied:alert.message,
+      })),
+    });
     if(summary.zeroWage.length>0) list.push({type:'Missing Wage',sev:'high',msg:`${summary.zeroWage.length} employees have $0 wage — payroll calculated as $0`,rows:summary.zeroWage});
     if(summary.bigHours.length>0) list.push({type:'Excessive Hours 60h+',sev:'high',msg:`${summary.bigHours.length} employees worked 60+ hours — verify or apply cap rules`,rows:summary.bigHours});
     if(summary.overhours.length>0) list.push({type:'Overtime Risk 48h+',sev:'medium',msg:`${summary.overhours.length} employees exceeded 48h this period`,rows:summary.overhours});
     if(summary.held.length>0) list.push({type:'Payroll On Hold',sev:'medium',msg:`${summary.held.length} employees on hold — verify work permits`,rows:summary.held});
     if(summary.cash>summary.totalCost*0.15) list.push({type:'High Cash Payments',sev:'low',msg:`Cash is ${pct(summary.cash,summary.totalCost)} of total — review cash-only employees`,rows:summary.cashOnly});
     return list;
-  },[summary]);
+  },[summary, punchAlerts, locFilter, fromDate, toDate]);
 
   const saveSales = async () => {
     setSavingSales(true);
@@ -266,8 +325,13 @@ export default function InsightsPage() {
       if (!response.ok || result.ok === false) throw new Error(result.error || '7shifts sync failed');
       invalidateClientCache(['/api/payroll-report','/api/payroll','/api/alerts','/api/employees']);
       const payrollUrl = `/api/payroll-report?start=${fromDate}&end=${toDate}`;
-      const refreshed = await cachedJson<{rows:PayrollReportRow[]}>(payrollUrl, 600_000, true);
+      const alertsUrl = `/api/alerts?from=${fromDate}&to=${toDate}`;
+      const [refreshed, refreshedAlerts] = await Promise.all([
+        cachedJson<{rows:PayrollReportRow[]}>(payrollUrl, 600_000, true),
+        cachedJson<{alerts:PunchAlert[]}>(alertsUrl, 60_000, true),
+      ]);
       setRows(reportRowsToInsightRows(refreshed.rows || []));
+      setPunchAlerts(refreshedAlerts.alerts || []);
       const punchCount = result.synced?.punches ?? result.punches ?? 0;
       if (!automatic) setSalesMsg(`✓ Updated ${punchCount} 7shifts punches for ${fromDate} → ${toDate}`);
     } catch (error:any) {
