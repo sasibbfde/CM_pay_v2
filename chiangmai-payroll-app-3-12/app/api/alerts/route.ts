@@ -97,6 +97,18 @@ function alertRecordId(alert: PayrollAlert) {
   return `${alert.type}|${alert.employee_id}|${alert.alert_date}|${alert.location}`;
 }
 
+function parseAlertRecordId(recordId: string | null | undefined) {
+  const [type, employee_id, alert_date, ...locationParts] = String(recordId || '').split('|');
+  if (!type || !employee_id || !alert_date) return null;
+  if (type !== 'OVERNIGHT_PUNCH' && type !== 'DAILY_OVER_14_HOURS') return null;
+  return {
+    type: type as PayrollAlert['type'],
+    employee_id,
+    alert_date,
+    location: locationParts.join('|') || 'Unknown',
+  };
+}
+
 function timestampGrossHours(punch: PunchRow) {
   if (!punch.clocked_in || !punch.clocked_out) return 0;
   const start = new Date(punch.clocked_in).getTime();
@@ -211,13 +223,95 @@ async function saveAlerts(supabase: any, alerts: PayrollAlert[]) {
       action: 'payroll_alert',
       table_name: 'punches',
       record_id: alert.id,
-      new_value: alert.details,
+      new_value: {
+        ...alert.details,
+        type: alert.type,
+        employee_id: alert.employee_id,
+        employee_name: alert.employee_name,
+        location: alert.location,
+        alert_date: alert.alert_date,
+        severity: alert.severity,
+        message: alert.message,
+      },
       notes: alert.message,
     }));
   if (!inserts.length) return [];
   const { error } = await supabase.from('audit_log').insert(inserts);
   if (error) throw error;
   return inserts;
+}
+
+async function readSavedAlerts(supabase: any, from: string, to: string, employee = '') {
+  const { data, error } = await supabase
+    .from('audit_log')
+    .select('record_id, new_value, notes, created_at')
+    .eq('action', 'payroll_alert')
+    .order('created_at', { ascending: false })
+    .limit(10000);
+  if (error) throw error;
+
+  const alerts: PayrollAlert[] = [];
+  for (const row of data || []) {
+    const parsed = parseAlertRecordId(row.record_id);
+    const saved = row.new_value || {};
+    const alertDate = String(saved.alert_date || parsed?.alert_date || '');
+    if (!alertDate || alertDate < from || alertDate > to) continue;
+
+    const employeeName = String(saved.employee_name || parsed?.employee_id || 'Unknown employee');
+    const employeeId = String(saved.employee_id || parsed?.employee_id || employeeName);
+    const location = String(saved.location || parsed?.location || 'Unknown');
+    const type = (saved.type || parsed?.type) as PayrollAlert['type'] | undefined;
+    if (!type) continue;
+    if (employee) {
+      const needle = employee.toLowerCase();
+      if (!employeeName.toLowerCase().includes(needle) && employeeId.toLowerCase() !== needle) continue;
+    }
+
+    alerts.push({
+      id: String(row.record_id || alertRecordId({
+        id: '',
+        type,
+        employee_id: employeeId,
+        employee_name: employeeName,
+        location,
+        alert_date: alertDate,
+        severity: type === 'DAILY_OVER_14_HOURS' ? 'critical' : 'warning',
+        message: String(row.notes || saved.message || ''),
+        details: {},
+      })),
+      type,
+      employee_id: employeeId,
+      employee_name: employeeName,
+      location,
+      alert_date: alertDate,
+      severity: (saved.severity === 'critical' || saved.severity === 'warning')
+        ? saved.severity
+        : type === 'DAILY_OVER_14_HOURS' ? 'critical' : 'warning',
+      message: String(saved.message || row.notes || ''),
+      details: saved,
+      created_at: row.created_at,
+    });
+  }
+  return alerts;
+}
+
+async function fetchPunchesInRange(supabase: any, startIso: string, endIso: string) {
+  const all: PunchRow[] = [];
+  const pageSize = 1000;
+  for (let fromIndex = 0; ; fromIndex += pageSize) {
+    const { data, error } = await supabase
+      .from('punches')
+      .select('punch_id, employee_id, seven_shifts_user_id, employee_name, location, role, clocked_in, clocked_out, gross_hours, payroll_hours')
+      .gte('clocked_in', startIso)
+      .lte('clocked_in', endIso)
+      .order('clocked_in', { ascending: false })
+      .range(fromIndex, fromIndex + pageSize - 1);
+    if (error) throw error;
+    const rows = (data || []) as PunchRow[];
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return all;
 }
 
 export async function GET(req: NextRequest) {
@@ -233,15 +327,8 @@ export async function GET(req: NextRequest) {
     const queryEnd = new Date(`${to}T23:59:59.999Z`);
     queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
     const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('punches')
-      .select('punch_id, employee_id, seven_shifts_user_id, employee_name, location, role, clocked_in, clocked_out, gross_hours, payroll_hours')
-      .gte('clocked_in', queryStart.toISOString())
-      .lte('clocked_in', queryEnd.toISOString())
-      .order('clocked_in', { ascending: false })
-      .limit(20000);
-    if (error) throw error;
-    const ranged = (data || []).filter((row: PunchRow) => {
+    const data = await fetchPunchesInRange(supabase, queryStart.toISOString(), queryEnd.toISOString());
+    const ranged = data.filter((row: PunchRow) => {
       if (!row.clocked_in) return false;
       const localDate = localParts(row.clocked_in).date;
       return localDate >= from && localDate <= to;
@@ -249,9 +336,14 @@ export async function GET(req: NextRequest) {
     const filtered = employee
       ? ranged.filter((row: PunchRow) => row.employee_name?.toLowerCase().includes(employee) || employeeKey(row).toLowerCase() === employee)
       : ranged;
-    const alerts = buildAlerts(filtered as PunchRow[]);
-    await saveAlerts(supabase, alerts);
-    return NextResponse.json({ alerts, from, to, saved: true });
+    const computedAlerts = buildAlerts(filtered as PunchRow[]);
+    const inserted = await saveAlerts(supabase, computedAlerts);
+    const savedAlerts = await readSavedAlerts(supabase, from, to, employee);
+    const merged = new Map<string, PayrollAlert>();
+    for (const alert of savedAlerts) merged.set(alert.id, alert);
+    for (const alert of computedAlerts) merged.set(alert.id, alert);
+    const alerts = [...merged.values()].sort((a, b) => `${b.alert_date}|${b.severity}|${b.employee_name}`.localeCompare(`${a.alert_date}|${a.severity}|${a.employee_name}`));
+    return NextResponse.json({ alerts, from, to, saved: true, inserted: inserted.length, punch_rows: filtered.length });
   } catch (error: any) {
     return NextResponse.json({ alerts: [], saved: false, error: error.message }, { status: 500 });
   }
