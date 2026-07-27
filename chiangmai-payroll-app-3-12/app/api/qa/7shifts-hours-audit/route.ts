@@ -5,6 +5,7 @@ import { getPayrollReport } from '@/lib/payroll-report-data';
 import { payrollLocationView, type PayrollReportRow } from '@/lib/payroll-report';
 
 export const maxDuration = 120;
+const AUDIT_VERSION = '2026-07-27-shift-lines-only-v2';
 
 const LOCATION_IDS: Record<string, string> = {
   'Chiang Mai Junction': '461096',
@@ -33,11 +34,33 @@ function addTotals(target: ReturnType<typeof emptyTotals>, gross: number, breakH
   target.payable_hours = round2(target.payable_hours + payable);
 }
 
+function aggregateText(value?: string) {
+  return /(total|subtotal|summary|break|no shifts|unpaid|paid break)/i.test(value || '');
+}
+
+function isCountableShiftEntry(entry: any) {
+  const name = entry.employee_name || '';
+  if (!name || /^7shifts user unknown/i.test(name)) return false;
+  if (aggregateText(entry.employee_name) || aggregateText(entry.role) || aggregateText(entry.shift_details)) return false;
+  return Boolean(entry.punch_id || entry.clocked_in || entry.clocked_out || entry.shift_details);
+}
+
 function summarizeSevenShifts(report: any, start: string, end: string) {
   const byEmployee = new Map<string, any>();
+  let raw_entries = 0;
+  let counted_entries = 0;
+  let ignored_entries = 0;
   for (const entry of flattenHoursAndWagesReport(report)) {
+    raw_entries += 1;
+    if (!isCountableShiftEntry(entry)) {
+      ignored_entries += 1;
+      continue;
+    }
     const workDate = entry.date || (entry.clocked_in ? String(entry.clocked_in).slice(0, 10) : '');
-    if (!workDate || workDate < start || workDate > end) continue;
+    if (!workDate || workDate < start || workDate > end) {
+      ignored_entries += 1;
+      continue;
+    }
     const name = entry.employee_name || `7shifts user ${entry.user_id || 'unknown'}`;
     const key = keyName(name) || name;
     const gross = Number(entry.gross_hours ?? entry.regular_hours ?? 0);
@@ -51,10 +74,15 @@ function summarizeSevenShifts(report: any, start: string, end: string) {
     row.payable_hours = round2(row.payable_hours + payable);
     row.shifts += 1;
     byEmployee.set(key, row);
+    counted_entries += 1;
   }
   const totals = emptyTotals();
   for (const row of byEmployee.values()) addTotals(totals, row.gross_hours, row.break_hours, row.payable_hours);
-  return { totals, employees: [...byEmployee.values()].sort((a, b) => a.employee_name.localeCompare(b.employee_name)) };
+  return {
+    totals,
+    diagnostics: { raw_entries, counted_entries, ignored_entries },
+    employees: [...byEmployee.values()].sort((a, b) => a.employee_name.localeCompare(b.employee_name)),
+  };
 }
 
 function summarizeApp(rows: PayrollReportRow[], location: string) {
@@ -126,6 +154,7 @@ export async function GET(request: NextRequest) {
         seven_shifts_location_id: LOCATION_IDS[location],
         app: app.totals,
         seven_shifts_report: seven.totals,
+        seven_shifts_diagnostics: seven.diagnostics,
         difference_app_minus_7shifts: diffTotals(app.totals, seven.totals),
         employee_differences: employeeDifferences(app.employees, seven.employees),
       };
@@ -133,6 +162,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      audit_version: AUDIT_VERSION,
       source: {
         app: 'CM Pay /api/payroll-report (stored payroll rows)',
         seven_shifts: '7shifts Reports API /reports/hours_and_wages',
