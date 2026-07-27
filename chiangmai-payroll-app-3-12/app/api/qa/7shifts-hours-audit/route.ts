@@ -33,9 +33,11 @@ function addTotals(target: ReturnType<typeof emptyTotals>, gross: number, breakH
   target.payable_hours = round2(target.payable_hours + payable);
 }
 
-function summarizeSevenShifts(report: any) {
+function summarizeSevenShifts(report: any, start: string, end: string) {
   const byEmployee = new Map<string, any>();
   for (const entry of flattenHoursAndWagesReport(report)) {
+    const workDate = entry.date || (entry.clocked_in ? String(entry.clocked_in).slice(0, 10) : '');
+    if (!workDate || workDate < start || workDate > end) continue;
     const name = entry.employee_name || `7shifts user ${entry.user_id || 'unknown'}`;
     const key = keyName(name) || name;
     const gross = Number(entry.gross_hours ?? entry.regular_hours ?? 0);
@@ -117,7 +119,7 @@ export async function GET(request: NextRequest) {
   try {
     const appReport = await getPayrollReport(start!, end!);
     const audits = await Promise.all(locations.map(async location => {
-      const seven = summarizeSevenShifts(await fetchHoursAndWages(start!, end!, LOCATION_IDS[location]));
+      const seven = summarizeSevenShifts(await fetchHoursAndWages(start!, end!, LOCATION_IDS[location]), start!, end!);
       const app = summarizeApp(appReport.rows, location);
       return {
         location,
