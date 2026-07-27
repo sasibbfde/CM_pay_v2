@@ -95,6 +95,7 @@ function normalizePunchSource(raw: any) {
   const value = String(
     raw?.pos_type
       || raw?.punch_source
+      || raw?.source
       || raw?.clocked_in_source
       || raw?.clock_in_source
       || raw?.clocked_out_source
