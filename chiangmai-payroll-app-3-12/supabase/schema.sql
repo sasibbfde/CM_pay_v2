@@ -56,6 +56,7 @@ create table if not exists public.punches (
   break_minutes numeric default 0,
   wage numeric default 0,
   cash_wage numeric default 0,
+  punch_source text,
   source text default 'manual',
   created_at timestamptz default now(),
   updated_at timestamptz default now()

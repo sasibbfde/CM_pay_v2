@@ -391,7 +391,7 @@ export default function CommandCenterPage() {
         <div id="audit-history" style={card}>
           <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Audit History</h2>
           <p style={{...muted,margin:'0 0 10px'}}>Saved punch alerts from {auditRange.start} → {auditRange.end}. This follows the selected Command Center range.</p>
-          {auditAlerts.length===0 ? <div style={{fontSize:12,color:'#34d399'}}>No saved overnight or 14h+ punch alerts in audit history.</div> : <div style={{maxHeight:460,overflowY:'auto',paddingRight:4}}>{auditAlerts.map(alert=>{
+          {auditAlerts.length===0 ? <div style={{fontSize:12,color:'#34d399'}}>No saved overnight, 14h+, or Web punch-source alerts in audit history.</div> : <div style={{maxHeight:460,overflowY:'auto',paddingRight:4}}>{auditAlerts.map(alert=>{
             const active = highlightedAlertId === alert.id;
             return <div key={alert.id} style={{padding:'8px 0',borderTop:'1px solid rgba(255,255,255,.06)',background:active?'rgba(251,191,36,.10)':'transparent',borderRadius:active?8:0}}>
               <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'flex-start'}}>

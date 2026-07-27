@@ -34,7 +34,7 @@ export async function GET(
     const [{ data, error }, { data: employee }] = await Promise.all([
       supabase
         .from('punches')
-        .select('punch_id, employee_id, employee_name, clocked_in, clocked_out, hours, payroll_hours, gross_hours, break_minutes, location, department, role, wage, cash_wage, source')
+        .select('punch_id, employee_id, employee_name, clocked_in, clocked_out, hours, payroll_hours, gross_hours, break_minutes, location, department, role, wage, cash_wage, punch_source, source')
         .or(`employee_id.eq.7S-${cleanId},employee_id.eq.${cleanId},seven_shifts_user_id.eq.${cleanId}`)
         .gte('clocked_in', queryStart.toISOString())
         .lte('clocked_in', queryEnd.toISOString())

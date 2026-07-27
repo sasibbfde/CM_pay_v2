@@ -91,6 +91,20 @@ function normalizeLocation(locationId?: any, locationName?: string | null) {
   return raw;
 }
 
+function normalizePunchSource(raw: any) {
+  const value = String(
+    raw?.pos_type
+      || raw?.punch_source
+      || raw?.clocked_in_source
+      || raw?.clock_in_source
+      || raw?.clocked_out_source
+      || raw?.clock_out_source
+      || raw?.device_type
+      || ''
+  ).trim();
+  return value || null;
+}
+
 function reportPunchId(entry: any, index: number) {
   if (entry.punch_id) return `HW-${String(entry.punch_id)}-${index}`;
   const stable = [
@@ -472,6 +486,7 @@ async function runSync(body: any): Promise<NextResponse> {
       break_minutes: finalBreakMinutes, // total break duration (paid + unpaid)
       wage,
       cash_wage: cashWage,
+      punch_source: normalizePunchSource(p),
       source: '7shifts',
     });
     return true;
@@ -540,6 +555,7 @@ async function runSync(body: any): Promise<NextResponse> {
         break_minutes: breakMinutes,
         wage,
         cash_wage: cashWage,
+        punch_source: normalizePunchSource(rawPunch),
         source: '7shifts-hours-wages',
       });
     }

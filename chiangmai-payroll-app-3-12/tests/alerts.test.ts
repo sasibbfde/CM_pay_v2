@@ -13,6 +13,7 @@ const punch = (overrides: any = {}) => ({
   clocked_out: '2026-07-21T20:00:00-04:00',
   gross_hours: 8,
   payroll_hours: 8,
+  punch_source: null,
   source: '7shifts-hours-wages',
   ...overrides,
 });
@@ -90,7 +91,7 @@ test('daily 14h alert uses clock duration when stored gross hours are missing', 
 test('web punch source creates review alert', () => {
   const alerts = buildAlerts([punch({
     punch_id: 'web-punch-1',
-    source: 'web',
+    punch_source: 'web',
   })]);
 
   const sourceAlert = alerts.find(alert => alert.type === 'WEB_PUNCH_SOURCE');
@@ -100,6 +101,7 @@ test('web punch source creates review alert', () => {
 
 test('normal 7shifts punch source does not create source alert', () => {
   const alerts = buildAlerts([punch({
+    punch_source: 'pos',
     source: '7shifts-hours-wages',
   })]);
 

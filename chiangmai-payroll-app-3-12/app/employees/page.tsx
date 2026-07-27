@@ -13,6 +13,7 @@ type Punch = {
   punch_id: string; location: string; department: string; role: string;
   clocked_in: string; clocked_out: string | null;
   hours: number; payroll_hours: number; gross_hours: number; break_minutes: number; wage: number; cash_wage: number;
+  punch_source: string | null;
   source: string | null;
 };
 type PayrollAlert = {
@@ -42,9 +43,12 @@ function punchSourceLabel(source: string | null | undefined) {
   const raw = String(source || '').trim();
   if (!raw) return 'Unknown';
   const normalized = raw.toLowerCase();
+  if (normalized === 'web') return 'Web';
+  if (normalized === 'mobile') return 'Mobile app';
+  if (normalized === 'pos') return '7punches / POS';
+  if (normalized === '7punches') return '7punches';
   if (normalized === '7shifts') return '7shifts punches';
   if (normalized === '7shifts-hours-wages') return '7shifts reports';
-  if (normalized === 'web') return 'Web';
   return raw;
 }
 function isWebPunchSource(source: string | null | undefined) {
@@ -242,7 +246,7 @@ export default function EmployeesPage() {
           ph.toFixed(2),
           p.location,
           p.role||p.department||'—',
-          punchSourceLabel(p.source),
+          punchSourceLabel(p.punch_source || p.source),
           p.wage ? cad(Number(p.wage)) : '—',
           p.cash_wage ? cad(Number(p.cash_wage)) : '—',
           p.clocked_out&&p.wage ? cad(ph*p.wage) : '—',
@@ -474,11 +478,11 @@ export default function EmployeesPage() {
                                 padding:'2px 7px',
                                 fontSize:10,
                                 fontWeight:700,
-                                color:isWebPunchSource(p.source)?'#fbbf24':'#22d3ee',
-                                background:isWebPunchSource(p.source)?'rgba(251,191,36,0.12)':'rgba(34,211,238,0.09)',
-                                border:`1px solid ${isWebPunchSource(p.source)?'rgba(251,191,36,0.25)':'rgba(34,211,238,0.18)'}`,
+                                color:isWebPunchSource(p.punch_source)?'#fbbf24':'#22d3ee',
+                                background:isWebPunchSource(p.punch_source)?'rgba(251,191,36,0.12)':'rgba(34,211,238,0.09)',
+                                border:`1px solid ${isWebPunchSource(p.punch_source)?'rgba(251,191,36,0.25)':'rgba(34,211,238,0.18)'}`,
                               }}>
-                                {punchSourceLabel(p.source)}
+                                {punchSourceLabel(p.punch_source || p.source)}
                               </span>
                             </td>
                             <td style={{padding:'7px 10px',color:'#9ca3af',textAlign:'right'}}>{p.wage?cad(Number(p.wage)):'—'}</td>

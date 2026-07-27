@@ -12,6 +12,7 @@ type PunchRow = {
   clocked_out: string | null;
   gross_hours: number | string | null;
   payroll_hours: number | string | null;
+  punch_source: string | null;
   source: string | null;
 };
 
@@ -134,9 +135,12 @@ function punchSourceLabel(source: string | null | undefined) {
   const raw = String(source || '').trim();
   if (!raw) return 'Unknown';
   const normalized = raw.toLowerCase();
+  if (normalized === 'web') return 'Web';
+  if (normalized === 'mobile') return 'Mobile app';
+  if (normalized === 'pos') return '7punches / POS';
+  if (normalized === '7punches') return '7punches';
   if (normalized === '7shifts') return '7shifts punches';
   if (normalized === '7shifts-hours-wages') return '7shifts reports';
-  if (normalized === 'web') return 'Web';
   return raw;
 }
 
@@ -166,7 +170,9 @@ export function buildAlerts(punches: PunchRow[]) {
     row.punches += 1;
     daily.set(dailyKey, row);
 
-    if (isWebPunchSource(punch.source)) {
+    const displaySource = punch.punch_source || punch.source;
+
+    if (isWebPunchSource(punch.punch_source)) {
       const alert: PayrollAlert = {
         id: '',
         type: 'WEB_PUNCH_SOURCE',
@@ -175,7 +181,7 @@ export function buildAlerts(punches: PunchRow[]) {
         location,
         alert_date: inParts.date,
         severity: 'warning',
-        message: `Punch source is ${punchSourceLabel(punch.source)}: ${timeWindow}. Review this punch source in the employee logbook.`,
+        message: `Punch source is ${punchSourceLabel(displaySource)}: ${timeWindow}. Review this punch source in the employee logbook.`,
         details: {
           punch_id: punch.punch_id,
           clocked_in: punch.clocked_in,
@@ -183,6 +189,7 @@ export function buildAlerts(punches: PunchRow[]) {
           gross_hours: gross,
           payroll_hours: punch.payroll_hours,
           role: punch.role,
+          punch_source: punch.punch_source,
           source: punch.source,
         },
       };
@@ -216,6 +223,7 @@ export function buildAlerts(punches: PunchRow[]) {
         clocked_out: punch.clocked_out,
         gross_hours: gross,
         role: punch.role,
+        punch_source: punch.punch_source,
         source: punch.source,
       },
     });
@@ -342,7 +350,7 @@ async function fetchPunchesInRange(supabase: any, startIso: string, endIso: stri
   for (let fromIndex = 0; ; fromIndex += pageSize) {
     const { data, error } = await supabase
       .from('punches')
-      .select('punch_id, employee_id, seven_shifts_user_id, employee_name, location, role, clocked_in, clocked_out, gross_hours, payroll_hours, source')
+      .select('punch_id, employee_id, seven_shifts_user_id, employee_name, location, role, clocked_in, clocked_out, gross_hours, payroll_hours, punch_source, source')
       .gte('clocked_in', startIso)
       .lte('clocked_in', endIso)
       .order('clocked_in', { ascending: false })
