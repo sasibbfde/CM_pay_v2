@@ -20,6 +20,8 @@ type ScheduledShift = {
   location:string; department:string|null; role:string|null; start_at:string; end_at:string;
   scheduled_hours:number|string; status:string|null;
 };
+type AlertTypeFilter = 'all'|'OVERNIGHT_PUNCH'|'DAILY_OVER_14_HOURS'|'WEB_PUNCH_SOURCE';
+type AlertSeverityFilter = 'all'|'critical'|'warning';
 
 const card:React.CSSProperties = { background:'#131720', border:'1px solid rgba(255,255,255,.08)', borderRadius:14, padding:16 };
 const muted:React.CSSProperties = { color:'#6b7280', fontSize:12, lineHeight:1.45 };
@@ -95,6 +97,10 @@ export default function CommandCenterPage() {
   const [sales,setSales] = useState<SaleRow[]>(()=>peekJson<{sales:SaleRow[]}>(salesUrl)?.sales || []);
   const [alerts,setAlerts] = useState<AlertRow[]>(()=>peekJson<{alerts:AlertRow[]}>(alertsUrl)?.alerts || []);
   const [auditAlerts,setAuditAlerts] = useState<AlertRow[]>(()=>peekJson<{alerts:AlertRow[]}>(auditAlertsUrl)?.alerts || []);
+  const [alertTypeFilter,setAlertTypeFilter] = useState<AlertTypeFilter>('all');
+  const [alertSeverityFilter,setAlertSeverityFilter] = useState<AlertSeverityFilter>('all');
+  const [alertLocationFilter,setAlertLocationFilter] = useState('all');
+  const [alertSearch,setAlertSearch] = useState('');
   const [employees,setEmployees] = useState<EmployeeRow[]>(()=>peekJson<{employees:EmployeeRow[]}>(employeesUrl)?.employees || []);
   const [schedule,setSchedule] = useState<ScheduledShift[]>(()=>peekJson<{shifts:ScheduledShift[]}>(scheduleUrl)?.shifts || []);
   const [scheduleSyncing,setScheduleSyncing] = useState(false);
@@ -266,6 +272,32 @@ export default function CommandCenterPage() {
   const ownerExport = `/api/command-center/export?start=${range.start}&end=${range.end}&schedule_start=${futureStart}`;
   const insightsExport = `/api/insights/export?from=${range.start}&to=${range.end}`;
   const alertHref = (alert: AlertRow) => `/employees?alert=${encodeURIComponent(alert.employee_name)}&from=${alert.alert_date}&to=${alert.alert_date}`;
+  const alertLocations = useMemo(()=>['all', ...Array.from(new Set(auditAlerts.map(alert=>alert.location || 'Unknown location'))).sort((a,b)=>a.localeCompare(b))],[auditAlerts]);
+  const filteredAuditAlerts = useMemo(()=>{
+    const needle = alertSearch.trim().toLowerCase();
+    return auditAlerts.filter(alert=>{
+      if (alertTypeFilter !== 'all' && alert.type !== alertTypeFilter) return false;
+      if (alertSeverityFilter !== 'all' && alert.severity !== alertSeverityFilter) return false;
+      if (alertLocationFilter !== 'all' && (alert.location || 'Unknown location') !== alertLocationFilter) return false;
+      if (needle) {
+        const haystack = `${alert.employee_name} ${alert.location} ${alert.message} ${alert.type}`.toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
+      return true;
+    });
+  },[auditAlerts,alertTypeFilter,alertSeverityFilter,alertLocationFilter,alertSearch]);
+  const alertPdfUrl = useMemo(()=>{
+    const params = new URLSearchParams({
+      from:auditRange.start,
+      to:auditRange.end,
+      type:alertTypeFilter,
+      severity:alertSeverityFilter,
+      location:alertLocationFilter,
+    });
+    const search = alertSearch.trim();
+    if (search) params.set('q',search);
+    return `/api/alerts/export?${params.toString()}`;
+  },[auditRange.start,auditRange.end,alertTypeFilter,alertSeverityFilter,alertLocationFilter,alertSearch]);
   const highlightedAlertId = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('alert') || '';
 
   return (
@@ -389,9 +421,33 @@ export default function CommandCenterPage() {
           <WatchList title="Future hours by location" color="#22d3ee" rows={scheduleSummary.byLocation.slice(0,5).map(row=>`${row.location} · ${hrs(row.hours)} · ${row.staffCount} staff`)} empty="No future schedule synced for this window." />
         </div>
         <div id="audit-history" style={card}>
-          <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Audit History</h2>
-          <p style={{...muted,margin:'0 0 10px'}}>Saved punch alerts from {auditRange.start} → {auditRange.end}. This follows the selected Command Center range.</p>
-          {auditAlerts.length===0 ? <div style={{fontSize:12,color:'#34d399'}}>No saved overnight, 14h+, or Web punch-source alerts in audit history.</div> : <div style={{maxHeight:460,overflowY:'auto',paddingRight:4}}>{auditAlerts.map(alert=>{
+          <div style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'flex-start',flexWrap:'wrap',marginBottom:8}}>
+            <div>
+              <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Audit History</h2>
+              <p style={{...muted,margin:0}}>Saved punch alerts from {auditRange.start} → {auditRange.end}. This follows the selected Command Center range.</p>
+            </div>
+            <a href={alertPdfUrl} style={btnGreen}>Download alert PDF</a>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:8,marginBottom:10}}>
+            <select value={alertTypeFilter} onChange={event=>setAlertTypeFilter(event.target.value as AlertTypeFilter)} style={sel} aria-label="Filter alert type">
+              <option value="all">All alert types</option>
+              <option value="OVERNIGHT_PUNCH">Overnight punches</option>
+              <option value="DAILY_OVER_14_HOURS">Over 14 hours</option>
+              <option value="WEB_PUNCH_SOURCE">Web source punches</option>
+            </select>
+            <select value={alertSeverityFilter} onChange={event=>setAlertSeverityFilter(event.target.value as AlertSeverityFilter)} style={sel} aria-label="Filter alert severity">
+              <option value="all">All severities</option>
+              <option value="critical">Critical only</option>
+              <option value="warning">Warning only</option>
+            </select>
+            <select value={alertLocationFilter} onChange={event=>setAlertLocationFilter(event.target.value)} style={sel} aria-label="Filter alert location">
+              {alertLocations.map(location=><option key={location} value={location}>{location === 'all' ? 'All locations' : location}</option>)}
+            </select>
+            <input value={alertSearch} onChange={event=>setAlertSearch(event.target.value)} placeholder="Search employee..." style={{...sel,minWidth:0}} aria-label="Search alerts" />
+            <button onClick={()=>{setAlertTypeFilter('all');setAlertSeverityFilter('all');setAlertLocationFilter('all');setAlertSearch('');}} style={btnGhost}>Clear filters</button>
+          </div>
+          <div style={{fontSize:11,color:'#9ca3af',marginBottom:8}}>Showing {filteredAuditAlerts.length} of {auditAlerts.length} saved alerts. PDF uses these filters.</div>
+          {auditAlerts.length===0 ? <div style={{fontSize:12,color:'#34d399'}}>No saved overnight, 14h+, or Web punch-source alerts in audit history.</div> : filteredAuditAlerts.length===0 ? <div style={{fontSize:12,color:'#fbbf24'}}>No alerts match these filters. Clear filters to see all saved alerts.</div> : <div style={{maxHeight:460,overflowY:'auto',paddingRight:4}}>{filteredAuditAlerts.map(alert=>{
             const active = highlightedAlertId === alert.id;
             return <div key={alert.id} style={{padding:'8px 0',borderTop:'1px solid rgba(255,255,255,.06)',background:active?'rgba(251,191,36,.10)':'transparent',borderRadius:active?8:0}}>
               <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'flex-start'}}>

@@ -16,7 +16,7 @@ type PunchRow = {
   source: string | null;
 };
 
-type PayrollAlert = {
+export type PayrollAlert = {
   id: string;
   type: 'OVERNIGHT_PUNCH' | 'DAILY_OVER_14_HOURS' | 'WEB_PUNCH_SOURCE';
   employee_id: string;
@@ -363,6 +363,34 @@ async function fetchPunchesInRange(supabase: any, startIso: string, endIso: stri
   return all;
 }
 
+export async function loadPayrollAlerts(params: { from: string; to: string; employee?: string }) {
+  const from = params.from;
+  const to = params.to;
+  const employee = (params.employee || '').trim().toLowerCase();
+  const queryStart = new Date(`${from}T00:00:00.000Z`);
+  queryStart.setUTCDate(queryStart.getUTCDate() - 1);
+  const queryEnd = new Date(`${to}T23:59:59.999Z`);
+  queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
+  const supabase = getSupabaseAdmin();
+  const data = await fetchPunchesInRange(supabase, queryStart.toISOString(), queryEnd.toISOString());
+  const ranged = data.filter((row: PunchRow) => {
+    if (!row.clocked_in) return false;
+    const localDate = localParts(row.clocked_in).date;
+    return localDate >= from && localDate <= to;
+  });
+  const filtered = employee
+    ? ranged.filter((row: PunchRow) => row.employee_name?.toLowerCase().includes(employee) || employeeKey(row).toLowerCase() === employee)
+    : ranged;
+  const computedAlerts = buildAlerts(filtered as PunchRow[]);
+  const inserted = await saveAlerts(supabase, computedAlerts);
+  const savedAlerts = await readSavedAlerts(supabase, from, to, employee);
+  const merged = new Map<string, PayrollAlert>();
+  for (const alert of savedAlerts) merged.set(alert.id, alert);
+  for (const alert of computedAlerts) merged.set(alert.id, alert);
+  const alerts = [...merged.values()].sort((a, b) => `${b.alert_date}|${b.severity}|${b.employee_name}`.localeCompare(`${a.alert_date}|${a.severity}|${a.employee_name}`));
+  return { alerts, inserted: inserted.length, punch_rows: filtered.length };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const sp = req.nextUrl.searchParams;
@@ -370,29 +398,9 @@ export async function GET(req: NextRequest) {
     const days = Math.max(1, Math.min(31, Number(sp.get('days') || 7)));
     const from = sp.get('from') || isoDate(new Date(today.getTime() - (days - 1) * DAY_MS));
     const to = sp.get('to') || isoDate(today);
-    const employee = (sp.get('employee') || '').trim().toLowerCase();
-    const queryStart = new Date(`${from}T00:00:00.000Z`);
-    queryStart.setUTCDate(queryStart.getUTCDate() - 1);
-    const queryEnd = new Date(`${to}T23:59:59.999Z`);
-    queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
-    const supabase = getSupabaseAdmin();
-    const data = await fetchPunchesInRange(supabase, queryStart.toISOString(), queryEnd.toISOString());
-    const ranged = data.filter((row: PunchRow) => {
-      if (!row.clocked_in) return false;
-      const localDate = localParts(row.clocked_in).date;
-      return localDate >= from && localDate <= to;
-    });
-    const filtered = employee
-      ? ranged.filter((row: PunchRow) => row.employee_name?.toLowerCase().includes(employee) || employeeKey(row).toLowerCase() === employee)
-      : ranged;
-    const computedAlerts = buildAlerts(filtered as PunchRow[]);
-    const inserted = await saveAlerts(supabase, computedAlerts);
-    const savedAlerts = await readSavedAlerts(supabase, from, to, employee);
-    const merged = new Map<string, PayrollAlert>();
-    for (const alert of savedAlerts) merged.set(alert.id, alert);
-    for (const alert of computedAlerts) merged.set(alert.id, alert);
-    const alerts = [...merged.values()].sort((a, b) => `${b.alert_date}|${b.severity}|${b.employee_name}`.localeCompare(`${a.alert_date}|${a.severity}|${a.employee_name}`));
-    return NextResponse.json({ alerts, from, to, saved: true, inserted: inserted.length, punch_rows: filtered.length });
+    const employee = (sp.get('employee') || '').trim();
+    const result = await loadPayrollAlerts({ from, to, employee });
+    return NextResponse.json({ ...result, from, to, saved: true });
   } catch (error: any) {
     return NextResponse.json({ alerts: [], saved: false, error: error.message }, { status: 500 });
   }
