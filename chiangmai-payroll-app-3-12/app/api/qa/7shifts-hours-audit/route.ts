@@ -5,7 +5,7 @@ import { getPayrollReport } from '@/lib/payroll-report-data';
 import { payrollLocationView, type PayrollReportRow } from '@/lib/payroll-report';
 
 export const maxDuration = 120;
-const AUDIT_VERSION = '2026-07-27-shift-lines-only-v2';
+const AUDIT_VERSION = '2026-07-27-dedupe-report-rows-v3';
 
 const LOCATION_IDS: Record<string, string> = {
   'Chiang Mai Junction': '461096',
@@ -38,11 +38,12 @@ function aggregateText(value?: string) {
   return /(total|subtotal|summary|break|no shifts|unpaid|paid break)/i.test(value || '');
 }
 
-function isCountableShiftEntry(entry: any) {
+function isCountableReportEntry(entry: any) {
   const name = entry.employee_name || '';
   if (!name || /^7shifts user unknown/i.test(name)) return false;
   if (aggregateText(entry.employee_name) || aggregateText(entry.role) || aggregateText(entry.shift_details)) return false;
-  return Boolean(entry.punch_id || entry.clocked_in || entry.clocked_out || entry.shift_details);
+  const payable = Number(entry.regular_hours ?? entry.gross_hours ?? 0);
+  return Number.isFinite(payable) && payable > 0;
 }
 
 function summarizeSevenShifts(report: any, start: string, end: string) {
@@ -50,9 +51,11 @@ function summarizeSevenShifts(report: any, start: string, end: string) {
   let raw_entries = 0;
   let counted_entries = 0;
   let ignored_entries = 0;
+  let duplicate_entries = 0;
+  const seen = new Set<string>();
   for (const entry of flattenHoursAndWagesReport(report)) {
     raw_entries += 1;
-    if (!isCountableShiftEntry(entry)) {
+    if (!isCountableReportEntry(entry)) {
       ignored_entries += 1;
       continue;
     }
@@ -68,6 +71,23 @@ function summarizeSevenShifts(report: any, start: string, end: string) {
     const breakHours = Number.isFinite(Number(entry.break_minutes))
       ? Number(entry.break_minutes) / 60
       : Math.max(0, gross - payable);
+    const instanceKey = [
+      key,
+      workDate,
+      entry.location_id || entry.location || '',
+      entry.role || '',
+      entry.shift_details || '',
+      entry.clocked_in || '',
+      entry.clocked_out || '',
+      payable.toFixed(2),
+      gross.toFixed(2),
+      breakHours.toFixed(2),
+    ].join('|');
+    if (seen.has(instanceKey)) {
+      duplicate_entries += 1;
+      continue;
+    }
+    seen.add(instanceKey);
     const row = byEmployee.get(key) || { employee_name: name, gross_hours: 0, break_hours: 0, payable_hours: 0, shifts: 0 };
     row.gross_hours = round2(row.gross_hours + gross);
     row.break_hours = round2(row.break_hours + breakHours);
@@ -80,7 +100,7 @@ function summarizeSevenShifts(report: any, start: string, end: string) {
   for (const row of byEmployee.values()) addTotals(totals, row.gross_hours, row.break_hours, row.payable_hours);
   return {
     totals,
-    diagnostics: { raw_entries, counted_entries, ignored_entries },
+    diagnostics: { raw_entries, counted_entries, ignored_entries, duplicate_entries },
     employees: [...byEmployee.values()].sort((a, b) => a.employee_name.localeCompare(b.employee_name)),
   };
 }
