@@ -41,19 +41,21 @@ const normName = (value: string) => value.trim().toLowerCase().replace(/\s+/g,' 
 const isIsoDate = (value: string | null) => !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
 function punchSourceLabel(source: string | null | undefined) {
   const raw = String(source || '').trim();
-  if (!raw) return 'Unknown';
+  if (!raw) return '7punches';
   const normalized = raw.toLowerCase();
   if (normalized === 'web') return 'Web';
-  if (normalized === 'mobile') return 'Mobile app';
-  if (normalized === 'pos') return '7punches / POS';
-  if (normalized === '7punches') return '7punches';
-  if (normalized === '7shifts') return '7shifts punches';
-  if (normalized === '7shifts-hours-wages') return '7shifts reports';
-  return raw;
+  if (normalized.includes('web')) return 'Web';
+  return '7punches';
 }
 function isWebPunchSource(source: string | null | undefined) {
   const normalized = String(source || '').trim().toLowerCase();
   return normalized === 'web' || normalized.includes('web');
+}
+function displayPunchSource(punch: Pick<Punch, 'punch_source'|'source'>) {
+  return punchSourceLabel(punch.punch_source || punch.source);
+}
+function isWebPunch(punch: Pick<Punch, 'punch_source'|'source'>) {
+  return isWebPunchSource(punch.punch_source || punch.source);
 }
 
 export default function EmployeesPage() {
@@ -246,7 +248,7 @@ export default function EmployeesPage() {
           ph.toFixed(2),
           p.location,
           p.role||p.department||'—',
-          punchSourceLabel(p.punch_source || p.source),
+          displayPunchSource(p),
           p.wage ? cad(Number(p.wage)) : '—',
           p.cash_wage ? cad(Number(p.cash_wage)) : '—',
           p.clocked_out&&p.wage ? cad(ph*p.wage) : '—',
@@ -478,11 +480,11 @@ export default function EmployeesPage() {
                                 padding:'2px 7px',
                                 fontSize:10,
                                 fontWeight:700,
-                                color:isWebPunchSource(p.punch_source)?'#fbbf24':'#22d3ee',
-                                background:isWebPunchSource(p.punch_source)?'rgba(251,191,36,0.12)':'rgba(34,211,238,0.09)',
-                                border:`1px solid ${isWebPunchSource(p.punch_source)?'rgba(251,191,36,0.25)':'rgba(34,211,238,0.18)'}`,
+                                color:isWebPunch(p)?'#fbbf24':'#22d3ee',
+                                background:isWebPunch(p)?'rgba(251,191,36,0.12)':'rgba(34,211,238,0.09)',
+                                border:`1px solid ${isWebPunch(p)?'rgba(251,191,36,0.25)':'rgba(34,211,238,0.18)'}`,
                               }}>
-                                {punchSourceLabel(p.punch_source || p.source)}
+                                {displayPunchSource(p)}
                               </span>
                             </td>
                             <td style={{padding:'7px 10px',color:'#9ca3af',textAlign:'right'}}>{p.wage?cad(Number(p.wage)):'—'}</td>

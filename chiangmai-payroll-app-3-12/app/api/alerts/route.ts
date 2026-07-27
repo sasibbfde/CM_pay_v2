@@ -133,15 +133,11 @@ function alertGrossHours(punch: PunchRow) {
 
 function punchSourceLabel(source: string | null | undefined) {
   const raw = String(source || '').trim();
-  if (!raw) return 'Unknown';
+  if (!raw) return '7punches';
   const normalized = raw.toLowerCase();
   if (normalized === 'web') return 'Web';
-  if (normalized === 'mobile') return 'Mobile app';
-  if (normalized === 'pos') return '7punches / POS';
-  if (normalized === '7punches') return '7punches';
-  if (normalized === '7shifts') return '7shifts punches';
-  if (normalized === '7shifts-hours-wages') return '7shifts reports';
-  return raw;
+  if (normalized.includes('web')) return 'Web';
+  return '7punches';
 }
 
 function isWebPunchSource(source: string | null | undefined) {
