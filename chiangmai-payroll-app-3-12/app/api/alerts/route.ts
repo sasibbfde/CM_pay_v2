@@ -12,11 +12,12 @@ type PunchRow = {
   clocked_out: string | null;
   gross_hours: number | string | null;
   payroll_hours: number | string | null;
+  source: string | null;
 };
 
 type PayrollAlert = {
   id: string;
-  type: 'OVERNIGHT_PUNCH' | 'DAILY_OVER_14_HOURS';
+  type: 'OVERNIGHT_PUNCH' | 'DAILY_OVER_14_HOURS' | 'WEB_PUNCH_SOURCE';
   employee_id: string;
   employee_name: string;
   location: string;
@@ -100,7 +101,7 @@ function alertRecordId(alert: PayrollAlert) {
 function parseAlertRecordId(recordId: string | null | undefined) {
   const [type, employee_id, alert_date, ...locationParts] = String(recordId || '').split('|');
   if (!type || !employee_id || !alert_date) return null;
-  if (type !== 'OVERNIGHT_PUNCH' && type !== 'DAILY_OVER_14_HOURS') return null;
+  if (type !== 'OVERNIGHT_PUNCH' && type !== 'DAILY_OVER_14_HOURS' && type !== 'WEB_PUNCH_SOURCE') return null;
   return {
     type: type as PayrollAlert['type'],
     employee_id,
@@ -129,6 +130,21 @@ function alertGrossHours(punch: PunchRow) {
   return Number.isFinite(storedPayroll) ? storedPayroll : 0;
 }
 
+function punchSourceLabel(source: string | null | undefined) {
+  const raw = String(source || '').trim();
+  if (!raw) return 'Unknown';
+  const normalized = raw.toLowerCase();
+  if (normalized === '7shifts') return '7shifts punches';
+  if (normalized === '7shifts-hours-wages') return '7shifts reports';
+  if (normalized === 'web') return 'Web';
+  return raw;
+}
+
+function isWebPunchSource(source: string | null | undefined) {
+  const normalized = String(source || '').trim().toLowerCase();
+  return normalized === 'web' || normalized.includes('web');
+}
+
 export function buildAlerts(punches: PunchRow[]) {
   const alerts: PayrollAlert[] = [];
   const daily = new Map<string, { hours: number; employee_id: string; employee_name: string; date: string; locations: Set<string>; punches: number }>();
@@ -140,6 +156,9 @@ export function buildAlerts(punches: PunchRow[]) {
     const id = employeeKey(punch);
     const location = punch.location || 'Unknown';
     const gross = alertGrossHours(punch);
+    const timeWindow = punch.clocked_out
+      ? `${localTimeLabel(punch.clocked_in)} → ${localTimeLabel(punch.clocked_out)}`
+      : `${localTimeLabel(punch.clocked_in)} → still clocked in`;
     const dailyKey = `${id}|${inParts.date}`;
     const row = daily.get(dailyKey) || { hours: 0, employee_id: id, employee_name: punch.employee_name, date: inParts.date, locations: new Set<string>(), punches: 0 };
     row.hours += Number.isFinite(gross) ? gross : 0;
@@ -147,11 +166,32 @@ export function buildAlerts(punches: PunchRow[]) {
     row.punches += 1;
     daily.set(dailyKey, row);
 
+    if (isWebPunchSource(punch.source)) {
+      const alert: PayrollAlert = {
+        id: '',
+        type: 'WEB_PUNCH_SOURCE',
+        employee_id: id,
+        employee_name: punch.employee_name,
+        location,
+        alert_date: inParts.date,
+        severity: 'warning',
+        message: `Punch source is ${punchSourceLabel(punch.source)}: ${timeWindow}. Review this punch source in the employee logbook.`,
+        details: {
+          punch_id: punch.punch_id,
+          clocked_in: punch.clocked_in,
+          clocked_out: punch.clocked_out,
+          gross_hours: gross,
+          payroll_hours: punch.payroll_hours,
+          role: punch.role,
+          source: punch.source,
+        },
+      };
+      alert.id = alertRecordId(alert);
+      alerts.push(alert);
+    }
+
     if (!touchesOvernightAlertWindow(inParts,outParts)) continue;
 
-    const timeWindow = punch.clocked_out
-      ? `${localTimeLabel(punch.clocked_in)} → ${localTimeLabel(punch.clocked_out)}`
-      : `${localTimeLabel(punch.clocked_in)} → still clocked in`;
     alerts.push({
       id: alertRecordId({
         type: 'OVERNIGHT_PUNCH',
@@ -176,6 +216,7 @@ export function buildAlerts(punches: PunchRow[]) {
         clocked_out: punch.clocked_out,
         gross_hours: gross,
         role: punch.role,
+        source: punch.source,
       },
     });
   }
@@ -301,7 +342,7 @@ async function fetchPunchesInRange(supabase: any, startIso: string, endIso: stri
   for (let fromIndex = 0; ; fromIndex += pageSize) {
     const { data, error } = await supabase
       .from('punches')
-      .select('punch_id, employee_id, seven_shifts_user_id, employee_name, location, role, clocked_in, clocked_out, gross_hours, payroll_hours')
+      .select('punch_id, employee_id, seven_shifts_user_id, employee_name, location, role, clocked_in, clocked_out, gross_hours, payroll_hours, source')
       .gte('clocked_in', startIso)
       .lte('clocked_in', endIso)
       .order('clocked_in', { ascending: false })

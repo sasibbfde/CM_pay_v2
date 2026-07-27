@@ -13,6 +13,7 @@ type Punch = {
   punch_id: string; location: string; department: string; role: string;
   clocked_in: string; clocked_out: string | null;
   hours: number; payroll_hours: number; gross_hours: number; break_minutes: number; wage: number; cash_wage: number;
+  source: string | null;
 };
 type PayrollAlert = {
   id: string;
@@ -37,6 +38,19 @@ function isoDate(d: Date) {
 function cad(n: number) { return `$${n.toFixed(2)}`; }
 const normName = (value: string) => value.trim().toLowerCase().replace(/\s+/g,' ');
 const isIsoDate = (value: string | null) => !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
+function punchSourceLabel(source: string | null | undefined) {
+  const raw = String(source || '').trim();
+  if (!raw) return 'Unknown';
+  const normalized = raw.toLowerCase();
+  if (normalized === '7shifts') return '7shifts punches';
+  if (normalized === '7shifts-hours-wages') return '7shifts reports';
+  if (normalized === 'web') return 'Web';
+  return raw;
+}
+function isWebPunchSource(source: string | null | undefined) {
+  const normalized = String(source || '').trim().toLowerCase();
+  return normalized === 'web' || normalized.includes('web');
+}
 
 export default function EmployeesPage() {
   const today = new Date();
@@ -216,7 +230,7 @@ export default function EmployeesPage() {
       [`Worked locations: ${workedLocations.map(([location,hours])=>`${location} (actual ${hours.actual.toFixed(2)}h, breaks ${(hours.breakMinutes/60).toFixed(2)}h, payroll ${hours.payroll.toFixed(2)}h)`).join('; ')||'—'}`],
       [`Period: ${fromDate} to ${toDate}`],
       [],
-      ['Date','Clock In','Clock Out','Break (min)','Actual Hours','Payroll Hours','Location','Role','Cheque Wage','Cash Wage','Cheque Pay','Cash Pay'],
+      ['Date','Clock In','Clock Out','Break (min)','Actual Hours','Payroll Hours','Location','Role','Source','Cheque Wage','Cash Wage','Cheque Pay','Cash Pay'],
       ...[...punches].sort((a,b)=>new Date(b.clocked_in).getTime()-new Date(a.clocked_in).getTime()).map(p=>{
         const ph = Number(p.payroll_hours||0);
         return [
@@ -228,6 +242,7 @@ export default function EmployeesPage() {
           ph.toFixed(2),
           p.location,
           p.role||p.department||'—',
+          punchSourceLabel(p.source),
           p.wage ? cad(Number(p.wage)) : '—',
           p.cash_wage ? cad(Number(p.cash_wage)) : '—',
           p.clocked_out&&p.wage ? cad(ph*p.wage) : '—',
@@ -235,7 +250,7 @@ export default function EmployeesPage() {
         ];
       }),
       [],
-      ['TOTAL','','',Math.round(totalBreakMinutes),actualHours.toFixed(2),payrollHours.toFixed(2),'','','','',estPay?cad(estPay):'—',''],
+      ['TOTAL','','',Math.round(totalBreakMinutes),actualHours.toFixed(2),payrollHours.toFixed(2),'','','','','',estPay?cad(estPay):'—',''],
     ];
     const csv = rows.map(r=>r.map(c=>JSON.stringify(c??'')).join(',')).join('\n');
     const blob = new Blob([csv],{type:'text/csv'});
@@ -416,9 +431,9 @@ export default function EmployeesPage() {
                 <div style={{color:'#6b7280',padding:24,textAlign:'center',fontSize:12}}>No punches found for this period</div>
               ) : (
                 <div style={{overflowX:'auto'}}>
-                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,minWidth:820}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,minWidth:920}}>
                     <thead><tr style={{background:'rgba(0,0,0,0.2)'}}>
-                      {['Date','Clock In','Clock Out','Break','Payroll Hrs','Gross Hrs','Location','Role','Cheque Wage','Cash Wage','Pay'].map(h=>(
+                      {['Date','Clock In','Clock Out','Break','Payroll Hrs','Gross Hrs','Location','Role','Source','Cheque Wage','Cash Wage','Pay'].map(h=>(
                         <th key={h} style={{padding:'7px 10px',textAlign:'left',color:'#6b7280',fontWeight:500,fontSize:9,textTransform:'uppercase',letterSpacing:'0.05em',whiteSpace:'nowrap'}}>{h}</th>
                       ))}
                     </tr></thead>
@@ -451,6 +466,21 @@ export default function EmployeesPage() {
                             </td>
                             <td style={{padding:'7px 10px',color:'#6b7280',fontSize:10}}>{p.location}</td>
                             <td style={{padding:'7px 10px',color:'#6b7280',fontSize:10}}>{p.role||p.department||'—'}</td>
+                            <td style={{padding:'7px 10px',whiteSpace:'nowrap'}}>
+                              <span style={{
+                                display:'inline-flex',
+                                alignItems:'center',
+                                borderRadius:999,
+                                padding:'2px 7px',
+                                fontSize:10,
+                                fontWeight:700,
+                                color:isWebPunchSource(p.source)?'#fbbf24':'#22d3ee',
+                                background:isWebPunchSource(p.source)?'rgba(251,191,36,0.12)':'rgba(34,211,238,0.09)',
+                                border:`1px solid ${isWebPunchSource(p.source)?'rgba(251,191,36,0.25)':'rgba(34,211,238,0.18)'}`,
+                              }}>
+                                {punchSourceLabel(p.source)}
+                              </span>
+                            </td>
                             <td style={{padding:'7px 10px',color:'#9ca3af',textAlign:'right'}}>{p.wage?cad(Number(p.wage)):'—'}</td>
                             <td style={{padding:'7px 10px',color:'#fbbf24',textAlign:'right'}}>{p.cash_wage?cad(Number(p.cash_wage)):'—'}</td>
                             <td style={{padding:'7px 10px',textAlign:'right',color:isLive?'#374151':'#34d399'}}>
@@ -463,7 +493,7 @@ export default function EmployeesPage() {
                       <tr style={{borderTop:'2px solid rgba(255,255,255,0.1)',background:'rgba(34,211,238,0.04)'}}>
                         <td colSpan={4} style={{padding:'9px 10px',fontWeight:700,color:'#22d3ee',fontSize:12}}>Total (payroll-approved hours)</td>
                         <td style={{padding:'9px 10px',color:'#22d3ee',fontWeight:700,textAlign:'right'}}>{payrollHours.toFixed(2)}h</td>
-                        <td/><td/><td/><td/><td/>
+                        <td/><td/><td/><td/><td/><td/>
                         <td style={{padding:'9px 10px',color:'#34d399',fontWeight:700,textAlign:'right'}}>{estPay?cad(estPay):'—'}</td>
                       </tr>
                     </tbody>
