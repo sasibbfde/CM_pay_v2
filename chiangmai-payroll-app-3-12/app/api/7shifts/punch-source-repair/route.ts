@@ -32,6 +32,7 @@ const LOCATION_MAP: Record<string, string> = {
 };
 
 const PAGE = 1000;
+const UPDATE_BATCH = 500;
 
 function mapLoc(id: any) {
   return LOCATION_MAP[String(id)] || 'Unknown';
@@ -197,12 +198,18 @@ export async function GET(req: Request) {
     }
 
     if (!dryRun) {
+      const bySource = new Map<string, string[]>();
       for (const update of updates) {
-        const { error } = await supabase
-          .from('punches')
-          .update({ punch_source: update.new_source })
-          .eq('id', update.id);
-        if (error) throw error;
+        bySource.set(update.new_source, [...(bySource.get(update.new_source) || []), update.id]);
+      }
+      for (const [source, ids] of bySource.entries()) {
+        for (let index = 0; index < ids.length; index += UPDATE_BATCH) {
+          const { error } = await supabase
+            .from('punches')
+            .update({ punch_source: source })
+            .in('id', ids.slice(index, index + UPDATE_BATCH));
+          if (error) throw error;
+        }
       }
       if (updates.length) {
         await supabase.from('sync_log').insert({
