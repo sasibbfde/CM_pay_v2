@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import { getManagerBonusRows } from '@/lib/manager-bonus-data';
-
-const categoryColumns = [
-  ['Attendance','attendance'], ['Inventory','inventory'], ['Cleaning','cleaning'],
-  ['Labour Control','labour_control'], ['Customer Service / Leadership','customer_service_leadership'],
-] as const;
+import { rubricForManager } from '@/lib/manager-bonus';
 
 function styleHeader(row: ExcelJS.Row, color = 'FF1F4E78') {
   row.font = { bold:true, color:{ argb:'FFFFFFFF' } };
@@ -18,10 +14,11 @@ function addManagerSheet(workbook: ExcelJS.Workbook, manager: any, start: string
   sheet.columns = [{ width:34 },{ width:18 },{ width:14 },{ width:48 }];
   sheet.mergeCells('A1:D1'); sheet.getCell('A1').value = `Manager Bonus Review — ${manager.employee_name}`; styleHeader(sheet.getRow(1)); sheet.getRow(1).height = 26;
   sheet.addRow([]);
-  [['Period',`${start} to ${end}`],['Location',manager.location],['Role',manager.role || manager.department || 'Manager'],['7shifts Hours',manager.seven_shifts_hours],['Additional Hours',manager.manual_hours],['Total Worked Hours',manager.worked_hours],['Original Bonus',manager.original_bonus],['Max Extra Bonus (50%)',manager.maxExtraBonus],['Final Bonus Payout',manager.finalBonus]].forEach(values => sheet.addRow(values));
+  [['Period',`${start} to ${end}`],['Location',manager.location],['Role',manager.role || manager.department || 'Manager'],['7shifts Hours',manager.seven_shifts_hours],['Additional Hours',manager.manual_hours],['Total Worked Hours',manager.worked_hours],['Original Bonus',manager.original_bonus],['Bonus Pool %',manager.bonus_pool],['Points Possible',manager.max_points],['Max Extra Bonus',manager.maxExtraBonus],['Final Bonus Payout',manager.finalBonus]].forEach(values => sheet.addRow(values));
   sheet.addRow([]);
   const header = sheet.addRow(['Performance Area','Rating 0–5','Max Points','Notes']); styleHeader(header, 'FF14857E');
-  categoryColumns.forEach(([label,key]) => sheet.addRow([label, manager[key] ?? '', 5, manager.notes || '']));
+  const rubric = rubricForManager(manager.department, manager.role);
+  rubric.forEach((item, index) => sheet.addRow([item.label, manager.rubric_ratings?.[index] ?? '', 5, item.description]));
   sheet.addRow([]);
   sheet.addRow(['Total Points',manager.totalPoints]);
   sheet.addRow(['Score %',manager.scorePercent]);
@@ -29,8 +26,7 @@ function addManagerSheet(workbook: ExcelJS.Workbook, manager: any, start: string
   sheet.addRow(['Final Bonus',manager.finalBonus]);
   sheet.addRow(['Approval',manager.approval || '']);
   sheet.getColumn(2).numFmt = '#,##0.00';
-  sheet.getCell('B21').numFmt = '0%';
-  for (const address of ['B9','B10','B11','B22','B23']) sheet.getCell(address).numFmt = '$#,##0.00';
+  sheet.getColumn(2).numFmt = '#,##0.00';
   sheet.views = [{ state:'frozen', ySplit:1 }];
   return sheet;
 }
@@ -51,11 +47,21 @@ export async function GET(request: NextRequest) {
     if (employeeId && selected.length === 1) addManagerSheet(workbook, selected[0], start, end, 'Manager Bonus');
     else {
       const summary = workbook.addWorksheet('Location Summary');
-      summary.columns = [{header:'Manager',width:30},{header:'Location',width:24},{header:'7shifts Hours',width:14},{header:'Added Hours',width:12},{header:'Total Hours',width:12},{header:'Original Bonus',width:16},...categoryColumns.map(([label])=>({header:label,width:16})),{header:'Points',width:10},{header:'Score %',width:12},{header:'Extra Bonus',width:15},{header:'Final Payout',width:15},{header:'Approval',width:18}];
+      summary.columns = [
+        {header:'Manager',width:30},{header:'Location',width:24},{header:'Role',width:20},{header:'7shifts Hours',width:14},{header:'Added Hours',width:12},{header:'Total Hours',width:12},
+        {header:'Original Bonus',width:16},{header:'Bonus Pool %',width:13},{header:'Points',width:10},{header:'Points Possible',width:15},{header:'Score %',width:12},
+        ...Array.from({length:10},(_,index)=>({header:`Rating ${index+1}`,width:14})),
+        {header:'Extra Bonus',width:15},{header:'Final Payout',width:15},{header:'Approval',width:18},
+      ];
       styleHeader(summary.getRow(1));
-      selected.forEach((row:any) => summary.addRow([row.employee_name,row.location,row.seven_shifts_hours,row.manual_hours,row.worked_hours,row.original_bonus,...categoryColumns.map(([,key])=>row[key] ?? ''),row.totalPoints,row.scorePercent,row.earnedExtraBonus,row.finalBonus,row.approval || '']));
-      summary.getColumn(6).numFmt = '$#,##0.00'; summary.getColumn(13).numFmt = '0%'; summary.getColumn(14).numFmt = '$#,##0.00'; summary.getColumn(15).numFmt = '$#,##0.00';
-      summary.views = [{ state:'frozen', ySplit:1 }]; summary.autoFilter = { from:'A1', to:'P1' };
+      selected.forEach((row:any) => summary.addRow([
+        row.employee_name,row.location,row.role || row.department || 'Manager',row.seven_shifts_hours,row.manual_hours,row.worked_hours,
+        row.original_bonus,row.bonus_pool,row.totalPoints,row.max_points,row.scorePercent,
+        ...Array.from({length:10},(_,index)=>row.rubric_ratings?.[index] ?? ''),
+        row.earnedExtraBonus,row.finalBonus,row.approval || '',
+      ]));
+      summary.getColumn(7).numFmt = '$#,##0.00'; summary.getColumn(11).numFmt = '0%'; summary.getColumn(22).numFmt = '$#,##0.00'; summary.getColumn(23).numFmt = '$#,##0.00';
+      summary.views = [{ state:'frozen', ySplit:1 }]; summary.autoFilter = { from:'A1', to:'X1' };
       selected.forEach((row:any, index:number) => addManagerSheet(workbook, row, start, end, `${index+1}-${row.employee_name}`));
     }
     const buffer = await workbook.xlsx.writeBuffer();

@@ -1,22 +1,19 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import {
+  DEFAULT_MANAGER_BONUS_MAX_POINTS,
+  DEFAULT_MANAGER_BONUS_POOL,
+  rubricForManager,
+} from '@/lib/manager-bonus';
 import styles from './manager-bonus.module.css';
 
 type ManagerRow = {
   employee_id:string; employee_name:string; location:string; department:string; role:string; seven_shifts_hours:number; manual_hours:number; worked_hours:number;
   original_bonus:number; attendance:number|null; inventory:number|null; cleaning:number|null; labour_control:number|null;
   customer_service_leadership:number|null; notes?:string; approval?:string; totalPoints:number; scorePercent:number;
-  maxExtraBonus:number; earnedExtraBonus:number; finalBonus:number;
+  maxExtraBonus:number; earnedExtraBonus:number; finalBonus:number; rubric_ratings:Array<number|null>; bonus_pool:number; max_points:number;
 };
-
-const categories = [
-  ['Attendance & Reliability','attendance','Punctuality, attendance, schedule adherence, and accountability.'],
-  ['Inventory Control','inventory','Ordering, par levels, waste control, smallwares, and follow-up on variances.'],
-  ['Cleanliness Standards','cleaning','Dining room, kitchen, washrooms, storage, and health inspection readiness.'],
-  ['Labour & Scheduling','labour_control','Labour optimization, schedule control, and keeping costs aligned to the forecast.'],
-  ['Guest Experience & Leadership','customer_service_leadership','Floor presence, problem solving, coaching, team development, and guest recovery.'],
-] as const;
 
 const currency = new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD'});
 const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -31,12 +28,17 @@ function periodDates(month:string,period:string){
 }
 
 function calculate(row:ManagerRow){
-  const totalPoints=categories.reduce((sum,[,key])=>sum+(Number(row[key])||0),0);
-  const scorePercent=totalPoints/25;
-  const maxExtraBonus=Number(row.original_bonus||0)*.5;
+  const rubric_ratings = Array.isArray(row.rubric_ratings)
+    ? [...row.rubric_ratings.slice(0, 10), ...Array(Math.max(0, 10 - row.rubric_ratings.length)).fill(null)]
+    : [row.attendance, null, null, row.cleaning, row.inventory, null, null, row.labour_control, row.customer_service_leadership, null];
+  const bonus_pool = Number(row.bonus_pool ?? DEFAULT_MANAGER_BONUS_POOL);
+  const max_points = Number(row.max_points ?? DEFAULT_MANAGER_BONUS_MAX_POINTS);
+  const totalPoints=rubric_ratings.reduce((sum,value)=>sum+(Number(value)||0),0);
+  const scorePercent=totalPoints/max_points;
+  const maxExtraBonus=Number(row.original_bonus||0)*(bonus_pool/100);
   const earnedExtraBonus=maxExtraBonus*scorePercent;
   const worked_hours=Number(row.seven_shifts_hours||0)+Number(row.manual_hours||0);
-  return {...row,worked_hours,totalPoints,scorePercent,maxExtraBonus,earnedExtraBonus,finalBonus:Number(row.original_bonus||0)+earnedExtraBonus};
+  return {...row,rubric_ratings,bonus_pool,max_points,worked_hours,totalPoints,scorePercent,maxExtraBonus,earnedExtraBonus,finalBonus:Number(row.original_bonus||0)+earnedExtraBonus};
 }
 
 function monthLabel(value:string){
@@ -50,8 +52,8 @@ function pct(value:number|null|undefined){
 
 function status(row:ManagerRow){
   if (!row.original_bonus) return 'none';
-  const rated = categories.filter(([,key]) => row[key] !== null && row[key] !== undefined).length;
-  return rated === categories.length ? 'done' : 'part';
+  const rated = row.rubric_ratings.filter(value => value !== null && value !== undefined).length;
+  return rated === 10 ? 'done' : 'part';
 }
 
 function statusText(value:string){
@@ -138,6 +140,15 @@ export default function ManagerBonusPage(){
     setRows(current=>current.map(row=>`${row.employee_id}\u0000${row.location}`===indexKey?calculate({...row,[field]:value}):row));
   }
 
+  function updateRating(indexKey:string,index:number,value:number|null){
+    setRows(current=>current.map(row=>{
+      if (`${row.employee_id}\u0000${row.location}` !== indexKey) return row;
+      const rubric_ratings = [...row.rubric_ratings];
+      rubric_ratings[index] = value;
+      return calculate({...row,rubric_ratings});
+    }));
+  }
+
   async function save(row:ManagerRow){
     const key=`${row.employee_id}\u0000${row.location}`;
     setSaving(key);
@@ -215,7 +226,7 @@ export default function ManagerBonusPage(){
 
     {loading ? <div className={styles.empty}>Loading manager bonus data…</div> : visible.length===0 ? <div className={styles.empty}>No managers found for this selection. Check manager roles in Wages/7shifts and sync again.</div> : <>
       {view === 'dashboard' && <Dashboard rows={visible} setView={setView} setSelectedKey={setSelectedKey} selectedKeyFor={selectedKeyFor} />}
-      {view === 'review' && <Review rows={visible} selected={selected} selectedKeyFor={selectedKeyFor} setSelectedKey={setSelectedKey} update={update} save={save} saving={saving} datesLabel={monthLabel(month)} exportUrl={exportUrl} />}
+      {view === 'review' && <Review rows={visible} selected={selected} selectedKeyFor={selectedKeyFor} setSelectedKey={setSelectedKey} update={update} updateRating={updateRating} save={save} saving={saving} datesLabel={monthLabel(month)} exportUrl={exportUrl} />}
       {view === 'summary' && <Summary rows={locationSummary} grand={totals.final} />}
       {view === 'guide' && <Guide />}
     </>}
@@ -249,9 +260,10 @@ function Dashboard({rows,setView,setSelectedKey,selectedKeyFor}:{rows:ManagerRow
   </section>;
 }
 
-function Review({rows,selected,selectedKeyFor,setSelectedKey,update,save,saving,datesLabel,exportUrl}:{rows:ManagerRow[];selected:ManagerRow|null;selectedKeyFor:(row:ManagerRow)=>string;setSelectedKey:(key:string)=>void;update:(key:string,field:keyof ManagerRow,value:any)=>void;save:(row:ManagerRow)=>void;saving:string;datesLabel:string;exportUrl:(extra?:string)=>string}){
+function Review({rows,selected,selectedKeyFor,setSelectedKey,update,updateRating,save,saving,datesLabel,exportUrl}:{rows:ManagerRow[];selected:ManagerRow|null;selectedKeyFor:(row:ManagerRow)=>string;setSelectedKey:(key:string)=>void;update:(key:string,field:keyof ManagerRow,value:any)=>void;updateRating:(key:string,index:number,value:number|null)=>void;save:(row:ManagerRow)=>void;saving:string;datesLabel:string;exportUrl:(extra?:string)=>string}){
   if(!selected) return null;
   const key=selectedKeyFor(selected);
+  const rubric = rubricForManager(selected.department, selected.role);
   return <section className={styles.reviewGrid}>
     <aside className={styles.people}>
       {rows.map(row=>{
@@ -273,20 +285,23 @@ function Review({rows,selected,selectedKeyFor,setSelectedKey,update,save,saving,
           <label>7shifts hours<input value={selected.seven_shifts_hours.toFixed(2)} disabled /></label>
           <label>Additional hours<input type="number" step="0.25" value={selected.manual_hours||0} onChange={event=>update(key,'manual_hours',Number(event.target.value))} /></label>
           <label>Original bonus<input type="number" min="0" step="0.01" value={selected.original_bonus} onChange={event=>update(key,'original_bonus',Number(event.target.value))} /></label>
+          <label>Bonus pool %<input type="number" min="0" max="100" step="1" value={selected.bonus_pool} onChange={event=>update(key,'bonus_pool',Number(event.target.value))} /></label>
+          <label>Points possible<input type="number" min="1" step="1" value={selected.max_points} onChange={event=>update(key,'max_points',Number(event.target.value))} /></label>
           <label>Max extra bonus<input value={currency.format(selected.maxExtraBonus)} disabled /></label>
         </div>
 
         <div className={styles.eyebrow}>Rate each area, 0 to 5</div>
         <div className={styles.rubricList}>
-          {categories.map(([label,field,help])=><div key={field} className={styles.rubricItem}>
-            <div><strong>{label}</strong><p>{help}</p></div>
-            <RatingRail value={selected[field]} onChange={value=>update(key,field,value)} />
+          {rubric.map((item,index)=><div key={item.id} className={styles.rubricItem}>
+            <div><strong>{item.label}</strong><p>{item.description}</p></div>
+            <RatingRail value={selected.rubric_ratings[index] ?? null} onChange={value=>updateRating(key,index,value)} />
           </div>)}
         </div>
 
         <div className={styles.tally}>
-          <div><span>Points</span><strong>{selected.totalPoints}/25</strong></div>
+          <div><span>Points</span><strong>{selected.totalPoints}/{selected.max_points}</strong></div>
           <div><span>Score</span><strong>{pct(selected.scorePercent)}</strong></div>
+          <div><span>Pool applied</span><strong>{selected.bonus_pool}%</strong></div>
           <div><span>Extra earned</span><strong>{currency.format(selected.earnedExtraBonus)}</strong></div>
           <div><span>Final payout</span><strong>{currency.format(selected.finalBonus)}</strong></div>
         </div>
@@ -327,15 +342,17 @@ function Summary({rows,grand}:{rows:{location:string;managers:number;hours:numbe
 }
 
 function Guide(){
+  const front = rubricForManager('Front of House', 'Manager');
+  const kitchen = rubricForManager('Back of House', 'Kitchen Manager');
   return <section className={styles.panel}>
     <header className={styles.panelHead}><h2>Rating guide</h2><span>Same calculation, cleaner review process</span></header>
-    <div className={styles.notice}><strong>Math:</strong> Score = points ÷ 25. Extra earned = original bonus × 50% × score. Final payout = original bonus + extra earned.</div>
+    <div className={styles.notice}><strong>Math:</strong> Score = points ÷ points possible. Extra earned = original bonus × bonus pool % × score. Final payout = original bonus + extra earned.</div>
     <div className={styles.guideGrid}>
       {[['0','No mark / does not meet standard'],['1','Very poor'],['2','Needs improvement'],['3','Meets minimum standard'],['4','Good'],['5','Top performance']].map(([rating,meaning])=><div key={rating}><strong>{rating}</strong><span>{meaning}</span></div>)}
     </div>
     <div className={styles.eyebrow}>Review areas</div>
     <div className={styles.rubricList}>
-      {categories.map(([label,,help])=><div key={label} className={styles.rubricItem}><div><strong>{label}</strong><p>{help}</p></div></div>)}
+      {[...front.map(item=>['Front',item] as const), ...kitchen.map(item=>['Kitchen',item] as const)].map(([track,item])=><div key={`${track}-${item.id}`} className={styles.rubricItem}><div><strong>{track}: {item.label}</strong><p>{item.description}</p></div></div>)}
     </div>
   </section>;
 }

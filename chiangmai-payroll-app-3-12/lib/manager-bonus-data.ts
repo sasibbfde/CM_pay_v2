@@ -1,7 +1,14 @@
 import 'server-only';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { getPayrollDate, getPunchHours } from '@/lib/payroll';
-import { calculateManagerBonus, isManager, ManagerBonusScores } from '@/lib/manager-bonus';
+import {
+  DEFAULT_MANAGER_BONUS_MAX_POINTS,
+  DEFAULT_MANAGER_BONUS_POOL,
+  calculateTemplateManagerBonus,
+  isManager,
+  legacyScoresToRubricRatings,
+  ManagerBonusScores,
+} from '@/lib/manager-bonus';
 import { fillMissingRosterDetails } from '@/lib/roster-details';
 
 async function fetchAll(supabase: any, table: string, columns: string, filter?: (query: any) => any) {
@@ -69,7 +76,12 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
     if (error?.code === 'PGRST205' || /manager_bonus_reviews/i.test(error?.message || '')) tableReady = false;
     else throw error;
   }
-  const reviewByKey = new Map([...fallbackReviews, ...reviews].map(review => [`${review.employee_id}\u0000${review.location}`, review]));
+  const reviewByKey = new Map<string, any>();
+  for (const review of reviews) reviewByKey.set(`${review.employee_id}\u0000${review.location}`, review);
+  for (const review of fallbackReviews) {
+    const key = `${review.employee_id}\u0000${review.location}`;
+    reviewByKey.set(key, { ...(reviewByKey.get(key) || {}), ...review });
+  }
 
   const rows = [...managers.values()].map(manager => {
     const review = reviewByKey.get(`${manager.employee_id}\u0000${manager.location}`) || {};
@@ -80,9 +92,26 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
       labour_control: review.labour_control ?? null,
       customer_service_leadership: review.customer_service_leadership ?? null,
     };
+    const rubric_ratings = Array.isArray(review.rubric_ratings)
+      ? review.rubric_ratings
+      : legacyScoresToRubricRatings(scores);
+    const bonus_pool = Number(review.bonus_pool ?? DEFAULT_MANAGER_BONUS_POOL);
+    const max_points = Number(review.max_points ?? DEFAULT_MANAGER_BONUS_MAX_POINTS);
     const seven_shifts_hours = Math.round(manager.worked_hours * 100) / 100;
     const manual_hours = Number(review.manual_hours || 0);
-    return { ...manager, ...review, ...scores, seven_shifts_hours, manual_hours, worked_hours:Math.round((seven_shifts_hours + manual_hours) * 100) / 100, original_bonus:Number(review.original_bonus || 0), ...calculateManagerBonus(Number(review.original_bonus || 0), scores) };
+    return {
+      ...manager,
+      ...review,
+      ...scores,
+      rubric_ratings,
+      bonus_pool,
+      max_points,
+      seven_shifts_hours,
+      manual_hours,
+      worked_hours:Math.round((seven_shifts_hours + manual_hours) * 100) / 100,
+      original_bonus:Number(review.original_bonus || 0),
+      ...calculateTemplateManagerBonus(Number(review.original_bonus || 0), rubric_ratings, bonus_pool, max_points),
+    };
   }).sort((a,b) => a.location.localeCompare(b.location) || a.employee_name.localeCompare(b.employee_name));
 
   return { rows, tableReady, storageMode:tableReady?'manager_bonus_reviews':'settings_fallback' };
