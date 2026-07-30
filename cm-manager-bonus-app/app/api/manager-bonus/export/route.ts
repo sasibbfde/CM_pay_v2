@@ -3,12 +3,17 @@ import { NextRequest, NextResponse } from 'next/server';
 const CM_PAY_API_BASE =
   process.env.CM_PAY_API_BASE?.replace(/\/$/, '') || 'https://cm-pay-v2.vercel.app';
 
+const proxySecret = process.env.CM_MANAGER_BONUS_PROXY_SECRET;
+
 export async function GET(request: NextRequest) {
   const upstreamUrl = new URL('/api/manager-bonus/export', CM_PAY_API_BASE);
   request.nextUrl.searchParams.forEach((value, key) => upstreamUrl.searchParams.set(key, value));
 
   const upstream = await fetch(upstreamUrl, {
-    headers: { accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+    headers: {
+      accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ...(proxySecret ? { authorization: `Bearer ${proxySecret}` } : {}),
+    },
     cache: 'no-store',
   });
 

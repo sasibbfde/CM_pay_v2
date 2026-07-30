@@ -18,6 +18,13 @@ function hasCronAccess(req: NextRequest) {
   return Boolean(cronPath && secret && safeEqual(req.headers.get('authorization') || '', `Bearer ${secret}`));
 }
 
+function hasManagerBonusProxyAccess(req: NextRequest) {
+  const secret = process.env.CM_MANAGER_BONUS_PROXY_SECRET;
+  const managerBonusPath = req.nextUrl.pathname === '/api/manager-bonus'
+    || req.nextUrl.pathname === '/api/manager-bonus/export';
+  return Boolean(managerBonusPath && secret && safeEqual(req.headers.get('authorization') || '', `Bearer ${secret}`));
+}
+
 function copyAuthState(source: NextResponse, target: NextResponse) {
   source.cookies.getAll().forEach(cookie => target.cookies.set(cookie));
   for (const name of ['cache-control', 'expires', 'pragma']) {
@@ -29,6 +36,7 @@ function copyAuthState(source: NextResponse, target: NextResponse) {
 
 export async function proxy(req: NextRequest) {
   if (hasCronAccess(req)) return NextResponse.next();
+  if (hasManagerBonusProxyAccess(req)) return NextResponse.next();
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY

@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 const CM_PAY_API_BASE =
   process.env.CM_PAY_API_BASE?.replace(/\/$/, '') || 'https://cm-pay-v2.vercel.app';
 
+const proxySecret = process.env.CM_MANAGER_BONUS_PROXY_SECRET;
+
 async function proxyManagerBonus(request: NextRequest, method: 'GET' | 'PUT') {
   const upstreamUrl = new URL('/api/manager-bonus', CM_PAY_API_BASE);
   request.nextUrl.searchParams.forEach((value, key) => upstreamUrl.searchParams.set(key, value));
@@ -11,6 +13,7 @@ async function proxyManagerBonus(request: NextRequest, method: 'GET' | 'PUT') {
     method,
     headers: {
       accept: 'application/json',
+      ...(proxySecret ? { authorization: `Bearer ${proxySecret}` } : {}),
       ...(method === 'PUT' ? { 'content-type': 'application/json' } : {}),
     },
     body: method === 'PUT' ? await request.text() : undefined,
