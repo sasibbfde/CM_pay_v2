@@ -49,6 +49,9 @@ export async function PUT(request: NextRequest) {
     };
     const templatePayload = {
       ...payload,
+      department:String(body.department || ''),
+      role:String(body.role || ''),
+      wage:Number(body.wage || 0),
       rubric_ratings: rubricRatings || Object.values(scores),
       bonus_pool: bonusPool,
       max_points: maxPoints,

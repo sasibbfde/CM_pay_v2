@@ -202,6 +202,86 @@
   outline: none;
 }
 
+.historyPanel {
+  margin-bottom: 14px;
+  background: rgba(255,255,255,.82);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+.historyHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.historyHead h3 {
+  margin: 4px 0;
+  color: var(--plum-deep);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 24px;
+}
+
+.historyHead p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.historyActive {
+  border: 1px solid var(--line);
+  background: #fff7e4;
+  color: var(--plum);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.periodStrip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(170px, 1fr);
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.periodStrip button {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: #fffaf1;
+  color: var(--ink);
+  border-radius: 14px;
+  padding: 11px 12px;
+}
+
+.periodStrip strong,
+.periodStrip small {
+  display: block;
+}
+
+.periodStrip small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.periodStrip .periodActive,
+.periodActive {
+  background: linear-gradient(135deg, var(--plum), var(--plum-deep));
+  border-color: var(--gold);
+  color: #fff;
+}
+
+.periodActive small {
+  color: var(--gold-soft);
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(5, minmax(140px, 1fr));
@@ -360,7 +440,7 @@
 
 .fields {
   display: grid;
-  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }

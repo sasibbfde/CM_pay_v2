@@ -8,15 +8,37 @@ import styles from './page.module.css';
 type ManagerRow = {
   employee_id:string; employee_name:string; location:string; department:string; role:string; seven_shifts_hours:number; manual_hours:number; worked_hours:number;
   original_bonus:number; notes?:string; approval?:string; totalPoints:number; scorePercent:number; maxExtraBonus:number; earnedExtraBonus:number; finalBonus:number;
-  rubric_ratings:Array<number|null>; bonus_pool:number; max_points:number;
+  rubric_ratings:Array<number|null>; bonus_pool:number; max_points:number; wage:number; archived_record?:boolean;
 };
 
 const currency = new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:0});
+const rate = new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',minimumFractionDigits:2,maximumFractionDigits:2});
 
 function periodDates(month:string,period:string){
   const [year,number]=month.split('-').map(Number);
   const last=new Date(year,number,0).getDate();
   return { start:`${month}-${period==='16-end'?'16':'01'}`, end:`${month}-${String(period==='1-15'?15:last).padStart(2,'0')}` };
+}
+
+function monthValue(date:Date) {
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+}
+
+function addMonths(date:Date, months:number) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function periodLabel(period:string) {
+  if (period === '1-15') return '1–15';
+  if (period === '16-end') return '16–End';
+  return 'Full month';
+}
+
+function monthLabel(month:string) {
+  const [year, number] = month.split('-').map(Number);
+  return new Date(year, number - 1, 1).toLocaleDateString('en-CA', { month:'short', year:'numeric' });
 }
 
 function calculate(row:ManagerRow){
@@ -28,7 +50,7 @@ function calculate(row:ManagerRow){
   const maxExtraBonus = Number(row.original_bonus||0) * (bonus_pool / 100);
   const earnedExtraBonus = maxExtraBonus * scorePercent;
   const worked_hours = Number(row.seven_shifts_hours||0) + Number(row.manual_hours||0);
-  return {...row,rubric_ratings,bonus_pool,max_points,totalPoints,scorePercent,maxExtraBonus,earnedExtraBonus,finalBonus:Number(row.original_bonus||0)+earnedExtraBonus,worked_hours};
+  return {...row,wage:Number(row.wage||0),rubric_ratings,bonus_pool,max_points,totalPoints,scorePercent,maxExtraBonus,earnedExtraBonus,finalBonus:Number(row.original_bonus||0)+earnedExtraBonus,worked_hours};
 }
 
 function status(row:ManagerRow){
@@ -64,7 +86,18 @@ export default function ManagerBonusApp() {
   const [saving,setSaving] = useState('');
   const [message,setMessage] = useState('');
   const [loading,setLoading] = useState(true);
+  const [refreshKey,setRefreshKey] = useState(0);
   const dates = useMemo(()=>periodDates(month,period),[month,period]);
+  const pastPeriods = useMemo(()=>{
+    const items:{month:string;period:string;label:string;dates:{start:string;end:string}}[] = [];
+    for (let offset = 0; offset > -12; offset -= 1) {
+      const value = monthValue(addMonths(now, offset));
+      for (const option of ['1-15','16-end','month']) {
+        items.push({ month:value, period:option, label:`${monthLabel(value)} · ${periodLabel(option)}`, dates:periodDates(value, option) });
+      }
+    }
+    return items;
+  },[]);
 
   useEffect(()=>{
     let active = true;
@@ -79,7 +112,7 @@ export default function ManagerBonusApp() {
       .catch(error=>active&&setMessage(error.message))
       .finally(()=>active&&setLoading(false));
     return()=>{active=false};
-  },[dates.start,dates.end]);
+  },[dates.start,dates.end,refreshKey]);
 
   const locations = useMemo(()=>[...new Set(rows.map(row=>row.location))].sort(),[rows]);
   const visible = useMemo(()=>rows
@@ -94,7 +127,9 @@ export default function ManagerBonusApp() {
     extra:sum.extra+row.earnedExtraBonus,
     final:sum.final+row.finalBonus,
     done:sum.done+(status(row)==='done'?1:0),
-  }),{managers:0,hours:0,original:0,extra:0,final:0,done:0}),[visible]);
+    archived:sum.archived+(row.archived_record?1:0),
+    withHours:sum.withHours+(row.seven_shifts_hours>0?1:0),
+  }),{managers:0,hours:0,original:0,extra:0,final:0,done:0,archived:0,withHours:0}),[visible]);
 
   function keyFor(row:ManagerRow) {
     return `${row.employee_id}\u0000${row.location}`;
@@ -160,12 +195,13 @@ export default function ManagerBonusApp() {
       <article className={styles.heroCard}>
         <span className={styles.eyebrow}>Chiang Mai Thai Dining</span>
         <h2>Review managers, score performance, and prepare bonus payouts.</h2>
-        <p>Manager hours come from the same synced CM Pay / 7shifts payroll data. Bonus reviews save back to the same records, but this app stays focused only on owner review work.</p>
+        <p>Manager names, locations, roles, hourly rate, and hours come from CM Pay V2 after its 7shifts sync. Pick any month/payroll period below to reopen past records or review the current period.</p>
       </article>
       <article className={styles.actionCard}>
         <span>Final payout</span>
         <strong>{money(totals.final)}</strong>
         <div className={styles.buttonRow}>
+          <button className={styles.secondary} onClick={()=>setRefreshKey(value=>value+1)}>Refresh from CM Pay</button>
           <button className={styles.primary} onClick={()=>window.location.href=`/api/manager-bonus/export?start=${dates.start}&end=${dates.end}${location==='ALL'?'':`&location=${encodeURIComponent(location)}`}`}>Export Excel</button>
           {selected && <button className={styles.secondary} onClick={()=>window.location.href=`/api/manager-bonus/export?start=${dates.start}&end=${dates.end}&employee_id=${encodeURIComponent(selected.employee_id)}&location=${encodeURIComponent(selected.location)}`}>Selected manager</button>}
         </div>
@@ -177,6 +213,26 @@ export default function ManagerBonusApp() {
       <label>Payroll filter<select value={period} onChange={event=>setPeriod(event.target.value)}><option value="month">Full month</option><option value="1-15">1–15</option><option value="16-end">16–End</option></select></label>
       <label>Location<select value={location} onChange={event=>{setLocation(event.target.value);setSelectedKey('')}}><option value="ALL">All locations</option>{locations.map(item=><option key={item}>{item}</option>)}</select></label>
       <label>Search<input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Manager or location" /></label>
+    </section>
+
+    <section className={styles.historyPanel}>
+      <div className={styles.historyHead}>
+        <div>
+          <span className={styles.eyebrow}>Past records</span>
+          <h3>{monthLabel(month)} · {periodLabel(period)}</h3>
+          <p>{dates.start} → {dates.end} · live hours/rate from CM Pay V2, saved bonus scores from prior reviews.</p>
+        </div>
+        <button className={styles.historyActive} onClick={()=>setRefreshKey(value=>value+1)}>Reload this period</button>
+      </div>
+      <div className={styles.periodStrip}>
+        {pastPeriods.map(item => {
+          const active = item.month === month && item.period === period;
+          return <button key={`${item.month}-${item.period}`} className={active ? styles.periodActive : ''} onClick={() => { setMonth(item.month); setPeriod(item.period); setSelectedKey(''); }}>
+            <strong>{item.label}</strong>
+            <small>{item.dates.start} → {item.dates.end}</small>
+          </button>;
+        })}
+      </div>
     </section>
 
     {message && <p className={styles.status}>{message}</p>}
@@ -205,11 +261,12 @@ export default function ManagerBonusApp() {
 
       <article className={styles.reviewSheet}>
         <header className={styles.sheetHead}>
-          <div><span className={styles.eyebrow}>Review sheet</span><h3>{selected.employee_name}</h3><p>{selected.location} · {selected.role || selected.department || 'Manager'} · {selectedStatus === 'done' ? 'Ready for payout' : statusText(selectedStatus)}</p></div>
+          <div><span className={styles.eyebrow}>Review sheet</span><h3>{selected.employee_name}</h3><p>{selected.location} · {selected.role || selected.department || 'Manager'} · {selected.archived_record ? 'Past saved record' : selectedStatus === 'done' ? 'Ready for payout' : statusText(selectedStatus)}</p></div>
           <div className={styles.payout}><small>Total bonus to pay</small><strong>{money(selected.finalBonus)}</strong></div>
         </header>
         <div className={styles.sheetBody}>
           <div className={styles.fields}>
+            <label className={styles.field}>Hourly rate<input value={selected.wage ? `${rate.format(selected.wage)}/hr` : 'Not stored'} disabled /></label>
             <label className={styles.field}>7shifts hours<input value={selected.seven_shifts_hours.toFixed(2)} disabled /></label>
             <label className={styles.field}>Add hours<input type="number" step="0.25" value={selected.manual_hours || 0} onChange={event=>update('manual_hours',Number(event.target.value))} /></label>
             <label className={styles.field}>Original bonus<input type="number" min="0" step="0.01" value={selected.original_bonus || 0} onChange={event=>update('original_bonus',Number(event.target.value))} /></label>

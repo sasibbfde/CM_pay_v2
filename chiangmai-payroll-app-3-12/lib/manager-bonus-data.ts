@@ -29,8 +29,8 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
   const queryStart = new Date(`${periodStart}T00:00:00Z`); queryStart.setUTCDate(queryStart.getUTCDate() - 1);
   const queryEnd = new Date(`${periodEnd}T23:59:59Z`); queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
   const [rawEmployees, punches] = await Promise.all([
-    fetchAll(supabase, 'employees', 'employee_id, seven_shifts_user_id, full_name, location, department, role, active', query => query.eq('active', true)),
-    fetchAll(supabase, 'punches', 'employee_id, seven_shifts_user_id, employee_name, location, department, role, clocked_in, clocked_out, hours', query => query
+    fetchAll(supabase, 'employees', 'employee_id, seven_shifts_user_id, full_name, location, department, role, wage, active', query => query.eq('active', true)),
+    fetchAll(supabase, 'punches', 'employee_id, seven_shifts_user_id, employee_name, location, department, role, clocked_in, clocked_out, hours, wage', query => query
       .gte('clocked_in', queryStart.toISOString()).lte('clocked_in', queryEnd.toISOString()).order('clocked_in')),
   ]);
   const employees = rawEmployees.map(fillMissingRosterDetails);
@@ -46,7 +46,7 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
     if (!isManager(employee.department, employee.role)) continue;
     const employeeId = String(employee.employee_id || employee.seven_shifts_user_id || employee.full_name);
     const location = employee.location || 'Unknown';
-    managers.set(`${employeeId}\u0000${location}`, { employee_id:employeeId, employee_name:employee.full_name, location, department:employee.department || '', role:employee.role || '', worked_hours:0 });
+    managers.set(`${employeeId}\u0000${location}`, { employee_id:employeeId, employee_name:employee.full_name, location, department:employee.department || '', role:employee.role || '', wage:Number(employee.wage || 0), worked_hours:0 });
   }
 
   for (const punch of punches) {
@@ -57,7 +57,8 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
     const employeeId = String(employee?.employee_id || punch.employee_id || employee?.seven_shifts_user_id || punch.seven_shifts_user_id || punch.employee_name);
     const location = punch.location || employee?.location || 'Unknown';
     const key = `${employeeId}\u0000${location}`;
-    const row = managers.get(key) || { employee_id:employeeId, employee_name:employee?.full_name || punch.employee_name, location, department:employee?.department || punch.department || '', role:employee?.role || punch.role || '', worked_hours:0 };
+    const row = managers.get(key) || { employee_id:employeeId, employee_name:employee?.full_name || punch.employee_name, location, department:employee?.department || punch.department || '', role:employee?.role || punch.role || '', wage:Number(employee?.wage || punch.wage || 0), worked_hours:0 };
+    if (!row.wage && Number(punch.wage || 0) > 0) row.wage = Number(punch.wage || 0);
     row.worked_hours += getPunchHours({ ...punch, wage:0 });
     managers.set(key, row);
   }
@@ -81,6 +82,19 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
   for (const review of fallbackReviews) {
     const key = `${review.employee_id}\u0000${review.location}`;
     reviewByKey.set(key, { ...(reviewByKey.get(key) || {}), ...review });
+  }
+  for (const [key, review] of reviewByKey) {
+    if (managers.has(key)) continue;
+    managers.set(key, {
+      employee_id:review.employee_id,
+      employee_name:review.employee_name,
+      location:review.location,
+      department:review.department || '',
+      role:review.role || 'Manager',
+      wage:Number(review.wage || 0),
+      worked_hours:0,
+      archived_record:true,
+    });
   }
 
   const rows = [...managers.values()].map(manager => {
@@ -108,6 +122,8 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
       max_points,
       seven_shifts_hours,
       manual_hours,
+      wage:Number(manager.wage || review.wage || 0),
+      archived_record:Boolean(manager.archived_record),
       worked_hours:Math.round((seven_shifts_hours + manual_hours) * 100) / 100,
       original_bonus:Number(review.original_bonus || 0),
       ...calculateTemplateManagerBonus(Number(review.original_bonus || 0), rubric_ratings, bonus_pool, max_points),
