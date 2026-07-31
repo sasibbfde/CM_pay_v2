@@ -32,7 +32,7 @@ function bytesToHex(bytes: Uint8Array) {
   return [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function sha256Hex(value: string) {
+export async function sha256Hex(value: string) {
   const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return bytesToHex(new Uint8Array(buffer));
 }
@@ -60,8 +60,20 @@ export async function findLocationAccount(email: string, password: string) {
   const normalizedEmail = email.trim().toLowerCase();
   const account = LOCATION_ACCOUNTS.find(item => item.email === normalizedEmail);
   if (!account) return null;
-  const hash = await sha256Hex(`${HASH_SALT}\0${normalizedEmail}\0${password}`);
-  return timingSafeEqual(hash, account.passwordHash) ? account : null;
+  return await verifyLocationPassword(account, normalizedEmail, password) ? account : null;
+}
+
+export async function hashLocationPassword(password: string) {
+  return `v2:${await sha256Hex(`${HASH_SALT}\0password-only\0${password}`)}`;
+}
+
+export async function verifyLocationPassword(account: LocationAccount, normalizedEmail: string, password: string) {
+  if (account.passwordHash.startsWith('v2:')) {
+    const hash = await hashLocationPassword(password);
+    return timingSafeEqual(hash, account.passwordHash);
+  }
+  const legacyHash = await sha256Hex(`${HASH_SALT}\0${normalizedEmail}\0${password}`);
+  return timingSafeEqual(legacyHash, account.passwordHash);
 }
 
 export function locationAuthSecret() {

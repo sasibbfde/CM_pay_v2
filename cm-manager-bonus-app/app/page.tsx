@@ -18,6 +18,13 @@ type ManagerBonusResponse = {
   error?: string;
 };
 
+type LoginAccount = {
+  email:string;
+  location:string;
+  role:'owner'|'location_manager';
+  password?:string;
+};
+
 const currency = new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:0});
 const rate = new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',minimumFractionDigits:2,maximumFractionDigits:2});
 
@@ -89,7 +96,11 @@ export default function ManagerBonusApp() {
   const [loading,setLoading] = useState(true);
   const [refreshKey,setRefreshKey] = useState(0);
   const [locationScope,setLocationScope] = useState('');
-  const [activeTab,setActiveTab] = useState<'current'|'past'>('current');
+  const [sessionRole,setSessionRole] = useState<'owner'|'location_manager'|''>('');
+  const [activeTab,setActiveTab] = useState<'current'|'past'|'accounts'>('current');
+  const [accounts,setAccounts] = useState<LoginAccount[]>([]);
+  const [accountsLoading,setAccountsLoading] = useState(false);
+  const [accountsMessage,setAccountsMessage] = useState('');
   const dates = useMemo(()=>periodDates(month,period),[month,period]);
   const pastMonths = useMemo(()=>{
     const items:{month:string;label:string}[] = [];
@@ -111,6 +122,7 @@ export default function ManagerBonusApp() {
       .then(async response=>{
         const data: ManagerBonusResponse = await response.json();
         if (!response.ok) throw new Error(data.error || 'Unable to load manager bonus data');
+        if (active && data.sessionRole) setSessionRole(data.sessionRole);
         const scopedLocation = data.locationScope || '';
         if (active && scopedLocation) {
           setLocationScope(scopedLocation);
@@ -122,6 +134,22 @@ export default function ManagerBonusApp() {
       .finally(()=>active&&setLoading(false));
     return()=>{active=false};
   },[dates.start,dates.end,refreshKey]);
+
+  useEffect(()=>{
+    if (activeTab !== 'accounts' || sessionRole !== 'owner') return;
+    let active = true;
+    setAccountsLoading(true);
+    setAccountsMessage('');
+    fetch('/api/location-accounts')
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to load login accounts');
+        if (active) setAccounts(data.accounts || []);
+      })
+      .catch(error => active && setAccountsMessage(error.message))
+      .finally(() => active && setAccountsLoading(false));
+    return () => { active = false; };
+  },[activeTab,sessionRole]);
 
   const locations = useMemo(()=>[...new Set(rows.map(row=>row.location))].sort(),[rows]);
   const locationOptions = locationScope ? [locationScope] : locations;
@@ -189,6 +217,37 @@ export default function ManagerBonusApp() {
     window.location.assign('/login');
   }
 
+  function updateAccount(location:string, field:'email'|'password', value:string) {
+    setAccounts(current => current.map(account => account.location === location ? { ...account, [field]:value } : account));
+  }
+
+  async function saveAccounts() {
+    setAccountsLoading(true);
+    setAccountsMessage('');
+    try {
+      const response = await fetch('/api/location-accounts', {
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ accounts }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to save login accounts');
+      setAccounts((data.accounts || []).map((account:LoginAccount) => ({ ...account, password:'' })));
+      setAccountsMessage('Saved login accounts. Share the new email/password with the manager.');
+    } catch (error:any) {
+      setAccountsMessage(error.message);
+    } finally {
+      setAccountsLoading(false);
+    }
+  }
+
+  async function copyAccount(account:LoginAccount) {
+    const password = account.password?.trim();
+    const text = `Manager Bonus login\nLocation: ${account.location}\nUsername/email: ${account.email}${password ? `\nPassword: ${password}` : '\nPassword: set/reset password before sharing'}`;
+    await navigator.clipboard?.writeText(text).catch(()=>null);
+    setAccountsMessage(`Copied ${account.location} login details.`);
+  }
+
   const rubric = selected ? rubricForManager(selected.department, selected.role) : [];
   const selectedStatus = selected ? status(selected) : 'none';
 
@@ -221,8 +280,33 @@ export default function ManagerBonusApp() {
     <nav className={styles.appTabs} aria-label="Manager bonus sections">
       <button className={activeTab === 'current' ? styles.appTabActive : ''} onClick={()=>setActiveTab('current')}>Current Review</button>
       <button className={activeTab === 'past' ? styles.appTabActive : ''} onClick={()=>setActiveTab('past')}>Past Records</button>
+      {sessionRole === 'owner' && <button className={activeTab === 'accounts' ? styles.appTabActive : ''} onClick={()=>setActiveTab('accounts')}>Login Accounts</button>}
     </nav>
 
+    {activeTab === 'accounts' && <section className={styles.accountsPanel}>
+      <div className={styles.historyHead}>
+        <div>
+          <span className={styles.eyebrow}>Owner only</span>
+          <h3>Location login accounts</h3>
+          <p>Edit the username/email for each location and reset passwords when you need to share access with a manager.</p>
+        </div>
+        <button className={styles.historyActive} disabled={accountsLoading} onClick={saveAccounts}>{accountsLoading ? 'Saving…' : 'Save accounts'}</button>
+      </div>
+      {accountsMessage && <p className={styles.status}>{accountsMessage}</p>}
+      <div className={styles.accountsGrid}>
+        {accounts.map(account => <article className={styles.accountCard} key={account.location}>
+          <div>
+            <strong>{account.location}</strong>
+            <small>{account.role === 'owner' ? 'Owner/admin' : 'Location manager'}</small>
+          </div>
+          <label className={styles.field}>Username / email<input value={account.email} onChange={event=>updateAccount(account.location,'email',event.target.value)} /></label>
+          <label className={styles.field}>New password<input type="text" value={account.password || ''} onChange={event=>updateAccount(account.location,'password',event.target.value)} placeholder="Leave blank to keep current password" /></label>
+          <button className={styles.secondaryDark} onClick={()=>copyAccount(account)}>Copy details</button>
+        </article>)}
+      </div>
+    </section>}
+
+    {activeTab !== 'accounts' && <>
     {activeTab === 'past' && <section className={styles.historyPanel}>
       <div className={styles.historyHead}>
         <div>
@@ -317,5 +401,6 @@ export default function ManagerBonusApp() {
         </div>
       </article>
     </section>}
+    </>}
   </main>;
 }

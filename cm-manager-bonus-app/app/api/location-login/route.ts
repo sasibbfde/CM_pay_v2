@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createLocationSession, findLocationAccount, LOCATION_AUTH_COOKIE } from '@/lib/location-auth';
+import { createLocationSession, LOCATION_AUTH_COOKIE } from '@/lib/location-auth';
+import { findStoredLocationAccount } from '@/lib/location-account-store';
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const email = String(body.email || '');
   const password = String(body.password || '');
-  const account = await findLocationAccount(email, password);
+  const account = await findStoredLocationAccount(email, password);
   if (!account) return NextResponse.json({ error: 'Invalid location username or password' }, { status: 401 });
 
   const response = NextResponse.json({ ok: true, email: account.email, location: account.location, role: account.role });

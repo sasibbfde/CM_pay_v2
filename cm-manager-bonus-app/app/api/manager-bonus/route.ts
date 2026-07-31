@@ -34,9 +34,11 @@ async function proxyManagerBonus(request: NextRequest, method: 'GET' | 'PUT') {
   });
 
   const text = await upstream.text();
-  if (method === 'GET' && locationScope && upstream.ok) {
+  if (method === 'GET' && locationSession && upstream.ok) {
     const data = JSON.parse(text);
-    const rows = Array.isArray(data.rows) ? data.rows.filter((row: any) => row.location === locationScope) : [];
+    const rows = Array.isArray(data.rows)
+      ? locationScope ? data.rows.filter((row: any) => row.location === locationScope) : data.rows
+      : [];
     return NextResponse.json({ ...data, rows, locationScope, sessionRole: locationSession?.role });
   }
   return new NextResponse(text, {
