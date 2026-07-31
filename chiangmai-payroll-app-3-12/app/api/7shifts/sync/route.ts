@@ -629,8 +629,11 @@ async function runSync(body: any): Promise<NextResponse> {
 
   // ─── 7. After-sync: fill location/dept/role/wage from punches for employees ─
   // This runs after every sync so new employees get their metadata filled in
-  const { error: fillError } = await supabase.rpc('fill_employee_fields_from_punches');
+  const { data: employeeRepairRows, error: fillError } = await supabase.rpc('fill_employee_fields_from_punches');
   if (fillError) throw new Error(`Employee metadata update failed: ${fillError.message}`);
+  const employeeRepair = Array.isArray(employeeRepairRows) && employeeRepairRows.length
+    ? employeeRepairRows[0]
+    : { details_filled:0, wages_filled:0, wages_upgraded:0 };
 
   // ─── 8. Log sync ───────────────────────────────────────────────────────────
   const duration = Date.now() - t0;
@@ -643,6 +646,9 @@ async function runSync(body: any): Promise<NextResponse> {
       ? `supplemented ${supplementedHoursAndWages.supplemented} equal-payable split punches from raw API`
       : '',
     wageUpgrades.length ? `wage upgraded for ${wageUpgrades.length} employees from 7shifts` : '',
+    employeeRepair.details_filled ? `employee details filled from punches for ${employeeRepair.details_filled}` : '',
+    employeeRepair.wages_filled ? `employee wages saved from punches for ${employeeRepair.wages_filled}` : '',
+    employeeRepair.wages_upgraded ? `employee wages upgraded from punches for ${employeeRepair.wages_upgraded}` : '',
     hoursAndWagesError ? `hours&wages fallback: ${hoursAndWagesError}` : '',
   ].filter(Boolean).join(' · ');
   const { error: logError } = await supabase.from('sync_log').insert({ triggered_by: triggeredBy, date_from: startDate, date_to: endDate, users_synced: userRows.length, punches_synced: punchesSynced, duration_ms: duration, location_breakdown: locBreakdown, notes });
@@ -660,6 +666,7 @@ async function runSync(body: any): Promise<NextResponse> {
       new_wage: item.new_wage,
       note: item.reason,
     })),
+    employee_repair: employeeRepair,
     breaks_found: rawPunches.filter((p: any) => (p.breaks||[]).length > 0).length,
     hours_and_wages_matched: reportMatchedPunches,
     hours_and_wages_rows: hoursAndWagesEntries.length,
