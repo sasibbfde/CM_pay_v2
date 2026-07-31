@@ -11,6 +11,13 @@ type ManagerRow = {
   rubric_ratings:Array<number|null>; bonus_pool:number; max_points:number; wage:number; archived_record?:boolean;
 };
 
+type ManagerBonusResponse = {
+  rows?: ManagerRow[];
+  locationScope?: string;
+  sessionRole?: 'owner' | 'location_manager';
+  error?: string;
+};
+
 const currency = new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:0});
 const rate = new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',minimumFractionDigits:2,maximumFractionDigits:2});
 
@@ -87,6 +94,7 @@ export default function ManagerBonusApp() {
   const [message,setMessage] = useState('');
   const [loading,setLoading] = useState(true);
   const [refreshKey,setRefreshKey] = useState(0);
+  const [locationScope,setLocationScope] = useState('');
   const dates = useMemo(()=>periodDates(month,period),[month,period]);
   const pastPeriods = useMemo(()=>{
     const items:{month:string;period:string;label:string;dates:{start:string;end:string}}[] = [];
@@ -105,8 +113,13 @@ export default function ManagerBonusApp() {
     setMessage('');
     fetch(`/api/manager-bonus?start=${dates.start}&end=${dates.end}`)
       .then(async response=>{
-        const data = await response.json();
+        const data: ManagerBonusResponse = await response.json();
         if (!response.ok) throw new Error(data.error || 'Unable to load manager bonus data');
+        const scopedLocation = data.locationScope || '';
+        if (active && scopedLocation) {
+          setLocationScope(scopedLocation);
+          setLocation(scopedLocation);
+        }
         if (active) setRows((data.rows || []).map(calculate));
       })
       .catch(error=>active&&setMessage(error.message))
@@ -115,10 +128,11 @@ export default function ManagerBonusApp() {
   },[dates.start,dates.end,refreshKey]);
 
   const locations = useMemo(()=>[...new Set(rows.map(row=>row.location))].sort(),[rows]);
+  const locationOptions = locationScope ? [locationScope] : locations;
   const visible = useMemo(()=>rows
-    .filter(row=>location==='ALL'||row.location===location)
+    .filter(row=>(locationScope ? row.location === locationScope : location==='ALL'||row.location===location))
     .filter(row=>!query.trim()||row.employee_name.toLowerCase().includes(query.toLowerCase().trim())||row.location.toLowerCase().includes(query.toLowerCase().trim())),
-    [rows,location,query]);
+    [rows,location,locationScope,query]);
   const selected = useMemo(()=>visible.find(row=>`${row.employee_id}\u0000${row.location}`===selectedKey) || visible[0] || null,[visible,selectedKey]);
   const totals = useMemo(()=>visible.reduce((sum,row)=>({
     managers:sum.managers+1,
@@ -211,7 +225,7 @@ export default function ManagerBonusApp() {
     <section className={styles.filters}>
       <label>Month<input type="month" value={month} onChange={event=>setMonth(event.target.value)} /></label>
       <label>Payroll filter<select value={period} onChange={event=>setPeriod(event.target.value)}><option value="month">Full month</option><option value="1-15">1–15</option><option value="16-end">16–End</option></select></label>
-      <label>Location<select value={location} onChange={event=>{setLocation(event.target.value);setSelectedKey('')}}><option value="ALL">All locations</option>{locations.map(item=><option key={item}>{item}</option>)}</select></label>
+      <label>Location<select value={location} disabled={Boolean(locationScope)} onChange={event=>{setLocation(event.target.value);setSelectedKey('')}}>{!locationScope && <option value="ALL">All locations</option>}{locationOptions.map(item=><option key={item}>{item}</option>)}</select></label>
       <label>Search<input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Manager or location" /></label>
     </section>
 

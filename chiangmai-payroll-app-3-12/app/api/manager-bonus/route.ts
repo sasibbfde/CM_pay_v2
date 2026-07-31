@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   const end = request.nextUrl.searchParams.get('end');
   if (!validDate(start) || !validDate(end) || start! > end!) return NextResponse.json({ error:'A valid start and end date are required' }, { status:400 });
   try {
-    const result = await getManagerBonusRows(start!, end!);
+    const result = await getManagerBonusRows(start!, end!, request.nextUrl.searchParams.get('location') || '');
     return NextResponse.json({ ...result, period_start:start, period_end:end });
   } catch (error: any) {
     return NextResponse.json({ error:error.message }, { status:500 });

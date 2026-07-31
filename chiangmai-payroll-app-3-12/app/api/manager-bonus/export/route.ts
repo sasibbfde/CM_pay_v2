@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     const location = params.get('location') || '';
     const employeeId = params.get('employee_id') || '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return NextResponse.json({ error:'Valid dates are required' }, { status:400 });
-    const { rows } = await getManagerBonusRows(start, end);
+    const { rows } = await getManagerBonusRows(start, end, location);
     const selected = rows.filter((row:any) => (!location || row.location === location) && (!employeeId || row.employee_id === employeeId));
     if (!selected.length) return NextResponse.json({ error:'No managers found for this report' }, { status:404 });
 

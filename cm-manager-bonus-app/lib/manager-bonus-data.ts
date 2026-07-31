@@ -24,8 +24,10 @@ async function fetchAll(supabase: any, table: string, columns: string, filter?: 
   return rows;
 }
 
-export async function getManagerBonusRows(periodStart: string, periodEnd: string) {
+export async function getManagerBonusRows(periodStart: string, periodEnd: string, locationFilter = '') {
   const supabase = getSupabaseAdmin();
+  const requestedLocation = locationFilter.trim();
+  const matchesLocation = (location?: string | null) => !requestedLocation || location === requestedLocation;
   const queryStart = new Date(`${periodStart}T00:00:00Z`); queryStart.setUTCDate(queryStart.getUTCDate() - 1);
   const queryEnd = new Date(`${periodEnd}T23:59:59Z`); queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
   const [rawEmployees, punches] = await Promise.all([
@@ -46,6 +48,7 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
     if (!isManager(employee.department, employee.role)) continue;
     const employeeId = String(employee.employee_id || employee.seven_shifts_user_id || employee.full_name);
     const location = employee.location || 'Unknown';
+    if (!matchesLocation(location)) continue;
     managers.set(`${employeeId}\u0000${location}`, { employee_id:employeeId, employee_name:employee.full_name, location, department:employee.department || '', role:employee.role || '', wage:Number(employee.wage || 0), worked_hours:0 });
   }
 
@@ -56,6 +59,7 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
     if (!isManager(employee?.department || punch.department, employee?.role || punch.role)) continue;
     const employeeId = String(employee?.employee_id || punch.employee_id || employee?.seven_shifts_user_id || punch.seven_shifts_user_id || punch.employee_name);
     const location = punch.location || employee?.location || 'Unknown';
+    if (!matchesLocation(location)) continue;
     const key = `${employeeId}\u0000${location}`;
     const row = managers.get(key) || { employee_id:employeeId, employee_name:employee?.full_name || punch.employee_name, location, department:employee?.department || punch.department || '', role:employee?.role || punch.role || '', wage:Number(employee?.wage || punch.wage || 0), worked_hours:0 };
     if (!row.wage && Number(punch.wage || 0) > 0) row.wage = Number(punch.wage || 0);
@@ -70,9 +74,12 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
   let reviews: any[] = [];
   let tableReady = true;
   const settingRows = await fetchAll(supabase, 'settings', 'key,value', query => query.like('key', 'manager_bonus:%'));
-  const fallbackReviews = settingRows.map(row => row.value).filter(value => value?.period_start === periodStart && value?.period_end === periodEnd);
+  const fallbackReviews = settingRows.map(row => row.value).filter(value => value?.period_start === periodStart && value?.period_end === periodEnd && matchesLocation(value?.location));
   try {
-    reviews = await fetchAll(supabase, 'manager_bonus_reviews', '*', query => query.eq('period_start', periodStart).eq('period_end', periodEnd));
+    reviews = await fetchAll(supabase, 'manager_bonus_reviews', '*', query => {
+      const base = query.eq('period_start', periodStart).eq('period_end', periodEnd);
+      return requestedLocation ? base.eq('location', requestedLocation) : base;
+    });
   } catch (error: any) {
     if (error?.code === 'PGRST205' || /manager_bonus_reviews/i.test(error?.message || '')) tableReady = false;
     else throw error;
