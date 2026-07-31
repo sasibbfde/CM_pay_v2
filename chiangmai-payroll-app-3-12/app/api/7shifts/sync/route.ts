@@ -47,6 +47,12 @@ function mapLoc(id: any): string {
 
 const round2 = (value: number) => Math.round(Math.max(0, value) * 100) / 100;
 const nameKey = (value?: string | null) => (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const detailKey = (value?: string | null) => (value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+const usefulDetail = (value?: string | null) => {
+  const normalized = detailKey(value);
+  return Boolean(normalized) && !['unknown', 'no location', 'no role', 'no department', 'null', 'undefined'].includes(normalized);
+};
+const detailOrBlank = (value?: string | null) => usefulDetail(value) ? String(value).trim() : '';
 const SUPABASE_PAGE = 1000;
 
 async function fetchAllSupabaseRows(makeQuery: (from: number, to: number) => any) {
@@ -205,9 +211,9 @@ async function runSync(body: any): Promise<NextResponse> {
     const role = u.role_name || mapRole(u.role_id) || null;
     const completed = fillMissingRosterDetails({
       full_name:fullName(u),
-      location:(loc && loc !== 'Unknown' ? loc : existing?.location) || '',
-      department:dept || existing?.department || '',
-      role:role || existing?.role || '',
+      location:detailOrBlank(loc) || detailOrBlank(existing?.location),
+      department:detailOrBlank(dept) || detailOrBlank(existing?.department),
+      role:detailOrBlank(role) || detailOrBlank(existing?.role),
       wage,
     });
     const cashWage = resolveCashWage({ name: fullName(u), location: completed.location, cash_wage: existing?.cash_wage });
@@ -238,9 +244,9 @@ async function runSync(body: any): Promise<NextResponse> {
       // Only set these if 7shifts has a real value — never overwrite DB data with null
       ...(Number(completed.wage||0)>0 ? { wage:completed.wage } : {}),
       ...(Number(cashWage||0)>0 ? { cash_wage:cashWage } : {}),
-      ...(completed.location          ? { location:completed.location }: {}),
-      ...(completed.department        ? { department:completed.department }: {}),
-      ...(completed.role              ? { role:completed.role }: {}),
+      ...(usefulDetail(completed.location)   ? { location:completed.location }: {}),
+      ...(usefulDetail(completed.department) ? { department:completed.department }: {}),
+      ...(usefulDetail(completed.role)       ? { role:completed.role }: {}),
     };
   });
 

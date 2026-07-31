@@ -8,3 +8,8 @@ test('roster details fill missing fields without overwriting saved values',()=>{
   const preserved=fillMissingRosterDetails({full_name:'Aashish Gautam',location:'Custom',department:'Special',role:'Lead',wage:30});
   assert.equal(preserved.location,'Custom');assert.equal(preserved.role,'Lead');assert.equal(preserved.wage,30);
 });
+
+test('roster details treat Unknown placeholders as missing fields',()=>{
+  const filled=fillMissingRosterDetails({full_name:'Aashish Gautam',location:'Unknown',department:'Unknown',role:'No role',wage:0});
+  assert.deepEqual(filled,{full_name:'Aashish Gautam',location:'Chiang Mai Danforth',department:'Back of House',role:'Curry',wage:17.6});
+});

@@ -1,6 +1,11 @@
 type RosterDetail = { location:string; department:string; role:string; wage?:number };
 
 const normalize = (value:string) => value.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
+const isUsefulDetail = (value?: string | null) => {
+  const normalized = normalize(String(value || ''));
+  return Boolean(normalized)
+    && !['unknown', 'no location', 'no role', 'no department', 'null', 'undefined'].includes(normalized);
+};
 
 // High-confidence matches from Employee Mastersheet Roaster 2026-2.xlsx.
 // Payroll-only new employees are marked separately and never overwrite an
@@ -42,10 +47,9 @@ export function fillMissingRosterDetails<T extends {full_name:string;location?:s
   const detail=getRosterDetail(employee.full_name);
   if(!detail)return employee;
   return {...employee,
-    location:String(employee.location||'').trim()?employee.location:detail.location,
-    department:String(employee.department||'').trim()?employee.department:detail.department,
-    role:String(employee.role||'').trim()?employee.role:detail.role,
+    location:isUsefulDetail(employee.location)?employee.location:detail.location,
+    department:isUsefulDetail(employee.department)?employee.department:detail.department,
+    role:isUsefulDetail(employee.role)?employee.role:detail.role,
     wage:Number(employee.wage||0)>0?employee.wage:(detail.wage??employee.wage),
   };
 }
-
