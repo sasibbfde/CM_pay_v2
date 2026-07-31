@@ -38,7 +38,7 @@ function sanitizeAccount(account: LocationAccount, builtinIds: Set<string>) {
   return {
     id: account.id || locationAccountId(account),
     email: account.email,
-    location: account.location,
+    location: account.role === 'owner' ? ALL_LOCATIONS_SCOPE : account.location,
     role: account.role,
     builtin: builtinIds.has(account.id || locationAccountId(account)),
   };
@@ -102,8 +102,8 @@ export async function saveLocationAccounts(input: Array<{ id?:string; location:s
     const id = String(row.id || '').trim() || `custom:${crypto.randomUUID()}`;
     const currentAccount = currentById.get(id);
     const email = normalizeEmail(String(row.email || ''));
-    const role = id === defaultOwner.id ? 'owner' : 'location_manager';
-    const location = role === 'owner' ? defaultOwner.location : String(row.location || '').trim();
+    const role = id === defaultOwner.id ? 'owner' : row.role === 'owner' ? 'owner' : 'location_manager';
+    const location = role === 'owner' ? ALL_LOCATIONS_SCOPE : String(row.location || '').trim();
     if (role !== 'owner') assertValidLocation(location);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Valid email is required for ${row.location}`);
     if (seenEmails.has(email)) throw new Error(`Duplicate username/email is not allowed: ${email}`);

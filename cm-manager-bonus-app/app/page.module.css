@@ -544,6 +544,18 @@
   text-transform: uppercase;
 }
 
+.requiredHint {
+  color: var(--red);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.helpNote {
+  margin: -4px 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .field input:disabled {
   color: var(--muted);
 }

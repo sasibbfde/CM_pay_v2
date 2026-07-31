@@ -223,7 +223,7 @@ export default function ManagerBonusApp() {
     window.location.assign('/login');
   }
 
-  function updateAccount(id:string, field:'email'|'password'|'location', value:string) {
+  function updateAccount(id:string, field:'email'|'password'|'location'|'role', value:string) {
     setAccounts(current => current.map(account => account.id === id ? { ...account, [field]:value } : account));
   }
 
@@ -240,6 +240,25 @@ export default function ManagerBonusApp() {
       },
     ]);
     setAccountsMessage('Added a new login. Choose All locations or one location, then enter username/email and password.');
+  }
+
+  function addOwnerAccount(email = '') {
+    setAccounts(current => {
+      const normalized = email.trim().toLowerCase();
+      if (normalized && current.some(account => account.email.toLowerCase() === normalized)) return current;
+      return [
+        ...current,
+        {
+          id:`custom-owner:${Date.now()}:${Math.random().toString(16).slice(2)}`,
+          email:normalized,
+          location:'All locations',
+          role:'owner',
+          builtin:false,
+          password:'',
+        },
+      ];
+    });
+    setAccountsMessage('Added an Owner/Admin login. Enter a password with at least 8 characters, then Save accounts.');
   }
 
   function deleteAccount(id:string) {
@@ -278,7 +297,7 @@ export default function ManagerBonusApp() {
 
   async function copyAccount(account:LoginAccount) {
     const password = account.password?.trim();
-    const text = `Manager Bonus login\nAccess: ${account.location}\nUsername/email: ${account.email}${password ? `\nPassword: ${password}` : '\nPassword: set/reset password before sharing'}\nApp: https://cm-manager-bonus.vercel.app`;
+    const text = `Manager Bonus login\nRole: ${account.role === 'owner' ? 'Owner/Admin' : 'Location user'}\nAccess: ${account.role === 'owner' ? 'All locations' : account.location}\nUsername/email: ${account.email}${password ? `\nPassword: ${password}` : '\nPassword: set/reset password before sharing'}\nApp: https://cm-manager-bonus.vercel.app`;
     await navigator.clipboard?.writeText(text).catch(()=>null);
     setAccountsMessage(`Copied ${account.location} login details.`);
   }
@@ -326,22 +345,29 @@ export default function ManagerBonusApp() {
           <p>Add users, choose one location or All locations, and reset passwords. Saved accounts can sign in immediately.</p>
         </div>
         <div className={styles.buttonRow}>
+          <button className={styles.secondaryDark} disabled={accountsLoading} onClick={()=>addOwnerAccount('cheshasi1995@gmail.com')}>+ Cheshasi owner</button>
+          <button className={styles.secondaryDark} disabled={accountsLoading} onClick={()=>addOwnerAccount()}>+ Owner/Admin</button>
           <button className={styles.secondaryDark} disabled={accountsLoading} onClick={addAccount}>+ Add user</button>
           <button className={styles.historyActive} disabled={accountsLoading} onClick={saveAccounts}>{accountsLoading ? 'Saving…' : 'Save accounts'}</button>
         </div>
       </div>
+      <p className={styles.helpNote}>Passwords are saved permanently as secure hashes. New users and password resets must use at least 8 characters. After saving, that username/email and password can sign in to this Manager Bonus app.</p>
       {accountsMessage && <p className={styles.status}>{accountsMessage}</p>}
       <div className={styles.accountsGrid}>
         {accounts.map(account => <article className={styles.accountCard} key={account.id}>
           <div>
             <strong>{account.role === 'owner' ? 'Owner / Admin' : account.location}</strong>
-            <small>{account.role === 'owner' ? 'Can manage all accounts' : account.location === 'All locations' ? 'Can view all locations, cannot manage accounts' : 'Location manager access'}{account.builtin ? ' · built-in' : ' · custom'}</small>
+            <small>{account.role === 'owner' ? 'Can manage accounts and see all locations' : account.location === 'All locations' ? 'Can view all locations, cannot manage accounts' : 'Location manager access'}{account.builtin ? ' · built-in' : ' · custom'}</small>
           </div>
+          {!account.builtin && <label className={styles.field}>Role<select value={account.role} onChange={event=>updateAccount(account.id,'role',event.target.value)}>
+            <option value="location_manager">Location user</option>
+            <option value="owner">Owner / Admin</option>
+          </select></label>}
           {account.role !== 'owner' && <label className={styles.field}>Access<select value={account.location} onChange={event=>updateAccount(account.id,'location',event.target.value)}>
             {accountLocations.map(item=><option key={item} value={item}>{item}</option>)}
           </select></label>}
           <label className={styles.field}>Username / email<input value={account.email} onChange={event=>updateAccount(account.id,'email',event.target.value)} /></label>
-          <label className={styles.field}>New password<input type="text" value={account.password || ''} onChange={event=>updateAccount(account.id,'password',event.target.value)} placeholder="Leave blank to keep current password" /></label>
+          <label className={styles.field}>New password <span className={styles.requiredHint}>8+ characters</span><input type="text" value={account.password || ''} onChange={event=>updateAccount(account.id,'password',event.target.value)} placeholder={account.builtin ? 'Leave blank to keep current password' : 'Required for new user'} /></label>
           <div className={styles.accountActions}>
             <button className={styles.secondaryDark} onClick={()=>copyAccount(account)}>Copy details</button>
             {account.role !== 'owner' && !account.builtin && <button className={styles.dangerButton} onClick={()=>deleteAccount(account.id)}>Delete</button>}
