@@ -14,9 +14,14 @@ export default function AuthForm({ mode }: { mode:'login'|'signup' }) {
   const [loading, setLoading] = useState(false);
   const requestedNext = searchParams.get('next');
   const next = requestedNext?.startsWith('/') && !requestedNext.startsWith('//') ? requestedNext : '/';
+  const ownerIssuedOnly = mode === 'signup';
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (ownerIssuedOnly) {
+      setMessage('Account creation is managed by the owner. Please use the location login Sasi provides.');
+      return;
+    }
     setLoading(true);
     setMessage('');
     try {
@@ -27,18 +32,6 @@ export default function AuthForm({ mode }: { mode:'login'|'signup' }) {
         window.location.assign(next);
         return;
       }
-
-      if (password !== confirmPassword) throw new Error('Passwords do not match');
-      const callback = new URL('/auth/callback', window.location.origin);
-      callback.searchParams.set('next', next);
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { emailRedirectTo: callback.toString() },
-      });
-      if (error) throw error;
-      if (data.session) window.location.assign(next);
-      else setMessage('Account created. Check your email to confirm it, then sign in.');
     } catch (error: any) {
       setMessage(error.message || 'Authentication failed');
     } finally {
@@ -52,22 +45,22 @@ export default function AuthForm({ mode }: { mode:'login'|'signup' }) {
         <div style={{color:'var(--gold)',fontWeight:900,letterSpacing:'.18em',fontSize:11,textTransform:'uppercase'}}>Chiang Mai Thai Dining</div>
         <h1 style={{fontFamily:'Georgia, Times New Roman, serif',fontSize:32,margin:'10px 0 6px',color:'var(--plum-deep)'}}>{mode === 'login' ? 'Manager Bonus' : 'Create bonus access'}</h1>
         <p style={{margin:'0 0 24px',color:'var(--muted)',fontSize:14}}>
-          {mode === 'login' ? 'Sign in to review manager bonuses, hours, and payouts.' : 'Accounts are for authorized Chiang Mai leadership.'}
+          {mode === 'login' ? 'Sign in to review manager bonuses, hours, and payouts.' : 'Accounts are owner-issued for authorized Chiang Mai leadership.'}
         </p>
         <form onSubmit={submit} style={{display:'grid',gap:14}}>
           <label style={{display:'grid',gap:6,fontSize:12,color:'var(--muted)',fontWeight:800,letterSpacing:'.08em',textTransform:'uppercase'}}>
             Email
-            <input type="email" autoComplete="email" required value={email} onChange={event=>setEmail(event.target.value)}
+            <input type="email" autoComplete="email" required value={email} onChange={event=>setEmail(event.target.value)} disabled={ownerIssuedOnly}
               style={{background:'#fffaf1',border:'1px solid var(--line)',borderRadius:12,color:'var(--ink)',padding:'12px 13px',fontSize:14,outline:'none'}} />
           </label>
           <label style={{display:'grid',gap:6,fontSize:12,color:'var(--muted)',fontWeight:800,letterSpacing:'.08em',textTransform:'uppercase'}}>
             Password
-            <input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={8} value={password} onChange={event=>setPassword(event.target.value)}
+            <input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={8} value={password} onChange={event=>setPassword(event.target.value)} disabled={ownerIssuedOnly}
               style={{background:'#fffaf1',border:'1px solid var(--line)',borderRadius:12,color:'var(--ink)',padding:'12px 13px',fontSize:14,outline:'none'}} />
           </label>
           {mode === 'signup' && <label style={{display:'grid',gap:6,fontSize:12,color:'var(--muted)',fontWeight:800,letterSpacing:'.08em',textTransform:'uppercase'}}>
             Confirm password
-            <input type="password" autoComplete="new-password" required minLength={8} value={confirmPassword} onChange={event=>setConfirmPassword(event.target.value)}
+            <input type="password" autoComplete="new-password" required minLength={8} value={confirmPassword} onChange={event=>setConfirmPassword(event.target.value)} disabled={ownerIssuedOnly}
               style={{background:'#fffaf1',border:'1px solid var(--line)',borderRadius:12,color:'var(--ink)',padding:'12px 13px',fontSize:14,outline:'none'}} />
           </label>}
           {mode === 'login' && <div style={{textAlign:'right',marginTop:-6}}>
@@ -75,11 +68,11 @@ export default function AuthForm({ mode }: { mode:'login'|'signup' }) {
           </div>}
           {message && <div role="status" style={{fontSize:12,color:message.startsWith('Account created')?'var(--green)':'var(--red)',background:'var(--paper-2)',border:'1px solid var(--line)',borderRadius:10,padding:'10px 11px'}}>{message}</div>}
           <button disabled={loading} type="submit" style={{marginTop:4,background:'linear-gradient(135deg, var(--plum), var(--plum-deep))',border:0,borderRadius:12,color:'#fff',padding:'12px 14px',fontWeight:900,fontSize:14,cursor:loading?'wait':'pointer',opacity:loading?0.6:1,boxShadow:'0 14px 28px rgba(76,15,80,.2)'}}>
-            {loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
+            {loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Owner-issued accounts only'}
           </button>
         </form>
         <p style={{fontSize:12,color:'var(--muted)',margin:'20px 0 0',textAlign:'center'}}>
-          {mode === 'login' ? <>Need an account? <Link href={`/signup?next=${encodeURIComponent(next)}`} style={{color:'var(--plum)',fontWeight:700}}>Create one</Link></> : <>Already registered? <Link href={`/login?next=${encodeURIComponent(next)}`} style={{color:'var(--plum)',fontWeight:700}}>Sign in</Link></>}
+          {mode === 'login' ? <>Use the location account provided by Sasi.</> : <>Already have a location account? <Link href={`/login?next=${encodeURIComponent(next)}`} style={{color:'var(--plum)',fontWeight:700}}>Sign in</Link></>}
         </p>
       </section>
     </main>
