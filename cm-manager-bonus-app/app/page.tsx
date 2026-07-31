@@ -95,6 +95,7 @@ export default function ManagerBonusApp() {
   const [loading,setLoading] = useState(true);
   const [refreshKey,setRefreshKey] = useState(0);
   const [locationScope,setLocationScope] = useState('');
+  const [activeTab,setActiveTab] = useState<'current'|'past'>('current');
   const dates = useMemo(()=>periodDates(month,period),[month,period]);
   const pastPeriods = useMemo(()=>{
     const items:{month:string;period:string;label:string;dates:{start:string;end:string}}[] = [];
@@ -209,7 +210,7 @@ export default function ManagerBonusApp() {
       <article className={styles.heroCard}>
         <span className={styles.eyebrow}>Chiang Mai Thai Dining</span>
         <h2>Review managers, score performance, and prepare bonus payouts.</h2>
-        <p>Manager names, locations, roles, hourly rate, and hours come from CM Pay V2 after its 7shifts sync. Pick any month/payroll period below to reopen past records or review the current period.</p>
+        <p>Manager names, locations, roles, hourly rate, and hours come from CM Pay V2 after its 7shifts sync. Use Current Review for this period and Past Records to reopen older saved reviews.</p>
       </article>
       <article className={styles.actionCard}>
         <span>Final payout</span>
@@ -222,19 +223,17 @@ export default function ManagerBonusApp() {
       </article>
     </section>
 
-    <section className={styles.filters}>
-      <label>Month<input type="month" value={month} onChange={event=>setMonth(event.target.value)} /></label>
-      <label>Payroll filter<select value={period} onChange={event=>setPeriod(event.target.value)}><option value="month">Full month</option><option value="1-15">1–15</option><option value="16-end">16–End</option></select></label>
-      <label>Location<select value={location} disabled={Boolean(locationScope)} onChange={event=>{setLocation(event.target.value);setSelectedKey('')}}>{!locationScope && <option value="ALL">All locations</option>}{locationOptions.map(item=><option key={item}>{item}</option>)}</select></label>
-      <label>Search<input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Manager or location" /></label>
-    </section>
+    <nav className={styles.appTabs} aria-label="Manager bonus sections">
+      <button className={activeTab === 'current' ? styles.appTabActive : ''} onClick={()=>setActiveTab('current')}>Current Review</button>
+      <button className={activeTab === 'past' ? styles.appTabActive : ''} onClick={()=>setActiveTab('past')}>Past Records</button>
+    </nav>
 
-    <section className={styles.historyPanel}>
+    {activeTab === 'past' && <section className={styles.historyPanel}>
       <div className={styles.historyHead}>
         <div>
           <span className={styles.eyebrow}>Past records</span>
           <h3>{monthLabel(month)} · {periodLabel(period)}</h3>
-          <p>{dates.start} → {dates.end} · live hours/rate from CM Pay V2, saved bonus scores from prior reviews.</p>
+          <p>{dates.start} → {dates.end} · saved bonus scores stay here for old months/payroll periods. Live hours/rates still refresh from CM Pay V2.</p>
         </div>
         <button className={styles.historyActive} onClick={()=>setRefreshKey(value=>value+1)}>Reload this period</button>
       </div>
@@ -247,6 +246,13 @@ export default function ManagerBonusApp() {
           </button>;
         })}
       </div>
+    </section>}
+
+    <section className={styles.filters}>
+      <label>Month<input type="month" value={month} onChange={event=>setMonth(event.target.value)} /></label>
+      <label>Payroll filter<select value={period} onChange={event=>setPeriod(event.target.value)}><option value="month">Full month</option><option value="1-15">1–15</option><option value="16-end">16–End</option></select></label>
+      <label>Location<select value={location} disabled={Boolean(locationScope)} onChange={event=>{setLocation(event.target.value);setSelectedKey('')}}>{!locationScope && <option value="ALL">All locations</option>}{locationOptions.map(item=><option key={item}>{item}</option>)}</select></label>
+      <label>Search<input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Manager or location" /></label>
     </section>
 
     {message && <p className={styles.status}>{message}</p>}

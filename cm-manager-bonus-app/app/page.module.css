@@ -180,6 +180,33 @@
   margin-bottom: 14px;
 }
 
+.appTabs {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255,255,255,.72);
+  box-shadow: 0 16px 44px rgba(76, 15, 80, .08);
+}
+
+.appTabs button {
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 18px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.appTabs .appTabActive,
+.appTabActive {
+  background: linear-gradient(135deg, var(--plum), var(--plum-deep));
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(76, 15, 80, .18);
+}
+
 .filters label {
   color: var(--muted);
   font-size: 10px;
