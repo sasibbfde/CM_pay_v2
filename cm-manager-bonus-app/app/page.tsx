@@ -139,6 +139,7 @@ export default function ManagerBonusApp() {
   }
 
   async function signOut() {
+    await fetch('/api/location-login', { method:'DELETE' }).catch(()=>null);
     await createClient().auth.signOut();
     window.location.assign('/login');
   }

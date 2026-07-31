@@ -1,7 +1,8 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
+import { LOCATION_AUTH_COOKIE, verifyLocationSession } from '@/lib/location-auth';
 
-const PUBLIC_PATHS = ['/login', '/signup', '/forgot-password', '/update-password', '/auth/callback', '/auth/confirm', '/auth/error'];
+const PUBLIC_PATHS = ['/login', '/signup', '/forgot-password', '/update-password', '/auth/callback', '/auth/confirm', '/auth/error', '/api/location-login'];
 
 function copyAuthState(source: NextResponse, target: NextResponse) {
   source.cookies.getAll().forEach(cookie => target.cookies.set(cookie));
@@ -31,7 +32,8 @@ export async function proxy(req: NextRequest) {
   });
 
   const { data, error } = await supabase.auth.getClaims();
-  const authenticated = !error && Boolean(data?.claims?.sub);
+  const locationSession = await verifyLocationSession(req.cookies.get(LOCATION_AUTH_COOKIE)?.value);
+  const authenticated = (!error && Boolean(data?.claims?.sub)) || Boolean(locationSession);
   const isPublic = PUBLIC_PATHS.some(path => req.nextUrl.pathname.startsWith(path));
 
   if (!authenticated && !isPublic) {

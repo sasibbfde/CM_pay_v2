@@ -28,7 +28,17 @@ export default function AuthForm({ mode }: { mode:'login'|'signup' }) {
       const supabase = createClient();
       if (mode === 'login') {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        if (error) {
+          const response = await fetch('/api/location-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+          });
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || error.message);
+          }
+        }
         window.location.assign(next);
         return;
       }
@@ -71,9 +81,9 @@ export default function AuthForm({ mode }: { mode:'login'|'signup' }) {
             {loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Owner-issued accounts only'}
           </button>
         </form>
-        <p style={{fontSize:12,color:'var(--muted)',margin:'20px 0 0',textAlign:'center'}}>
-          {mode === 'login' ? <>Use the location account provided by Sasi.</> : <>Already have a location account? <Link href={`/login?next=${encodeURIComponent(next)}`} style={{color:'var(--plum)',fontWeight:700}}>Sign in</Link></>}
-        </p>
+        {mode === 'signup' && <p style={{fontSize:12,color:'var(--muted)',margin:'20px 0 0',textAlign:'center'}}>
+          Already have a location account? <Link href={`/login?next=${encodeURIComponent(next)}`} style={{color:'var(--plum)',fontWeight:700}}>Sign in</Link>
+        </p>}
       </section>
     </main>
   );
