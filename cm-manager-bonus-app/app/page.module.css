@@ -217,7 +217,8 @@
 
 .filters input,
 .filters select,
-.field input {
+.field input,
+.field select {
   display: block;
   width: 100%;
   margin-top: 6px;
@@ -281,6 +282,21 @@
   border: 1px solid var(--line);
   background: #fff;
   color: var(--plum);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 900;
+}
+
+.accountActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dangerButton {
+  border: 1px solid #efc9c1;
+  background: #fff4f2;
+  color: var(--red);
   border-radius: 12px;
   padding: 10px 14px;
   font-weight: 900;

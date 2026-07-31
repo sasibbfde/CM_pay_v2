@@ -1,9 +1,11 @@
 import 'server-only';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import {
+  ALL_LOCATIONS_SCOPE,
   hashLocationPassword,
   LOCATION_ACCOUNTS,
   LocationAccount,
+  locationAccountId,
   verifyLocationPassword,
 } from '@/lib/location-auth';
 
@@ -13,15 +15,32 @@ type StoredLocationAccounts = {
   accounts?: LocationAccount[];
 };
 
+export const LOCATION_LOGIN_OPTIONS = [
+  ALL_LOCATIONS_SCOPE,
+  ...LOCATION_ACCOUNTS
+    .filter(account => account.role === 'location_manager')
+    .map(account => account.location),
+];
+
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
-function sanitizeAccount(account: LocationAccount) {
+function normalizeAccount(account: LocationAccount): LocationAccount {
   return {
+    ...account,
+    id: account.id || locationAccountId(account),
+    email: normalizeEmail(account.email),
+  };
+}
+
+function sanitizeAccount(account: LocationAccount, builtinIds: Set<string>) {
+  return {
+    id: account.id || locationAccountId(account),
     email: account.email,
     location: account.location,
     role: account.role,
+    builtin: builtinIds.has(account.id || locationAccountId(account)),
   };
 }
 
@@ -32,7 +51,7 @@ async function readStoredAccounts() {
     if (error) throw error;
     const value = data?.value as StoredLocationAccounts | LocationAccount[] | null | undefined;
     const accounts = Array.isArray(value) ? value : value?.accounts;
-    return Array.isArray(accounts) ? accounts.filter(account => account?.location && account?.email && account?.passwordHash) : [];
+    return Array.isArray(accounts) ? accounts.filter(account => account?.location && account?.email && account?.passwordHash).map(normalizeAccount) : [];
   } catch {
     return [];
   }
@@ -40,15 +59,24 @@ async function readStoredAccounts() {
 
 export async function getLocationAccounts() {
   const stored = await readStoredAccounts();
-  const byLocation = new Map<string, LocationAccount>();
-  for (const account of LOCATION_ACCOUNTS) byLocation.set(account.location, account);
-  for (const account of stored) byLocation.set(account.location, account);
-  return [...byLocation.values()];
+  const defaults = LOCATION_ACCOUNTS.map(normalizeAccount);
+  const byId = new Map<string, LocationAccount>();
+  for (const account of defaults) byId.set(account.id!, account);
+
+  for (const account of stored) {
+    const normalized = normalizeAccount(account);
+    const defaultMatch = defaults.find(item => item.location === normalized.location && item.role === normalized.role);
+    const id = normalized.id || defaultMatch?.id || locationAccountId(normalized);
+    byId.set(id, { ...normalized, id });
+  }
+
+  return [...byId.values()];
 }
 
 export async function getPublicLocationAccounts() {
   const accounts = await getLocationAccounts();
-  return accounts.map(sanitizeAccount);
+  const builtinIds = new Set(LOCATION_ACCOUNTS.map(account => locationAccountId(account)));
+  return accounts.map(account => sanitizeAccount(account, builtinIds));
 }
 
 export async function findStoredLocationAccount(email: string, password: string) {
@@ -59,35 +87,54 @@ export async function findStoredLocationAccount(email: string, password: string)
   return await verifyLocationPassword(account, normalizedEmail, password) ? account : null;
 }
 
-export async function saveLocationAccounts(input: Array<{ location:string; email:string; password?:string }>) {
+function assertValidLocation(location: string) {
+  if (!LOCATION_LOGIN_OPTIONS.includes(location)) throw new Error(`Choose a valid location for ${location || 'new login'}`);
+}
+
+export async function saveLocationAccounts(input: Array<{ id?:string; location:string; email:string; password?:string; role?:'owner'|'location_manager' }>) {
   const current = await getLocationAccounts();
-  const currentByLocation = new Map(current.map(account => [account.location, account]));
-  const next = new Map(current.map(account => [account.location, { ...account }]));
+  const currentById = new Map(current.map(account => [account.id || locationAccountId(account), account]));
+  const defaultOwner = normalizeAccount(LOCATION_ACCOUNTS[0]);
+  const next: LocationAccount[] = [];
+  const seenEmails = new Set<string>();
 
   for (const row of input) {
-    const currentAccount = currentByLocation.get(row.location);
-    if (!currentAccount) throw new Error(`Unknown location account: ${row.location}`);
+    const id = String(row.id || '').trim() || `custom:${crypto.randomUUID()}`;
+    const currentAccount = currentById.get(id);
     const email = normalizeEmail(String(row.email || ''));
+    const role = id === defaultOwner.id ? 'owner' : 'location_manager';
+    const location = role === 'owner' ? defaultOwner.location : String(row.location || '').trim();
+    if (role !== 'owner') assertValidLocation(location);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Valid email is required for ${row.location}`);
-    const password = String(row.password || '');
-    if (email !== normalizeEmail(currentAccount.email) && !password) {
+    if (seenEmails.has(email)) throw new Error(`Duplicate username/email is not allowed: ${email}`);
+    seenEmails.add(email);
+    const password = String(row.password || '').trim();
+    if (!currentAccount && !password) throw new Error(`Set a password for new login ${email}`);
+    if (currentAccount && email !== normalizeEmail(currentAccount.email) && currentAccount.passwordHash && !currentAccount.passwordHash.startsWith('v2:') && !password) {
       throw new Error(`Set a new password when changing the email for ${row.location}`);
     }
     if (password && password.length < 8) throw new Error(`Password for ${row.location} must be at least 8 characters`);
-    next.set(row.location, {
-      ...currentAccount,
+    next.push({
+      ...(currentAccount || {}),
+      id,
       email,
-      passwordHash: password ? await hashLocationPassword(password) : currentAccount.passwordHash,
+      location,
+      role,
+      passwordHash: password ? await hashLocationPassword(password) : currentAccount!.passwordHash,
     });
   }
 
-  const accounts = [...next.values()];
+  if (!next.some(account => account.id === defaultOwner.id)) {
+    next.unshift(defaultOwner);
+  }
+
   const supabase = getSupabaseAdmin();
   const { error } = await supabase.from('settings').upsert({
     key: SETTINGS_KEY,
-    value: { accounts, updated_at:new Date().toISOString() },
+    value: { accounts: next, updated_at:new Date().toISOString() },
     updated_at:new Date().toISOString(),
   });
   if (error) throw error;
-  return accounts.map(sanitizeAccount);
+  const builtinIds = new Set(LOCATION_ACCOUNTS.map(account => locationAccountId(account)));
+  return next.map(account => sanitizeAccount(account, builtinIds));
 }

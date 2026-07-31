@@ -2,11 +2,14 @@ export const LOCATION_AUTH_COOKIE = 'cm_manager_bonus_location_session';
 const HASH_SALT = 'cm-manager-bonus-location-login-v1';
 
 export type LocationAccount = {
+  id?: string;
   email: string;
   location: string;
   role: 'owner' | 'location_manager';
   passwordHash: string;
 };
+
+export const ALL_LOCATIONS_SCOPE = 'All locations';
 
 export const LOCATION_ACCOUNTS: LocationAccount[] = [
   { email: 'owner.manager@cm-manager-bonus.app', location: 'All locations / Owner', role: 'owner', passwordHash: 'dfe5fd3887c8e671662d2dbce8f5a68c02022ebab3b19e4dbe29d98fdae8814c' },
@@ -18,6 +21,17 @@ export const LOCATION_ACCOUNTS: LocationAccount[] = [
   { email: 'yorkmills.manager@cm-manager-bonus.app', location: 'Chiang Mai York Mills', role: 'location_manager', passwordHash: 'aad5021c8889949d536570196ddbaaea2c8c95307a506284e6d45145f24eafca' },
   { email: 'immthai.manager@cm-manager-bonus.app', location: 'Imm Thai Kitchen', role: 'location_manager', passwordHash: '63b9599ababa2d7118045c883182fc14a3d8747015ec22d7e43506f8cf906e19' },
 ];
+
+export function locationAccountId(account: Pick<LocationAccount, 'email' | 'location' | 'role'>) {
+  const location = account.location.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const email = account.email.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return account.role === 'owner' ? 'default:owner' : `default:${location || email}`;
+}
+
+export function isAllLocationsScope(location?: string | null) {
+  return String(location || '').trim().toLowerCase() === ALL_LOCATIONS_SCOPE.toLowerCase()
+    || String(location || '').trim().toUpperCase() === 'ALL';
+}
 
 function base64UrlEncode(value: string) {
   return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');

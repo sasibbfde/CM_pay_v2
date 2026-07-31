@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LOCATION_AUTH_COOKIE, verifyLocationSession } from '@/lib/location-auth';
+import { isAllLocationsScope, LOCATION_AUTH_COOKIE, verifyLocationSession } from '@/lib/location-auth';
 
 const CM_PAY_API_BASE =
   process.env.CM_PAY_API_BASE?.replace(/\/$/, '') || 'https://cm-pay-v2.vercel.app';
@@ -8,7 +8,9 @@ const proxySecret = process.env.CM_MANAGER_BONUS_PROXY_SECRET;
 
 async function proxyManagerBonus(request: NextRequest, method: 'GET' | 'PUT') {
   const locationSession = await verifyLocationSession(request.cookies.get(LOCATION_AUTH_COOKIE)?.value);
-  const locationScope = locationSession?.role === 'location_manager' ? locationSession.location : '';
+  const locationScope = locationSession?.role === 'location_manager' && !isAllLocationsScope(locationSession.location)
+    ? locationSession.location
+    : '';
   const upstreamUrl = new URL('/api/manager-bonus', CM_PAY_API_BASE);
   request.nextUrl.searchParams.forEach((value, key) => upstreamUrl.searchParams.set(key, value));
   if (method === 'GET' && locationScope) upstreamUrl.searchParams.set('location', locationScope);

@@ -19,9 +19,11 @@ type ManagerBonusResponse = {
 };
 
 type LoginAccount = {
+  id:string;
   email:string;
   location:string;
   role:'owner'|'location_manager';
+  builtin?:boolean;
   password?:string;
 };
 
@@ -99,6 +101,7 @@ export default function ManagerBonusApp() {
   const [sessionRole,setSessionRole] = useState<'owner'|'location_manager'|''>('');
   const [activeTab,setActiveTab] = useState<'current'|'past'|'accounts'>('current');
   const [accounts,setAccounts] = useState<LoginAccount[]>([]);
+  const [accountLocations,setAccountLocations] = useState<string[]>(['All locations']);
   const [accountsLoading,setAccountsLoading] = useState(false);
   const [accountsMessage,setAccountsMessage] = useState('');
   const dates = useMemo(()=>periodDates(month,period),[month,period]);
@@ -144,7 +147,10 @@ export default function ManagerBonusApp() {
       .then(async response => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Unable to load login accounts');
-        if (active) setAccounts(data.accounts || []);
+        if (active) {
+          setAccounts((data.accounts || []).map((account:LoginAccount) => ({ ...account, password:'' })));
+          setAccountLocations(data.locations || ['All locations']);
+        }
       })
       .catch(error => active && setAccountsMessage(error.message))
       .finally(() => active && setAccountsLoading(false));
@@ -217,8 +223,37 @@ export default function ManagerBonusApp() {
     window.location.assign('/login');
   }
 
-  function updateAccount(location:string, field:'email'|'password', value:string) {
-    setAccounts(current => current.map(account => account.location === location ? { ...account, [field]:value } : account));
+  function updateAccount(id:string, field:'email'|'password'|'location', value:string) {
+    setAccounts(current => current.map(account => account.id === id ? { ...account, [field]:value } : account));
+  }
+
+  function addAccount() {
+    setAccounts(current => [
+      ...current,
+      {
+        id:`custom:${Date.now()}:${Math.random().toString(16).slice(2)}`,
+        email:'',
+        location:accountLocations[0] || 'All locations',
+        role:'location_manager',
+        builtin:false,
+        password:'',
+      },
+    ]);
+    setAccountsMessage('Added a new login. Choose All locations or one location, then enter username/email and password.');
+  }
+
+  function deleteAccount(id:string) {
+    const account = accounts.find(item => item.id === id);
+    if (account?.role === 'owner') {
+      setAccountsMessage('Owner login cannot be deleted.');
+      return;
+    }
+    if (account?.builtin) {
+      setAccountsMessage('Built-in location logins stay available for safety. You can edit username/password or add custom users.');
+      return;
+    }
+    setAccounts(current => current.filter(item => item.id !== id));
+    setAccountsMessage('Login removed. Click Save accounts to make it permanent.');
   }
 
   async function saveAccounts() {
@@ -243,7 +278,7 @@ export default function ManagerBonusApp() {
 
   async function copyAccount(account:LoginAccount) {
     const password = account.password?.trim();
-    const text = `Manager Bonus login\nLocation: ${account.location}\nUsername/email: ${account.email}${password ? `\nPassword: ${password}` : '\nPassword: set/reset password before sharing'}`;
+    const text = `Manager Bonus login\nAccess: ${account.location}\nUsername/email: ${account.email}${password ? `\nPassword: ${password}` : '\nPassword: set/reset password before sharing'}\nApp: https://cm-manager-bonus.vercel.app`;
     await navigator.clipboard?.writeText(text).catch(()=>null);
     setAccountsMessage(`Copied ${account.location} login details.`);
   }
@@ -287,21 +322,30 @@ export default function ManagerBonusApp() {
       <div className={styles.historyHead}>
         <div>
           <span className={styles.eyebrow}>Owner only</span>
-          <h3>Location login accounts</h3>
-          <p>Edit the username/email for each location and reset passwords when you need to share access with a manager.</p>
+          <h3>Manager login accounts</h3>
+          <p>Add users, choose one location or All locations, and reset passwords. Saved accounts can sign in immediately.</p>
         </div>
-        <button className={styles.historyActive} disabled={accountsLoading} onClick={saveAccounts}>{accountsLoading ? 'Saving…' : 'Save accounts'}</button>
+        <div className={styles.buttonRow}>
+          <button className={styles.secondaryDark} disabled={accountsLoading} onClick={addAccount}>+ Add user</button>
+          <button className={styles.historyActive} disabled={accountsLoading} onClick={saveAccounts}>{accountsLoading ? 'Saving…' : 'Save accounts'}</button>
+        </div>
       </div>
       {accountsMessage && <p className={styles.status}>{accountsMessage}</p>}
       <div className={styles.accountsGrid}>
-        {accounts.map(account => <article className={styles.accountCard} key={account.location}>
+        {accounts.map(account => <article className={styles.accountCard} key={account.id}>
           <div>
-            <strong>{account.location}</strong>
-            <small>{account.role === 'owner' ? 'Owner/admin' : 'Location manager'}</small>
+            <strong>{account.role === 'owner' ? 'Owner / Admin' : account.location}</strong>
+            <small>{account.role === 'owner' ? 'Can manage all accounts' : account.location === 'All locations' ? 'Can view all locations, cannot manage accounts' : 'Location manager access'}{account.builtin ? ' · built-in' : ' · custom'}</small>
           </div>
-          <label className={styles.field}>Username / email<input value={account.email} onChange={event=>updateAccount(account.location,'email',event.target.value)} /></label>
-          <label className={styles.field}>New password<input type="text" value={account.password || ''} onChange={event=>updateAccount(account.location,'password',event.target.value)} placeholder="Leave blank to keep current password" /></label>
-          <button className={styles.secondaryDark} onClick={()=>copyAccount(account)}>Copy details</button>
+          {account.role !== 'owner' && <label className={styles.field}>Access<select value={account.location} onChange={event=>updateAccount(account.id,'location',event.target.value)}>
+            {accountLocations.map(item=><option key={item} value={item}>{item}</option>)}
+          </select></label>}
+          <label className={styles.field}>Username / email<input value={account.email} onChange={event=>updateAccount(account.id,'email',event.target.value)} /></label>
+          <label className={styles.field}>New password<input type="text" value={account.password || ''} onChange={event=>updateAccount(account.id,'password',event.target.value)} placeholder="Leave blank to keep current password" /></label>
+          <div className={styles.accountActions}>
+            <button className={styles.secondaryDark} onClick={()=>copyAccount(account)}>Copy details</button>
+            {account.role !== 'owner' && !account.builtin && <button className={styles.dangerButton} onClick={()=>deleteAccount(account.id)}>Delete</button>}
+          </div>
         </article>)}
       </div>
     </section>}
