@@ -345,7 +345,6 @@ export default function ManagerBonusApp() {
           <p>Add users, choose one location or All locations, and reset passwords. Saved accounts can sign in immediately.</p>
         </div>
         <div className={styles.buttonRow}>
-          <button className={styles.secondaryDark} disabled={accountsLoading} onClick={()=>addOwnerAccount('cheshasi1995@gmail.com')}>+ Cheshasi owner</button>
           <button className={styles.secondaryDark} disabled={accountsLoading} onClick={()=>addOwnerAccount()}>+ Owner/Admin</button>
           <button className={styles.secondaryDark} disabled={accountsLoading} onClick={addAccount}>+ Add user</button>
           <button className={styles.historyActive} disabled={accountsLoading} onClick={saveAccounts}>{accountsLoading ? 'Saving…' : 'Save accounts'}</button>

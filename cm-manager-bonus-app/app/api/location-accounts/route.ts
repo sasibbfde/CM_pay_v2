@@ -21,6 +21,12 @@ export async function PUT(request: NextRequest) {
     const accounts = await saveLocationAccounts(Array.isArray(body.accounts) ? body.accounts : []);
     return NextResponse.json({ ok:true, accounts });
   } catch (error:any) {
-    return NextResponse.json({ error:error.message || 'Unable to save location accounts' }, { status:400 });
+    const message = String(error?.message || '');
+    const isConfigError = message.includes('SUPABASE') || message.includes('Supabase');
+    return NextResponse.json({
+      error: isConfigError
+        ? 'Account storage is not configured for this deployment. Please check the Manager Bonus Vercel Supabase environment variables, then try Save accounts again.'
+        : message || 'Unable to save location accounts',
+    }, { status:400 });
   }
 }
