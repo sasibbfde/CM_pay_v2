@@ -3,10 +3,15 @@ import { createLocationSession, LOCATION_AUTH_COOKIE } from '@/lib/location-auth
 import { findStoredLocationAccount } from '@/lib/location-account-store';
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({}));
-  const email = String(body.email || '');
-  const password = String(body.password || '');
-  const account = await findStoredLocationAccount(email, password);
+  let account = null;
+  try {
+    const body = await request.json().catch(() => ({}));
+    const email = String(body.email || '');
+    const password = String(body.password || '');
+    account = await findStoredLocationAccount(email, password);
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Unable to verify location login' }, { status: 502 });
+  }
   if (!account) return NextResponse.json({ error: 'Invalid location username or password' }, { status: 401 });
 
   const response = NextResponse.json({ ok: true, email: account.email, location: account.location, role: account.role });

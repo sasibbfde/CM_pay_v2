@@ -21,7 +21,8 @@ function hasCronAccess(req: NextRequest) {
 function hasManagerBonusProxyAccess(req: NextRequest) {
   const secret = process.env.CM_MANAGER_BONUS_PROXY_SECRET;
   const managerBonusPath = req.nextUrl.pathname === '/api/manager-bonus'
-    || req.nextUrl.pathname === '/api/manager-bonus/export';
+    || req.nextUrl.pathname === '/api/manager-bonus/export'
+    || req.nextUrl.pathname === '/api/manager-bonus/location-accounts';
   return Boolean(managerBonusPath && secret && safeEqual(req.headers.get('authorization') || '', `Bearer ${secret}`));
 }
 
