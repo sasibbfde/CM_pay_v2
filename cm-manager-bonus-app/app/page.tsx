@@ -31,12 +31,6 @@ function monthValue(date:Date) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
 }
 
-function addMonths(date:Date, months:number) {
-  const next = new Date(date);
-  next.setMonth(next.getMonth() + months);
-  return next;
-}
-
 function periodLabel(period:string) {
   if (period === '1-15') return '1–15';
   if (period === '16-end') return '16–End';
@@ -97,13 +91,14 @@ export default function ManagerBonusApp() {
   const [locationScope,setLocationScope] = useState('');
   const [activeTab,setActiveTab] = useState<'current'|'past'>('current');
   const dates = useMemo(()=>periodDates(month,period),[month,period]);
-  const pastPeriods = useMemo(()=>{
-    const items:{month:string;period:string;label:string;dates:{start:string;end:string}}[] = [];
+  const pastMonths = useMemo(()=>{
+    const items:{month:string;label:string}[] = [];
+    const seen = new Set<string>();
     for (let offset = 0; offset > -12; offset -= 1) {
-      const value = monthValue(addMonths(now, offset));
-      for (const option of ['1-15','16-end','month']) {
-        items.push({ month:value, period:option, label:`${monthLabel(value)} · ${periodLabel(option)}`, dates:periodDates(value, option) });
-      }
+      const value = monthValue(new Date(now.getFullYear(), now.getMonth() + offset, 1));
+      if (seen.has(value)) continue;
+      seen.add(value);
+      items.push({ month:value, label:monthLabel(value) });
     }
     return items;
   },[]);
@@ -233,16 +228,17 @@ export default function ManagerBonusApp() {
         <div>
           <span className={styles.eyebrow}>Past records</span>
           <h3>{monthLabel(month)} · {periodLabel(period)}</h3>
-          <p>{dates.start} → {dates.end} · saved bonus scores stay here for old months/payroll periods. Live hours/rates still refresh from CM Pay V2.</p>
+          <p>{dates.start} → {dates.end} · choose a month here, then use Payroll filter below for Full month, 1–15, or 16–End.</p>
         </div>
         <button className={styles.historyActive} onClick={()=>setRefreshKey(value=>value+1)}>Reload this period</button>
       </div>
       <div className={styles.periodStrip}>
-        {pastPeriods.map(item => {
-          const active = item.month === month && item.period === period;
-          return <button key={`${item.month}-${item.period}`} className={active ? styles.periodActive : ''} onClick={() => { setMonth(item.month); setPeriod(item.period); setSelectedKey(''); }}>
+        {pastMonths.map(item => {
+          const active = item.month === month;
+          const itemDates = periodDates(item.month, period);
+          return <button key={item.month} className={active ? styles.periodActive : ''} onClick={() => { setMonth(item.month); setSelectedKey(''); }}>
             <strong>{item.label}</strong>
-            <small>{item.dates.start} → {item.dates.end}</small>
+            <small>{itemDates.start} → {itemDates.end}</small>
           </button>;
         })}
       </div>
