@@ -82,6 +82,10 @@ function publicAccount(account: ManagerBonusLocationAccount, builtinIds: Set<str
   };
 }
 
+function defaultAccountIds() {
+  return new Set(DEFAULT_MANAGER_BONUS_ACCOUNTS.map(account => accountId(account)));
+}
+
 async function readStoredAccounts() {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.from('settings').select('value').eq('key', SETTINGS_KEY).maybeSingle();
@@ -101,8 +105,8 @@ async function getAccounts() {
 }
 
 export async function getPublicManagerBonusLocationAccounts() {
-  const accounts = await getAccounts();
-  const builtinIds = new Set(DEFAULT_MANAGER_BONUS_ACCOUNTS.map(account => accountId(account)));
+  const builtinIds = defaultAccountIds();
+  const accounts = (await readStoredAccounts()).filter(account => !builtinIds.has(account.id || accountId(account)));
   return accounts.map(account => publicAccount(account, builtinIds));
 }
 
@@ -111,14 +115,13 @@ export async function verifyManagerBonusLocationAccount(email: string, password:
   const account = (await getAccounts()).find(item => normalizeEmail(item.email) === normalizedEmail);
   if (!account) return null;
   return await verifyLocationPassword(account, normalizedEmail, password)
-    ? publicAccount(account, new Set(DEFAULT_MANAGER_BONUS_ACCOUNTS.map(item => accountId(item))))
+    ? publicAccount(account, defaultAccountIds())
     : null;
 }
 
 export async function saveManagerBonusLocationAccounts(input: Array<{ id?:string; location:string; email:string; password?:string; role?:'owner'|'location_manager' }>) {
-  const current = await getAccounts();
+  const current = await readStoredAccounts();
   const currentById = new Map(current.map(account => [account.id || accountId(account), account]));
-  const defaultOwner = normalizeAccount(DEFAULT_MANAGER_BONUS_ACCOUNTS[0]);
   const next: ManagerBonusLocationAccount[] = [];
   const seenEmails = new Set<string>();
 
@@ -126,7 +129,7 @@ export async function saveManagerBonusLocationAccounts(input: Array<{ id?:string
     const id = String(row.id || '').trim() || `custom:${crypto.randomUUID()}`;
     const currentAccount = currentById.get(id);
     const email = normalizeEmail(String(row.email || ''));
-    const role = id === defaultOwner.id ? 'owner' : row.role === 'owner' ? 'owner' : 'location_manager';
+    const role = row.role === 'owner' ? 'owner' : 'location_manager';
     const location = role === 'owner' ? ALL_LOCATIONS_SCOPE : String(row.location || '').trim();
     if (role !== 'owner' && !MANAGER_BONUS_LOGIN_LOCATIONS.includes(location)) throw new Error(`Choose a valid location for ${location || 'new login'}`);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Valid email is required for ${row.location}`);
@@ -148,7 +151,6 @@ export async function saveManagerBonusLocationAccounts(input: Array<{ id?:string
     });
   }
 
-  if (!next.some(account => account.id === defaultOwner.id)) next.unshift(defaultOwner);
   const supabase = getSupabaseAdmin();
   const { error } = await supabase.from('settings').upsert({
     key: SETTINGS_KEY,
@@ -156,6 +158,6 @@ export async function saveManagerBonusLocationAccounts(input: Array<{ id?:string
     updated_at:new Date().toISOString(),
   });
   if (error) throw error;
-  const builtinIds = new Set(DEFAULT_MANAGER_BONUS_ACCOUNTS.map(account => accountId(account)));
+  const builtinIds = defaultAccountIds();
   return next.map(account => publicAccount(account, builtinIds));
 }
