@@ -309,7 +309,7 @@ export default function ManagerBonusApp() {
     <header className={styles.topbar}>
       <div className={styles.brand}>
         <div className={styles.mark}>CM</div>
-        <div><small>Owner Portal</small><h1>Manager Bonus</h1></div>
+        <div><small>{sessionRole === 'owner' ? 'Owner Portal' : 'Location Portal'}</small><h1>Manager Bonus</h1></div>
       </div>
       <button className={styles.signOut} onClick={signOut}>Sign out</button>
     </header>
