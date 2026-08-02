@@ -560,6 +560,39 @@
   color: var(--muted);
 }
 
+.locationChecks {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+  max-height: 190px;
+  overflow: auto;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fffaf1;
+}
+
+.checkLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.checkLine input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--plum);
+}
+
+.checkLine:has(input:disabled) {
+  color: var(--muted);
+}
+
 .rubric {
   border: 1px solid var(--line);
   border-radius: 18px;

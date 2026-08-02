@@ -52,7 +52,7 @@ export async function findStoredLocationAccount(email: string, password: string)
   return payload.account ? withSessionShape(payload.account) : null;
 }
 
-export async function saveLocationAccounts(input: Array<{ id?:string; location:string; email:string; password?:string; role?:'owner'|'location_manager' }>) {
+export async function saveLocationAccounts(input: Array<{ id?:string; location:string; locations?:string[]; email:string; password?:string; role?:'owner'|'location_manager' }>) {
   const payload = await requestAccountStorage('PUT', { accounts: input });
   return payload.accounts || [];
 }

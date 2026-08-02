@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
   }
   if (!account) return NextResponse.json({ error: 'Invalid location username or password' }, { status: 401 });
 
-  const response = NextResponse.json({ ok: true, email: account.email, location: account.location, role: account.role });
+  const response = NextResponse.json({ ok: true, email: account.email, location: account.location, locations: account.locations || [account.location], role: account.role });
   response.cookies.set(LOCATION_AUTH_COOKIE, await createLocationSession(account), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

@@ -14,6 +14,7 @@ type ManagerRow = {
 type ManagerBonusResponse = {
   rows?: ManagerRow[];
   locationScope?: string;
+  locationScopes?: string[];
   sessionRole?: 'owner' | 'location_manager';
   error?: string;
 };
@@ -22,6 +23,7 @@ type LoginAccount = {
   id:string;
   email:string;
   location:string;
+  locations?: string[];
   role:'owner'|'location_manager';
   builtin?:boolean;
   password?:string;
@@ -98,6 +100,7 @@ export default function ManagerBonusApp() {
   const [loading,setLoading] = useState(true);
   const [refreshKey,setRefreshKey] = useState(0);
   const [locationScope,setLocationScope] = useState('');
+  const [locationScopes,setLocationScopes] = useState<string[]>([]);
   const [sessionRole,setSessionRole] = useState<'owner'|'location_manager'|''>('');
   const [activeTab,setActiveTab] = useState<'current'|'past'|'accounts'>('current');
   const [accounts,setAccounts] = useState<LoginAccount[]>([]);
@@ -126,10 +129,15 @@ export default function ManagerBonusApp() {
         const data: ManagerBonusResponse = await response.json();
         if (!response.ok) throw new Error(data.error || 'Unable to load manager bonus data');
         if (active && data.sessionRole) setSessionRole(data.sessionRole);
-        const scopedLocation = data.locationScope || '';
+        const scopedLocations = Array.isArray(data.locationScopes) ? data.locationScopes : (data.locationScope ? [data.locationScope] : []);
+        const scopedLocation = scopedLocations.length === 1 ? scopedLocations[0] : '';
+        if (active) setLocationScopes(scopedLocations);
         if (active && scopedLocation) {
           setLocationScope(scopedLocation);
           setLocation(scopedLocation);
+        } else if (active && scopedLocations.length > 1) {
+          setLocationScope('');
+          if (location !== 'ALL' && !scopedLocations.includes(location)) setLocation('ALL');
         }
         if (active) setRows((data.rows || []).map(calculate));
       })
@@ -158,11 +166,12 @@ export default function ManagerBonusApp() {
   },[activeTab,sessionRole]);
 
   const locations = useMemo(()=>[...new Set(rows.map(row=>row.location))].sort(),[rows]);
-  const locationOptions = locationScope ? [locationScope] : locations;
+  const scopedOptions = locationScopes.length ? locationScopes : [];
+  const locationOptions = locationScope ? [locationScope] : scopedOptions.length ? scopedOptions : locations;
   const visible = useMemo(()=>rows
-    .filter(row=>(locationScope ? row.location === locationScope : location==='ALL'||row.location===location))
+    .filter(row=>(locationScope ? row.location === locationScope : scopedOptions.length ? (scopedOptions.includes(row.location) && (location==='ALL'||row.location===location)) : location==='ALL'||row.location===location))
     .filter(row=>!query.trim()||row.employee_name.toLowerCase().includes(query.toLowerCase().trim())||row.location.toLowerCase().includes(query.toLowerCase().trim())),
-    [rows,location,locationScope,query]);
+    [rows,location,locationScope,scopedOptions,query]);
   const selected = useMemo(()=>visible.find(row=>`${row.employee_id}\u0000${row.location}`===selectedKey) || visible[0] || null,[visible,selectedKey]);
   const totals = useMemo(()=>visible.reduce((sum,row)=>({
     managers:sum.managers+1,
@@ -227,19 +236,42 @@ export default function ManagerBonusApp() {
     setAccounts(current => current.map(account => account.id === id ? { ...account, [field]:value } : account));
   }
 
+  function accountAccessLocations(account:LoginAccount) {
+    const values = Array.isArray(account.locations) && account.locations.length ? account.locations : [account.location];
+    const cleaned = values.map(item=>String(item || '').trim()).filter(Boolean);
+    if (account.role === 'owner' || cleaned.includes('All locations')) return ['All locations'];
+    return [...new Set(cleaned)];
+  }
+
+  function updateAccountLocationAccess(id:string, locationName:string, checked:boolean) {
+    setAccounts(current => current.map(account => {
+      if (account.id !== id) return account;
+      if (locationName === 'All locations') {
+        const locations = checked ? ['All locations'] : [];
+        return { ...account, locations, location: locations[0] || '' };
+      }
+      const currentLocations = accountAccessLocations(account).filter(item => item !== 'All locations');
+      const next = checked
+        ? [...new Set([...currentLocations, locationName])]
+        : currentLocations.filter(item => item !== locationName);
+      return { ...account, locations:next, location:next.length === 1 ? next[0] : next.join(', ') };
+    }));
+  }
+
   function addAccount() {
     setAccounts(current => [
       ...current,
       {
         id:`custom:${Date.now()}:${Math.random().toString(16).slice(2)}`,
         email:'',
-        location:accountLocations[0] || 'All locations',
+        location:accountLocations.find(item=>item !== 'All locations') || accountLocations[0] || 'All locations',
+        locations:[accountLocations.find(item=>item !== 'All locations') || accountLocations[0] || 'All locations'],
         role:'location_manager',
         builtin:false,
         password:'',
       },
     ]);
-    setAccountsMessage('Added a new login. Choose All locations or one location, then enter username/email and password.');
+    setAccountsMessage('Added a new login. Choose one or more locations, then enter username/email and password.');
   }
 
   function addOwnerAccount(email = '') {
@@ -252,6 +284,7 @@ export default function ManagerBonusApp() {
           id:`custom-owner:${Date.now()}:${Math.random().toString(16).slice(2)}`,
           email:normalized,
           location:'All locations',
+          locations:['All locations'],
           role:'owner',
           builtin:false,
           password:'',
@@ -282,11 +315,14 @@ export default function ManagerBonusApp() {
       const response = await fetch('/api/location-accounts', {
         method:'PUT',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ accounts }),
+        body:JSON.stringify({ accounts:accounts.map(account=>({
+          ...account,
+          locations:account.role === 'owner' ? ['All locations'] : accountAccessLocations(account),
+        })) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to save login accounts');
-      setAccounts((data.accounts || []).map((account:LoginAccount) => ({ ...account, password:'' })));
+      setAccounts((data.accounts || []).map((account:LoginAccount) => ({ ...account, locations:account.locations?.length ? account.locations : [account.location], password:'' })));
       setAccountsMessage('Saved login accounts. Share the new email/password with the manager.');
     } catch (error:any) {
       setAccountsMessage(error.message);
@@ -297,13 +333,15 @@ export default function ManagerBonusApp() {
 
   async function copyAccount(account:LoginAccount) {
     const password = account.password?.trim();
-    const text = `Manager Bonus login\nRole: ${account.role === 'owner' ? 'Owner/Admin' : 'Location user'}\nAccess: ${account.role === 'owner' ? 'All locations' : account.location}\nUsername/email: ${account.email}${password ? `\nPassword: ${password}` : '\nPassword: set/reset password before sharing'}\nApp: https://cm-manager-bonus.vercel.app`;
+    const access = account.role === 'owner' ? 'All locations' : accountAccessLocations(account).join(', ');
+    const text = `Manager Bonus login\nRole: ${account.role === 'owner' ? 'Owner/Admin' : 'Location user'}\nAccess: ${access}\nUsername/email: ${account.email}${password ? `\nPassword: ${password}` : '\nPassword: set/reset password before sharing'}\nApp: https://cm-manager-bonus.vercel.app`;
     await navigator.clipboard?.writeText(text).catch(()=>null);
-    setAccountsMessage(`Copied ${account.location} login details.`);
+    setAccountsMessage(`Copied ${access} login details.`);
   }
 
   const rubric = selected ? rubricForManager(selected.department, selected.role) : [];
   const selectedStatus = selected ? status(selected) : 'none';
+  const exportNeedsSingleLocation = locationScopes.length > 1 && location === 'ALL';
 
   return <main className={styles.page}>
     <header className={styles.topbar}>
@@ -325,7 +363,7 @@ export default function ManagerBonusApp() {
         <strong>{money(totals.final)}</strong>
         <div className={styles.buttonRow}>
           <button className={styles.secondary} onClick={()=>setRefreshKey(value=>value+1)}>Refresh from CM Pay</button>
-          <button className={styles.primary} onClick={()=>window.location.href=`/api/manager-bonus/export?start=${dates.start}&end=${dates.end}${location==='ALL'?'':`&location=${encodeURIComponent(location)}`}`}>Export Excel</button>
+          <button className={styles.primary} disabled={exportNeedsSingleLocation} title={exportNeedsSingleLocation ? 'Choose one assigned location before exporting' : ''} onClick={()=>window.location.href=`/api/manager-bonus/export?start=${dates.start}&end=${dates.end}${location==='ALL'?'':`&location=${encodeURIComponent(location)}`}`}>Export Excel</button>
           {selected && <button className={styles.secondary} onClick={()=>window.location.href=`/api/manager-bonus/export?start=${dates.start}&end=${dates.end}&employee_id=${encodeURIComponent(selected.employee_id)}&location=${encodeURIComponent(selected.location)}`}>Selected manager</button>}
         </div>
       </article>
@@ -342,7 +380,7 @@ export default function ManagerBonusApp() {
         <div>
           <span className={styles.eyebrow}>Owner only</span>
           <h3>Manager login accounts</h3>
-          <p>Add users, choose one location or All locations, and reset passwords. Saved accounts can sign in immediately.</p>
+          <p>Add users, choose one, multiple, or all locations, and reset passwords. Saved accounts can sign in immediately.</p>
         </div>
         <div className={styles.buttonRow}>
           <button className={styles.secondaryDark} disabled={accountsLoading} onClick={()=>addOwnerAccount()}>+ Owner/Admin</button>
@@ -355,16 +393,26 @@ export default function ManagerBonusApp() {
       <div className={styles.accountsGrid}>
         {accounts.map(account => <article className={styles.accountCard} key={account.id}>
           <div>
-            <strong>{account.role === 'owner' ? 'Owner / Admin' : account.location}</strong>
-            <small>{account.role === 'owner' ? 'Can manage accounts and see all locations' : account.location === 'All locations' ? 'Can view all locations, cannot manage accounts' : 'Location manager access'}{account.builtin ? ' · built-in' : ' · custom'}</small>
+            <strong>{account.role === 'owner' ? 'Owner / Admin' : accountAccessLocations(account).join(', ')}</strong>
+            <small>{account.role === 'owner' ? 'Can manage accounts and see all locations' : accountAccessLocations(account).includes('All locations') ? 'Can view all locations, cannot manage accounts' : `Location access: ${accountAccessLocations(account).join(', ')}`}{account.builtin ? ' · built-in' : ' · custom'}</small>
           </div>
           {!account.builtin && <label className={styles.field}>Role<select value={account.role} onChange={event=>updateAccount(account.id,'role',event.target.value)}>
             <option value="location_manager">Location user</option>
             <option value="owner">Owner / Admin</option>
           </select></label>}
-          {account.role !== 'owner' && <label className={styles.field}>Access<select value={account.location} onChange={event=>updateAccount(account.id,'location',event.target.value)}>
-            {accountLocations.map(item=><option key={item} value={item}>{item}</option>)}
-          </select></label>}
+          {account.role !== 'owner' && <div className={styles.field}>Access <span className={styles.requiredHint}>select one or more</span>
+            <div className={styles.locationChecks}>
+              {accountLocations.map(item=>{
+                const selectedAccess = accountAccessLocations(account);
+                const checked = selectedAccess.includes('All locations') ? item === 'All locations' : selectedAccess.includes(item);
+                const disabled = selectedAccess.includes('All locations') && item !== 'All locations';
+                return <label key={item} className={styles.checkLine}>
+                  <input type="checkbox" checked={checked} disabled={disabled} onChange={event=>updateAccountLocationAccess(account.id,item,event.target.checked)} />
+                  <span>{item}</span>
+                </label>;
+              })}
+            </div>
+          </div>}
           <label className={styles.field}>Username / email<input value={account.email} onChange={event=>updateAccount(account.id,'email',event.target.value)} /></label>
           <label className={styles.field}>New password <span className={styles.requiredHint}>8+ characters</span><input type="text" value={account.password || ''} onChange={event=>updateAccount(account.id,'password',event.target.value)} placeholder={account.builtin ? 'Leave blank to keep current password' : 'Required for new user'} /></label>
           <div className={styles.accountActions}>
@@ -400,7 +448,7 @@ export default function ManagerBonusApp() {
     <section className={styles.filters}>
       <label>Month<input type="month" value={month} onChange={event=>setMonth(event.target.value)} /></label>
       <label>Payroll filter<select value={period} onChange={event=>setPeriod(event.target.value)}><option value="month">Full month</option><option value="1-15">1–15</option><option value="16-end">16–End</option></select></label>
-      <label>Location<select value={location} disabled={Boolean(locationScope)} onChange={event=>{setLocation(event.target.value);setSelectedKey('')}}>{!locationScope && <option value="ALL">All locations</option>}{locationOptions.map(item=><option key={item}>{item}</option>)}</select></label>
+      <label>Location<select value={location} disabled={Boolean(locationScope)} onChange={event=>{setLocation(event.target.value);setSelectedKey('')}}>{!locationScope && <option value="ALL">{locationScopes.length > 1 ? 'All assigned locations' : 'All locations'}</option>}{locationOptions.map(item=><option key={item}>{item}</option>)}</select></label>
       <label>Search<input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Manager or location" /></label>
     </section>
 

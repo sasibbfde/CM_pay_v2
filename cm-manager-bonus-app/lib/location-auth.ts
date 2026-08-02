@@ -5,6 +5,7 @@ export type LocationAccount = {
   id?: string;
   email: string;
   location: string;
+  locations?: string[];
   role: 'owner' | 'location_manager';
   passwordHash: string;
 };
@@ -31,6 +32,17 @@ export function locationAccountId(account: Pick<LocationAccount, 'email' | 'loca
 export function isAllLocationsScope(location?: string | null) {
   return String(location || '').trim().toLowerCase() === ALL_LOCATIONS_SCOPE.toLowerCase()
     || String(location || '').trim().toUpperCase() === 'ALL';
+}
+
+export function accountLocations(account: Pick<LocationAccount, 'location'> & { locations?: string[] }) {
+  const locations = Array.isArray(account.locations) && account.locations.length ? account.locations : [account.location];
+  const cleaned = locations.map(location => String(location || '').trim()).filter(Boolean);
+  if (cleaned.some(isAllLocationsScope)) return [ALL_LOCATIONS_SCOPE];
+  return [...new Set(cleaned)];
+}
+
+export function isAllowedLocation(location: string, allowedLocations: string[]) {
+  return allowedLocations.some(isAllLocationsScope) || allowedLocations.includes(location);
 }
 
 function base64UrlEncode(value: string) {
@@ -99,9 +111,11 @@ export function locationAuthSecret() {
 
 export async function createLocationSession(account: LocationAccount) {
   const expiresAt = Date.now() + 1000 * 60 * 60 * 12;
+  const locations = account.role === 'owner' ? [ALL_LOCATIONS_SCOPE] : accountLocations(account);
   const payload = base64UrlEncode(JSON.stringify({
     email: account.email,
-    location: account.location,
+    location: locations.length === 1 ? locations[0] : locations.join(', '),
+    locations,
     role: account.role,
     exp: expiresAt,
   }));
@@ -118,7 +132,10 @@ export async function verifyLocationSession(token?: string | null) {
   try {
     const session = JSON.parse(base64UrlDecode(payload));
     if (!session?.email || Number(session.exp || 0) < Date.now()) return null;
-    return session as { email:string; location:string; role:'owner'|'location_manager'; exp:number };
+    return {
+      ...session,
+      locations: Array.isArray(session.locations) && session.locations.length ? session.locations : [session.location],
+    } as { email:string; location:string; locations:string[]; role:'owner'|'location_manager'; exp:number };
   } catch {
     return null;
   }

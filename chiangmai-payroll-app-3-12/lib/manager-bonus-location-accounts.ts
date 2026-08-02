@@ -9,6 +9,7 @@ export type ManagerBonusLocationAccount = {
   id?: string;
   email: string;
   location: string;
+  locations?: string[];
   role: 'owner' | 'location_manager';
   passwordHash: string;
 };
@@ -64,19 +65,36 @@ function accountId(account: Pick<ManagerBonusLocationAccount, 'email' | 'locatio
   return account.role === 'owner' ? 'default:owner' : `default:${location || email}`;
 }
 
+function uniqueLocations(locations: string[]) {
+  const cleaned = locations.map(location => String(location || '').trim()).filter(Boolean);
+  if (cleaned.some(location => location.toLowerCase() === ALL_LOCATIONS_SCOPE.toLowerCase() || location.toUpperCase() === 'ALL')) {
+    return [ALL_LOCATIONS_SCOPE];
+  }
+  return [...new Set(cleaned)];
+}
+
+function normalizeAccountLocations(account: Pick<ManagerBonusLocationAccount, 'location'> & { locations?: string[] }) {
+  return uniqueLocations(Array.isArray(account.locations) && account.locations.length ? account.locations : [account.location]);
+}
+
 function normalizeAccount(account: ManagerBonusLocationAccount): ManagerBonusLocationAccount {
+  const locations = account.role === 'owner' ? [ALL_LOCATIONS_SCOPE] : normalizeAccountLocations(account);
   return {
     ...account,
     id: account.id || accountId(account),
     email: normalizeEmail(account.email),
+    locations,
+    location: account.role === 'owner' ? ALL_LOCATIONS_SCOPE : (locations.length === 1 ? locations[0] : locations.join(', ')),
   };
 }
 
 function publicAccount(account: ManagerBonusLocationAccount, builtinIds: Set<string>) {
+  const locations = account.role === 'owner' ? [ALL_LOCATIONS_SCOPE] : normalizeAccountLocations(account);
   return {
     id: account.id || accountId(account),
     email: account.email,
-    location: account.role === 'owner' ? ALL_LOCATIONS_SCOPE : account.location,
+    location: account.role === 'owner' ? ALL_LOCATIONS_SCOPE : (locations.length === 1 ? locations[0] : locations.join(', ')),
+    locations,
     role: account.role,
     builtin: builtinIds.has(account.id || accountId(account)),
   };
@@ -119,7 +137,7 @@ export async function verifyManagerBonusLocationAccount(email: string, password:
     : null;
 }
 
-export async function saveManagerBonusLocationAccounts(input: Array<{ id?:string; location:string; email:string; password?:string; role?:'owner'|'location_manager' }>) {
+export async function saveManagerBonusLocationAccounts(input: Array<{ id?:string; location:string; locations?:string[]; email:string; password?:string; role?:'owner'|'location_manager' }>) {
   const current = await readStoredAccounts();
   const currentById = new Map(current.map(account => [account.id || accountId(account), account]));
   const next: ManagerBonusLocationAccount[] = [];
@@ -130,9 +148,14 @@ export async function saveManagerBonusLocationAccounts(input: Array<{ id?:string
     const currentAccount = currentById.get(id);
     const email = normalizeEmail(String(row.email || ''));
     const role = row.role === 'owner' ? 'owner' : 'location_manager';
-    const location = role === 'owner' ? ALL_LOCATIONS_SCOPE : String(row.location || '').trim();
-    if (role !== 'owner' && !MANAGER_BONUS_LOGIN_LOCATIONS.includes(location)) throw new Error(`Choose a valid location for ${location || 'new login'}`);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Valid email is required for ${row.location}`);
+    const locations = role === 'owner' ? [ALL_LOCATIONS_SCOPE] : uniqueLocations(Array.isArray(row.locations) && row.locations.length ? row.locations : [row.location]);
+    if (role !== 'owner' && !locations.length) throw new Error(`Choose at least one valid location for ${email || 'new login'}`);
+    if (role !== 'owner') {
+      const invalid = locations.find(location => !MANAGER_BONUS_LOGIN_LOCATIONS.includes(location));
+      if (invalid) throw new Error(`Choose a valid location for ${invalid || 'new login'}`);
+    }
+    const location = role === 'owner' ? ALL_LOCATIONS_SCOPE : (locations.length === 1 ? locations[0] : locations.join(', '));
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Valid email is required for ${location}`);
     if (seenEmails.has(email)) throw new Error(`Duplicate username/email is not allowed: ${email}`);
     seenEmails.add(email);
     const password = String(row.password || '').trim();
@@ -146,6 +169,7 @@ export async function saveManagerBonusLocationAccounts(input: Array<{ id?:string
       id,
       email,
       location,
+      locations,
       role,
       passwordHash: password ? await hashLocationPassword(password) : currentAccount!.passwordHash,
     });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAllLocationsScope, LOCATION_AUTH_COOKIE, verifyLocationSession } from '@/lib/location-auth';
+import { accountLocations, isAllowedLocation, isAllLocationsScope, LOCATION_AUTH_COOKIE, verifyLocationSession } from '@/lib/location-auth';
 
 const CM_PAY_API_BASE =
   process.env.CM_PAY_API_BASE?.replace(/\/$/, '') || 'https://cm-pay-v2.vercel.app';
@@ -8,18 +8,19 @@ const proxySecret = process.env.CM_MANAGER_BONUS_PROXY_SECRET;
 
 async function proxyManagerBonus(request: NextRequest, method: 'GET' | 'PUT') {
   const locationSession = await verifyLocationSession(request.cookies.get(LOCATION_AUTH_COOKIE)?.value);
-  const locationScope = locationSession?.role === 'location_manager' && !isAllLocationsScope(locationSession.location)
-    ? locationSession.location
-    : '';
+  const locationScopes = locationSession?.role === 'location_manager'
+    ? accountLocations({ location: locationSession.location, locations: locationSession.locations }).filter(location => !isAllLocationsScope(location))
+    : [];
+  const hasScopedAccess = Boolean(locationScopes.length);
   const upstreamUrl = new URL('/api/manager-bonus', CM_PAY_API_BASE);
   request.nextUrl.searchParams.forEach((value, key) => upstreamUrl.searchParams.set(key, value));
-  if (method === 'GET' && locationScope) upstreamUrl.searchParams.set('location', locationScope);
+  if (method === 'GET' && locationScopes.length === 1) upstreamUrl.searchParams.set('location', locationScopes[0]);
 
   let body: string | undefined;
   if (method === 'PUT') {
     const payload = await request.json();
-    if (locationScope && payload?.location !== locationScope) {
-      return NextResponse.json({ error: `This login can only save ${locationScope} manager bonus records.` }, { status: 403 });
+    if (hasScopedAccess && !isAllowedLocation(String(payload?.location || ''), locationScopes)) {
+      return NextResponse.json({ error: `This login can only save assigned locations: ${locationScopes.join(', ')}.` }, { status: 403 });
     }
     body = JSON.stringify(payload);
   }
@@ -39,9 +40,9 @@ async function proxyManagerBonus(request: NextRequest, method: 'GET' | 'PUT') {
   if (method === 'GET' && locationSession && upstream.ok) {
     const data = JSON.parse(text);
     const rows = Array.isArray(data.rows)
-      ? locationScope ? data.rows.filter((row: any) => row.location === locationScope) : data.rows
+      ? hasScopedAccess ? data.rows.filter((row: any) => isAllowedLocation(row.location, locationScopes)) : data.rows
       : [];
-    return NextResponse.json({ ...data, rows, locationScope, sessionRole: locationSession?.role });
+    return NextResponse.json({ ...data, rows, locationScope: locationScopes.length === 1 ? locationScopes[0] : '', locationScopes, sessionRole: locationSession?.role });
   }
   return new NextResponse(text, {
     status: upstream.status,
