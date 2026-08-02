@@ -41,16 +41,32 @@ export async function GET(req: NextRequest) {
         .order('created_at', { ascending: false })
         .limit(1000)
       : { data: [] };
+    const { data: detailLogs } = employeeIds.length
+      ? await supabase
+        .from('audit_log')
+        .select('record_id, notes, created_at')
+        .in('record_id', employeeIds)
+        .eq('action', 'employee_details_updated_from_7shifts')
+        .order('created_at', { ascending: false })
+        .limit(1000)
+      : { data: [] };
     const latestWageLog = new Map<string, any>();
     for (const log of wageLogs || []) {
       if (log.record_id && !latestWageLog.has(log.record_id)) latestWageLog.set(log.record_id, log);
     }
+    const latestDetailLog = new Map<string, any>();
+    for (const log of detailLogs || []) {
+      if (log.record_id && !latestDetailLog.has(log.record_id)) latestDetailLog.set(log.record_id, log);
+    }
     const employees = baseEmployees.map(employee => {
       const wageLog = latestWageLog.get(employee.employee_id);
+      const detailLog = latestDetailLog.get(employee.employee_id);
       return {
       ...employee,
       wage_updated_at:wageLog?.created_at || null,
       wage_upgrade_note:wageLog?.notes || null,
+      detail_updated_at:detailLog?.created_at || null,
+      detail_change_note:detailLog?.notes || null,
       new_until:firstPayrollPeriodEnd(employee.created_at),
       is_new:isNewEmployee(employee.created_at),
     };

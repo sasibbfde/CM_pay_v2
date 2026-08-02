@@ -199,6 +199,7 @@ async function runSync(body: any): Promise<NextResponse> {
   const syncNow = new Date();
   const syncNowIso = syncNow.toISOString();
   const wageUpgrades: any[] = [];
+  const employeeDetailChanges: any[] = [];
   const userRows = [...userById.values()].map((u: any) => {
     const existing = existingBy7shiftsId.get(String(u.id));
     const sevenShiftsWage = selectHourlyWage(wagesByUser.get(String(u.id)) || [], u.role_id);
@@ -216,6 +217,16 @@ async function runSync(body: any): Promise<NextResponse> {
       role:detailOrBlank(role) || detailOrBlank(existing?.role),
       wage,
     });
+    const detailChanges = ([
+      ['location', existing?.location, completed.location],
+      ['department', existing?.department, completed.department],
+      ['role', existing?.role, completed.role],
+    ] as const).filter(([field, oldValue, newValue]) => {
+      if (!existing) return false;
+      if (!usefulDetail(newValue)) return false;
+      if (!usefulDetail(oldValue)) return false;
+      return detailKey(oldValue) !== detailKey(newValue);
+    });
     const cashWage = resolveCashWage({ name: fullName(u), location: completed.location, cash_wage: existing?.cash_wage });
     if (upgradedFrom7shifts) {
       wageUpgrades.push({
@@ -226,6 +237,19 @@ async function runSync(body: any): Promise<NextResponse> {
         new_wage: wage,
         source: '7shifts',
         reason: upgradeNote,
+        changed_at: syncNowIso,
+        sync_triggered_by: triggeredBy,
+      });
+    }
+    if (detailChanges.length > 0) {
+      const note = detailChanges.map(([field, oldValue, newValue]) => `${field} changed from ${oldValue} to ${newValue}`).join('; ');
+      employeeDetailChanges.push({
+        employee_id: existing?.employee_id || `7S-${u.id}`,
+        seven_shifts_user_id: String(u.id),
+        employee_name: fullName(u),
+        old_value: Object.fromEntries(detailChanges.map(([field, oldValue]) => [field, oldValue])),
+        new_value: Object.fromEntries(detailChanges.map(([field, , newValue]) => [field, newValue])),
+        reason: `${note} from 7shifts on ${syncNowIso.slice(0,10)}`,
         changed_at: syncNowIso,
         sync_triggered_by: triggeredBy,
       });
@@ -269,6 +293,25 @@ async function runSync(body: any): Promise<NextResponse> {
         created_at: item.changed_at,
       })));
       if (error) throw new Error(`Wage history write failed: ${error.message}`);
+    }
+  }
+
+  if (employeeDetailChanges.length > 0) {
+    for (let i = 0; i < employeeDetailChanges.length; i += BATCH) {
+      const { error } = await supabase.from('audit_log').insert(employeeDetailChanges.slice(i, i + BATCH).map(item => ({
+        action: 'employee_details_updated_from_7shifts',
+        table_name: 'employees',
+        record_id: item.employee_id,
+        old_value: item.old_value,
+        new_value: {
+          ...item.new_value,
+          seven_shifts_user_id: item.seven_shifts_user_id,
+          employee_name: item.employee_name,
+        },
+        notes: `${item.reason} · triggered_by=${item.sync_triggered_by}`,
+        created_at: item.changed_at,
+      })));
+      if (error) throw new Error(`Employee detail history write failed: ${error.message}`);
     }
   }
 
@@ -652,6 +695,7 @@ async function runSync(body: any): Promise<NextResponse> {
       ? `supplemented ${supplementedHoursAndWages.supplemented} equal-payable split punches from raw API`
       : '',
     wageUpgrades.length ? `wage upgraded for ${wageUpgrades.length} employees from 7shifts` : '',
+    employeeDetailChanges.length ? `employee role/location changed for ${employeeDetailChanges.length}` : '',
     employeeRepair.details_filled ? `employee details filled from punches for ${employeeRepair.details_filled}` : '',
     employeeRepair.wages_filled ? `employee wages saved from punches for ${employeeRepair.wages_filled}` : '',
     employeeRepair.wages_upgraded ? `employee wages upgraded from punches for ${employeeRepair.wages_upgraded}` : '',
@@ -670,6 +714,10 @@ async function runSync(body: any): Promise<NextResponse> {
       employee: item.employee_name,
       old_wage: item.old_wage,
       new_wage: item.new_wage,
+      note: item.reason,
+    })),
+    employee_detail_changes: employeeDetailChanges.map(item => ({
+      employee: item.employee_name,
       note: item.reason,
     })),
     employee_repair: employeeRepair,

@@ -8,6 +8,7 @@ type Employee = {
   location: string; department: string; role: string;
   wage: number; cash_wage?: number; wage_locked?: boolean; wage_source?: string;
   wage_updated_at?: string | null; wage_upgrade_note?: string | null;
+  detail_updated_at?: string | null; detail_change_note?: string | null;
   active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
 };
 
@@ -401,10 +402,12 @@ export default function WagesPage() {
                         {noWage&&<span style={{fontSize:9,background:'rgba(248,113,113,0.2)',color:'#f87171',borderRadius:3,padding:'1px 5px'}}>$0</span>}
                         {hasEdit&&<span style={{fontSize:9,background:'rgba(251,191,36,0.2)',color:'#fbbf24',borderRadius:3,padding:'1px 5px'}}>edited</span>}
                         {emp.wage_source==='7shifts-upgraded'&&<span title={emp.wage_upgrade_note || 'Wage upgraded from 7shifts'} style={{fontSize:9,background:'rgba(34,211,238,0.16)',color:'#22d3ee',borderRadius:3,padding:'1px 5px'}}>7shifts upgraded</span>}
+                        {emp.detail_change_note&&<span title={emp.detail_change_note} style={{fontSize:9,background:'rgba(167,139,250,0.16)',color:'#a78bfa',borderRadius:3,padding:'1px 5px'}}>position changed</span>}
                         {emp.wage_locked&&<span style={{fontSize:9,background:'rgba(52,211,153,0.14)',color:'#34d399',borderRadius:3,padding:'1px 5px'}}>{emp.wage_source==='roster-2026'?'roster locked':'saved'}</span>}
                         {activeRule&&<span title={activeRule.notes || activeRule.rule_type} style={{fontSize:9,background:'rgba(167,139,250,0.16)',color:'#a78bfa',borderRadius:3,padding:'1px 5px'}}>{activeRule.rule_type.replaceAll('_',' ')}</span>}
                       </div>
                       {emp.wage_upgrade_note&&<div style={{fontSize:10,color:'#22d3ee',marginTop:4}}>{emp.wage_upgrade_note}</div>}
+                      {emp.detail_change_note&&<div style={{fontSize:10,color:'#a78bfa',marginTop:4}}>{emp.detail_change_note}</div>}
                     </td>
                     <td style={{padding:'10px 16px',color:'#6b7280',fontSize:12}}>{emp.location||'—'}</td>
                     <td style={{padding:'10px 16px',color:'#6b7280',fontSize:12}}>{emp.department} · {emp.role}</td>

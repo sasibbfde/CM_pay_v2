@@ -7,6 +7,7 @@ type Employee = {
   id: string; seven_shifts_user_id: string; full_name: string;
   location: string; department: string; role: string;
   wage: number; cash_wage: number; wage_source?: string | null; wage_updated_at?: string | null; wage_upgrade_note?: string | null;
+  detail_updated_at?: string | null; detail_change_note?: string | null;
   active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
 };
 type Punch = {
@@ -295,6 +296,7 @@ export default function EmployeesPage() {
                 <div style={{fontWeight:500,fontSize:12,color:'#f9fafb',display:'flex',alignItems:'center',gap:5}}>
                   {emp.full_name}
                   {emp.is_new&&<span title={`New through ${emp.new_until}`} style={{fontSize:9,background:'rgba(34,211,238,.18)',color:'#22d3ee',borderRadius:3,padding:'1px 4px'}}>NEW</span>}
+                  {emp.detail_change_note&&<span title={emp.detail_change_note} style={{fontSize:9,background:'rgba(167,139,250,0.16)',color:'#a78bfa',borderRadius:3,padding:'1px 4px'}}>ROLE</span>}
                   {(!emp.wage||+emp.wage===0)&&<span style={{fontSize:9,background:'rgba(248,113,113,0.2)',color:'#f87171',borderRadius:3,padding:'1px 4px'}}>$0</span>}
                 </div>
                 <div style={{fontSize:10,color:'#4b5563',marginTop:1}}>{emp.location} · {emp.role||emp.department}</div>
@@ -331,6 +333,7 @@ export default function EmployeesPage() {
                   <div style={{fontSize:11,color:'#6b7280',marginTop:2}}>{selected.location} · {selected.department} · {selected.role}</div>
                   {(!selected.wage||+selected.wage===0)&&<div style={{fontSize:10,color:'#f87171',marginTop:2}}>⚠ No wage set</div>}
                   {selected.wage_upgrade_note&&<div style={{fontSize:10,color:'#22d3ee',marginTop:3}}>↗ {selected.wage_upgrade_note}</div>}
+                  {selected.detail_change_note&&<div style={{fontSize:10,color:'#a78bfa',marginTop:3}}>↔ {selected.detail_change_note}</div>}
                   {selectedRule&&<div style={{fontSize:10,color:'#a78bfa',marginTop:3}}>
                     Payroll rule: <span style={{fontWeight:700}}>{selectedRule.rule_type.replaceAll('_',' ')}</span>
                     {selectedRule.rule_value !== undefined && selectedRule.rule_value !== null ? ` · Value ${selectedRule.rule_value}` : ''}

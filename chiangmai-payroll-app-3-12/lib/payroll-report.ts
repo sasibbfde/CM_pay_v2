@@ -12,6 +12,7 @@ export type PayrollReportRow={
   wage:number; cash_wage:number; rule_type:string; rule_value:number; cheque_cap:number; gross_hours:number; break_hours:number; unpaid_break_hours:number; paid_break_hours:number;
   payable_hours:number; regular_payable_hours:number; holiday_hours:number; holiday_pay:number; rounded_hours:number; cheque_hours:number; cash_hours:number; cheque_pay:number; cash_pay:number;
   total_pay:number; status:string; notes:string; holiday_notes:string[];
+  is_new?:boolean; new_until?:string; employee_labels?:string[]; wage_change_note?:string|null; detail_change_note?:string|null;
 };
 
 function ruleFor(employeeId:string,name:string,rules:EmployeeRule[],periodEnd:string){
