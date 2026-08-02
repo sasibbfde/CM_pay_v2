@@ -8,7 +8,7 @@ import styles from './page.module.css';
 type ManagerRow = {
   employee_id:string; employee_name:string; location:string; department:string; role:string; seven_shifts_hours:number; manual_hours:number; worked_hours:number;
   original_bonus:number; notes?:string; approval?:string; totalPoints:number; scorePercent:number; maxExtraBonus:number; earnedExtraBonus:number; finalBonus:number;
-  rubric_ratings:Array<number|null>; bonus_pool:number; max_points:number; wage:number; archived_record?:boolean;
+  rubric_ratings:Array<number|null>; bonus_pool:number; max_points:number; wage:number; archived_record?:boolean; manual_record?:boolean; bonus_excluded?:boolean;
 };
 
 type ManagerBonusResponse = {
@@ -102,11 +102,13 @@ export default function ManagerBonusApp() {
   const [locationScope,setLocationScope] = useState('');
   const [locationScopes,setLocationScopes] = useState<string[]>([]);
   const [sessionRole,setSessionRole] = useState<'owner'|'location_manager'|''>('');
-  const [activeTab,setActiveTab] = useState<'current'|'past'|'accounts'>('current');
+  const [activeTab,setActiveTab] = useState<'dashboard'|'current'|'past'|'accounts'>('dashboard');
   const [accounts,setAccounts] = useState<LoginAccount[]>([]);
   const [accountLocations,setAccountLocations] = useState<string[]>(['All locations']);
   const [accountsLoading,setAccountsLoading] = useState(false);
   const [accountsMessage,setAccountsMessage] = useState('');
+  const [addingManager,setAddingManager] = useState(false);
+  const [newManager,setNewManager] = useState({ employee_name:'', location:'', role:'Manager', wage:'', manual_hours:'0', original_bonus:'0' });
   const dates = useMemo(()=>periodDates(month,period),[month,period]);
   const pastMonths = useMemo(()=>{
     const items:{month:string;label:string}[] = [];
@@ -183,6 +185,17 @@ export default function ManagerBonusApp() {
     archived:sum.archived+(row.archived_record?1:0),
     withHours:sum.withHours+(row.seven_shifts_hours>0?1:0),
   }),{managers:0,hours:0,original:0,extra:0,final:0,done:0,archived:0,withHours:0}),[visible]);
+  const locationDashboard = useMemo(()=>[...visible.reduce((map,row)=>{
+    const item = map.get(row.location) || { location:row.location, managers:0, hours:0, final:0, done:0, addHours:0 };
+    item.managers += 1;
+    item.hours += row.worked_hours;
+    item.final += row.finalBonus;
+    item.done += status(row)==='done'?1:0;
+    item.addHours += Number(row.manual_hours || 0);
+    map.set(row.location,item);
+    return map;
+  },new Map<string,{location:string;managers:number;hours:number;final:number;done:number;addHours:number}>()).values()].sort((a,b)=>b.final-a.final),[visible]);
+  const needsReview = useMemo(()=>visible.filter(row=>status(row)!=='done').slice(0,8),[visible]);
 
   function keyFor(row:ManagerRow) {
     return `${row.employee_id}\u0000${row.location}`;
@@ -224,6 +237,69 @@ export default function ManagerBonusApp() {
     } finally {
       setSaving('');
     }
+  }
+
+  async function saveManagerPayload(payload:Partial<ManagerRow>, success:string) {
+    setSaving(String(payload.employee_id || 'manager-action'));
+    setMessage('');
+    try {
+      const response = await fetch('/api/manager-bonus', {
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          rubric_ratings:Array(10).fill(null),
+          bonus_pool:50,
+          max_points:50,
+          ...payload,
+          period_start:dates.start,
+          period_end:dates.end,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Save failed');
+      setMessage(success);
+      setRefreshKey(value=>value+1);
+    } catch (error:any) {
+      setMessage(error.message);
+    } finally {
+      setSaving('');
+    }
+  }
+
+  async function addManager() {
+    const name = newManager.employee_name.trim();
+    const managerLocation = newManager.location || (location !== 'ALL' ? location : locationOptions[0] || '');
+    if (!name || !managerLocation) {
+      setMessage('Enter manager name and choose a location.');
+      return;
+    }
+    const id = `manual:${managerLocation.toLowerCase().replace(/[^a-z0-9]+/g,'-')}:${name.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`;
+    await saveManagerPayload({
+      employee_id:id,
+      employee_name:name,
+      location:managerLocation,
+      department:'Managers',
+      role:newManager.role || 'Manager',
+      wage:Number(newManager.wage || 0),
+      seven_shifts_hours:0,
+      manual_hours:Number(newManager.manual_hours || 0),
+      original_bonus:Number(newManager.original_bonus || 0),
+      manual_record:true,
+      notes:'Added manually in Manager Bonus app',
+    },`Added ${name} — ${managerLocation}`);
+    setAddingManager(false);
+    setNewManager({ employee_name:'', location:'', role:'Manager', wage:'', manual_hours:'0', original_bonus:'0' });
+  }
+
+  async function removeSelectedManager() {
+    if (!selected) return;
+    await saveManagerPayload({
+      ...selected,
+      bonus_excluded:true,
+      manual_record:selected.manual_record,
+      notes:[selected.notes,'Removed from this Manager Bonus period'].filter(Boolean).join('; '),
+    },`Removed ${selected.employee_name} from this period.`);
+    setSelectedKey('');
   }
 
   async function signOut() {
@@ -370,6 +446,7 @@ export default function ManagerBonusApp() {
     </section>
 
     <nav className={styles.appTabs} aria-label="Manager bonus sections">
+      <button className={activeTab === 'dashboard' ? styles.appTabActive : ''} onClick={()=>setActiveTab('dashboard')}>Dashboard</button>
       <button className={activeTab === 'current' ? styles.appTabActive : ''} onClick={()=>setActiveTab('current')}>Current Review</button>
       <button className={activeTab === 'past' ? styles.appTabActive : ''} onClick={()=>setActiveTab('past')}>Past Records</button>
       {sessionRole === 'owner' && <button className={activeTab === 'accounts' ? styles.appTabActive : ''} onClick={()=>setActiveTab('accounts')}>Login Accounts</button>}
@@ -424,6 +501,48 @@ export default function ManagerBonusApp() {
     </section>}
 
     {activeTab !== 'accounts' && <>
+    {activeTab === 'dashboard' && <section className={styles.dashboardPanel}>
+      <div className={styles.historyHead}>
+        <div>
+          <span className={styles.eyebrow}>Bonus dashboard</span>
+          <h3>{monthLabel(month)} · {periodLabel(period)}</h3>
+          <p>{dates.start} → {dates.end} · synced manager hours plus manually added hours.</p>
+        </div>
+        <div className={styles.buttonRow}>
+          <button className={styles.secondaryDark} onClick={()=>setRefreshKey(value=>value+1)}>Sync hours</button>
+          {sessionRole === 'owner' && <button className={styles.historyActive} onClick={()=>setAddingManager(value=>!value)}>{addingManager?'Close add manager':'+ Add manager'}</button>}
+        </div>
+      </div>
+      {addingManager && <div className={styles.addManagerBox}>
+        <label className={styles.field}>Manager name<input value={newManager.employee_name} onChange={event=>setNewManager(current=>({...current,employee_name:event.target.value}))} placeholder="Manager name" /></label>
+        <label className={styles.field}>Location<select value={newManager.location} onChange={event=>setNewManager(current=>({...current,location:event.target.value}))}><option value="">Choose location</option>{locationOptions.map(item=><option key={item}>{item}</option>)}</select></label>
+        <label className={styles.field}>Role<input value={newManager.role} onChange={event=>setNewManager(current=>({...current,role:event.target.value}))} /></label>
+        <label className={styles.field}>Rate<input type="number" step="0.01" value={newManager.wage} onChange={event=>setNewManager(current=>({...current,wage:event.target.value}))} /></label>
+        <label className={styles.field}>Add hours<input type="number" step="0.25" value={newManager.manual_hours} onChange={event=>setNewManager(current=>({...current,manual_hours:event.target.value}))} /></label>
+        <label className={styles.field}>Original bonus<input type="number" step="0.01" value={newManager.original_bonus} onChange={event=>setNewManager(current=>({...current,original_bonus:event.target.value}))} /></label>
+        <button className={styles.primary} disabled={Boolean(saving)} onClick={addManager}>Save manager</button>
+      </div>}
+      <div className={styles.dashboardGrid}>
+        <article className={styles.dashboardCard}><span>Final payout</span><strong>{money(totals.final)}</strong><small>{totals.managers} managers · {totals.done} complete</small></article>
+        <article className={styles.dashboardCard}><span>Manager hours</span><strong>{totals.hours.toFixed(1)}h</strong><small>{totals.withHours} managers with 7shifts hours</small></article>
+        <article className={styles.dashboardCard}><span>Manual added hours</span><strong>{visible.reduce((sum,row)=>sum+Number(row.manual_hours||0),0).toFixed(1)}h</strong><small>Added inside Manager Bonus</small></article>
+        <article className={styles.dashboardCard}><span>Average payout</span><strong>{money(totals.managers?totals.final/totals.managers:0)}</strong><small>Across visible managers</small></article>
+      </div>
+      <div className={styles.dashboardColumns}>
+        <article className={styles.panel}>
+          <div className={styles.panelHeader}><div><h3>By location</h3><small>Managers, hours, and payout</small></div></div>
+          <div className={styles.simpleTable}>{locationDashboard.map(item=><button key={item.location} onClick={()=>{setLocation(item.location);setActiveTab('current')}}>
+            <strong>{item.location}</strong><span>{item.managers} managers</span><span>{item.hours.toFixed(1)}h</span><span>{money(item.final)}</span>
+          </button>)}</div>
+        </article>
+        <article className={styles.panel}>
+          <div className={styles.panelHeader}><div><h3>Needs review</h3><small>Open these before payout</small></div></div>
+          <div className={styles.simpleTable}>{needsReview.length?needsReview.map(row=><button key={keyFor(row)} onClick={()=>{setSelectedKey(keyFor(row));setActiveTab('current')}}>
+            <strong>{row.employee_name}</strong><span>{row.location}</span><span>{row.worked_hours.toFixed(1)}h</span><span>{statusText(status(row))}</span>
+          </button>):<div className={styles.emptyMini}>All visible managers are reviewed.</div>}</div>
+        </article>
+      </div>
+    </section>}
     {activeTab === 'past' && <section className={styles.historyPanel}>
       <div className={styles.historyHead}>
         <div>
@@ -462,7 +581,7 @@ export default function ManagerBonusApp() {
       <article className={styles.metric}><span>Reviews done</span><strong>{totals.done}/{totals.managers}</strong></article>
     </section>
 
-    {loading ? <div className={styles.empty}>Loading manager hours…</div> : !selected ? <div className={styles.empty}>No managers found for this selection.</div> : <section className={styles.workspace}>
+    {activeTab === 'dashboard' ? null : loading ? <div className={styles.empty}>Loading manager hours…</div> : !selected ? <div className={styles.empty}>No managers found for this selection.</div> : <section className={styles.workspace}>
       <aside className={styles.managerList}>
         <div className={styles.panelHeader}><div><h3>Managers</h3><small>{dates.start} → {dates.end}</small></div></div>
         <div className={styles.search}><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search manager…" /></div>
@@ -514,6 +633,7 @@ export default function ManagerBonusApp() {
           <div className={styles.actions}>
             <button className={styles.primary} disabled={saving===keyFor(selected)} onClick={saveReview}>{saving===keyFor(selected)?'Saving…':'Save review'}</button>
             <button className={styles.secondary} onClick={()=>window.location.href=`/api/manager-bonus/export?start=${dates.start}&end=${dates.end}&employee_id=${encodeURIComponent(selected.employee_id)}&location=${encodeURIComponent(selected.location)}`}>Download manager sheet</button>
+            {sessionRole === 'owner' && <button className={styles.dangerButton} disabled={Boolean(saving)} onClick={removeSelectedManager}>Remove from this period</button>}
           </div>
         </div>
       </article>

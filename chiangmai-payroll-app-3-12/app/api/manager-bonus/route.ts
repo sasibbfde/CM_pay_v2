@@ -56,6 +56,8 @@ export async function PUT(request: NextRequest) {
       bonus_pool: bonusPool,
       max_points: maxPoints,
       rubric_version: 'manager-bonus-template-10-area-v1',
+      manual_record: Boolean(body.manual_record),
+      bonus_excluded: Boolean(body.bonus_excluded),
     };
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase.from('manager_bonus_reviews').upsert(payload, { onConflict:'employee_id,location,period_start,period_end' }).select().single();

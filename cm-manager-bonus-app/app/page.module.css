@@ -239,6 +239,108 @@
   box-shadow: var(--shadow);
 }
 
+.dashboardPanel {
+  margin-bottom: 14px;
+  background: rgba(255,255,255,.86);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+.dashboardGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.dashboardCard {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  background: #fffaf1;
+}
+
+.dashboardCard span,
+.dashboardCard small {
+  display: block;
+}
+
+.dashboardCard span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.dashboardCard strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--plum-deep);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 28px;
+}
+
+.dashboardCard small {
+  margin-top: 5px;
+  color: var(--muted);
+}
+
+.dashboardColumns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.simpleTable {
+  display: grid;
+}
+
+.simpleTable button {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) repeat(3, minmax(90px, .7fr));
+  gap: 10px;
+  align-items: center;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.simpleTable button:hover {
+  background: #fff7e4;
+}
+
+.simpleTable strong {
+  color: var(--plum-deep);
+}
+
+.simpleTable span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.emptyMini {
+  padding: 16px;
+  color: var(--muted);
+}
+
+.addManagerBox {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff7e4;
+}
+
 .accountsPanel {
   margin-bottom: 14px;
   background: rgba(255,255,255,.86);

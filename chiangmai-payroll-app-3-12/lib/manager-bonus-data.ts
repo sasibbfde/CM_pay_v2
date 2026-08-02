@@ -91,6 +91,10 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
     reviewByKey.set(key, { ...(reviewByKey.get(key) || {}), ...review });
   }
   for (const [key, review] of reviewByKey) {
+    if (review.bonus_excluded) {
+      managers.delete(key);
+      continue;
+    }
     if (managers.has(key)) continue;
     managers.set(key, {
       employee_id:review.employee_id,
@@ -100,6 +104,7 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
       role:review.role || 'Manager',
       wage:Number(review.wage || 0),
       worked_hours:0,
+      manual_record:true,
       archived_record:true,
     });
   }
@@ -130,6 +135,8 @@ export async function getManagerBonusRows(periodStart: string, periodEnd: string
       seven_shifts_hours,
       manual_hours,
       wage:Number(manager.wage || review.wage || 0),
+      manual_record:Boolean(manager.manual_record || review.manual_record),
+      bonus_excluded:Boolean(review.bonus_excluded),
       archived_record:Boolean(manager.archived_record),
       worked_hours:Math.round((seven_shifts_hours + manual_hours) * 100) / 100,
       original_bonus:Number(review.original_bonus || 0),
