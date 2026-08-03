@@ -257,7 +257,7 @@
 
 .dashboardFilterBar {
   display: grid;
-  grid-template-columns: minmax(190px, 1fr) minmax(170px, .7fr) minmax(190px, .8fr) auto;
+  grid-template-columns: repeat(5, minmax(150px, 1fr)) minmax(150px, .75fr) minmax(170px, .85fr) auto;
   gap: 10px;
   align-items: end;
   margin-bottom: 14px;
@@ -275,6 +275,7 @@
   text-transform: uppercase;
 }
 
+.dashboardFilterBar input,
 .dashboardFilterBar select {
   display: block;
   width: 100%;
