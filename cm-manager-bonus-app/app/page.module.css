@@ -292,6 +292,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
+  margin-bottom: 14px;
 }
 
 .simpleTable {
@@ -331,7 +332,7 @@
 
 .addManagerBox {
   display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr)) auto;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(260px, 1.6fr) repeat(4, minmax(120px, 1fr)) auto;
   gap: 10px;
   align-items: end;
   margin-bottom: 14px;

@@ -108,7 +108,7 @@ export default function ManagerBonusApp() {
   const [accountsLoading,setAccountsLoading] = useState(false);
   const [accountsMessage,setAccountsMessage] = useState('');
   const [addingManager,setAddingManager] = useState(false);
-  const [newManager,setNewManager] = useState({ employee_name:'', location:'', role:'Manager', wage:'', manual_hours:'0', original_bonus:'0' });
+  const [newManager,setNewManager] = useState({ employee_name:'', locations:[] as string[], role:'Manager', wage:'', manual_hours:'0', original_bonus:'0' });
   const dates = useMemo(()=>periodDates(month,period),[month,period]);
   const pastMonths = useMemo(()=>{
     const items:{month:string;label:string}[] = [];
@@ -182,20 +182,39 @@ export default function ManagerBonusApp() {
     extra:sum.extra+row.earnedExtraBonus,
     final:sum.final+row.finalBonus,
     done:sum.done+(status(row)==='done'?1:0),
+    inProgress:sum.inProgress+(status(row)==='part'?1:0),
+    notStarted:sum.notStarted+(status(row)==='none'?1:0),
+    score:sum.score+row.scorePercent,
     archived:sum.archived+(row.archived_record?1:0),
     withHours:sum.withHours+(row.seven_shifts_hours>0?1:0),
-  }),{managers:0,hours:0,original:0,extra:0,final:0,done:0,archived:0,withHours:0}),[visible]);
+  }),{managers:0,hours:0,original:0,extra:0,final:0,done:0,inProgress:0,notStarted:0,score:0,archived:0,withHours:0}),[visible]);
   const locationDashboard = useMemo(()=>[...visible.reduce((map,row)=>{
-    const item = map.get(row.location) || { location:row.location, managers:0, hours:0, final:0, done:0, addHours:0 };
+    const item = map.get(row.location) || { location:row.location, managers:0, hours:0, final:0, original:0, extra:0, done:0, inProgress:0, notStarted:0, score:0, addHours:0 };
     item.managers += 1;
     item.hours += row.worked_hours;
     item.final += row.finalBonus;
-    item.done += status(row)==='done'?1:0;
+    item.original += row.original_bonus;
+    item.extra += row.earnedExtraBonus;
+    const rowStatus = status(row);
+    item.done += rowStatus==='done'?1:0;
+    item.inProgress += rowStatus==='part'?1:0;
+    item.notStarted += rowStatus==='none'?1:0;
+    item.score += row.scorePercent;
     item.addHours += Number(row.manual_hours || 0);
     map.set(row.location,item);
     return map;
-  },new Map<string,{location:string;managers:number;hours:number;final:number;done:number;addHours:number}>()).values()].sort((a,b)=>b.final-a.final),[visible]);
+  },new Map<string,{location:string;managers:number;hours:number;final:number;original:number;extra:number;done:number;inProgress:number;notStarted:number;score:number;addHours:number}>()).values()].sort((a,b)=>b.final-a.final),[visible]);
   const needsReview = useMemo(()=>visible.filter(row=>status(row)!=='done').slice(0,8),[visible]);
+  const topManagers = useMemo(()=>[...visible]
+    .filter(row=>row.original_bonus > 0 || row.finalBonus > 0 || row.totalPoints > 0)
+    .sort((a,b)=>(b.scorePercent-a.scorePercent) || (b.finalBonus-a.finalBonus) || (b.worked_hours-a.worked_hours))
+    .slice(0,6),[visible]);
+  const payoutLeaders = useMemo(()=>[...visible]
+    .filter(row=>row.finalBonus > 0)
+    .sort((a,b)=>b.finalBonus-a.finalBonus)
+    .slice(0,6),[visible]);
+  const bestLocation = useMemo(()=>[...locationDashboard]
+    .sort((a,b)=>((b.managers?b.done/b.managers:0)-(a.managers?a.done/a.managers:0)) || ((b.managers?b.score/b.managers:0)-(a.managers?a.score/a.managers:0)) || b.final-a.final)[0] || null,[locationDashboard]);
 
   function keyFor(row:ManagerRow) {
     return `${row.employee_id}\u0000${row.location}`;
@@ -268,27 +287,40 @@ export default function ManagerBonusApp() {
 
   async function addManager() {
     const name = newManager.employee_name.trim();
-    const managerLocation = newManager.location || (location !== 'ALL' ? location : locationOptions[0] || '');
-    if (!name || !managerLocation) {
-      setMessage('Enter manager name and choose a location.');
+    const selectedLocations = newManager.locations.length
+      ? newManager.locations
+      : (location !== 'ALL' ? [location] : []);
+    if (!name || !selectedLocations.length) {
+      setMessage('Enter manager name and choose one or more locations.');
       return;
     }
-    const id = `manual:${managerLocation.toLowerCase().replace(/[^a-z0-9]+/g,'-')}:${name.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`;
-    await saveManagerPayload({
-      employee_id:id,
-      employee_name:name,
-      location:managerLocation,
-      department:'Managers',
-      role:newManager.role || 'Manager',
-      wage:Number(newManager.wage || 0),
-      seven_shifts_hours:0,
-      manual_hours:Number(newManager.manual_hours || 0),
-      original_bonus:Number(newManager.original_bonus || 0),
-      manual_record:true,
-      notes:'Added manually in Manager Bonus app',
-    },`Added ${name} — ${managerLocation}`);
+    for (const managerLocation of selectedLocations) {
+      const id = `manual:${managerLocation.toLowerCase().replace(/[^a-z0-9]+/g,'-')}:${name.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`;
+      await saveManagerPayload({
+        employee_id:id,
+        employee_name:name,
+        location:managerLocation,
+        department:'Managers',
+        role:newManager.role || 'Manager',
+        wage:Number(newManager.wage || 0),
+        seven_shifts_hours:0,
+        manual_hours:Number(newManager.manual_hours || 0),
+        original_bonus:Number(newManager.original_bonus || 0),
+        manual_record:true,
+        notes:`Added manually in Manager Bonus app${selectedLocations.length > 1 ? ` · multi-location assignment: ${selectedLocations.join(', ')}` : ''}`,
+      },`Added ${name} — ${selectedLocations.join(', ')}`);
+    }
     setAddingManager(false);
-    setNewManager({ employee_name:'', location:'', role:'Manager', wage:'', manual_hours:'0', original_bonus:'0' });
+    setNewManager({ employee_name:'', locations:[], role:'Manager', wage:'', manual_hours:'0', original_bonus:'0' });
+  }
+
+  function toggleNewManagerLocation(locationName:string, checked:boolean) {
+    setNewManager(current => ({
+      ...current,
+      locations: checked
+        ? [...new Set([...current.locations, locationName])]
+        : current.locations.filter(item => item !== locationName),
+    }));
   }
 
   async function removeSelectedManager() {
@@ -515,7 +547,14 @@ export default function ManagerBonusApp() {
       </div>
       {addingManager && <div className={styles.addManagerBox}>
         <label className={styles.field}>Manager name<input value={newManager.employee_name} onChange={event=>setNewManager(current=>({...current,employee_name:event.target.value}))} placeholder="Manager name" /></label>
-        <label className={styles.field}>Location<select value={newManager.location} onChange={event=>setNewManager(current=>({...current,location:event.target.value}))}><option value="">Choose location</option>{locationOptions.map(item=><option key={item}>{item}</option>)}</select></label>
+        <div className={styles.field}>Locations <span className={styles.requiredHint}>select one or more</span>
+          <div className={styles.locationChecks}>
+            {locationOptions.map(item=><label key={item} className={styles.checkLine}>
+              <input type="checkbox" checked={newManager.locations.includes(item)} onChange={event=>toggleNewManagerLocation(item,event.target.checked)} />
+              <span>{item}</span>
+            </label>)}
+          </div>
+        </div>
         <label className={styles.field}>Role<input value={newManager.role} onChange={event=>setNewManager(current=>({...current,role:event.target.value}))} /></label>
         <label className={styles.field}>Rate<input type="number" step="0.01" value={newManager.wage} onChange={event=>setNewManager(current=>({...current,wage:event.target.value}))} /></label>
         <label className={styles.field}>Add hours<input type="number" step="0.25" value={newManager.manual_hours} onChange={event=>setNewManager(current=>({...current,manual_hours:event.target.value}))} /></label>
@@ -527,12 +566,16 @@ export default function ManagerBonusApp() {
         <article className={styles.dashboardCard}><span>Manager hours</span><strong>{totals.hours.toFixed(1)}h</strong><small>{totals.withHours} managers with 7shifts hours</small></article>
         <article className={styles.dashboardCard}><span>Manual added hours</span><strong>{visible.reduce((sum,row)=>sum+Number(row.manual_hours||0),0).toFixed(1)}h</strong><small>Added inside Manager Bonus</small></article>
         <article className={styles.dashboardCard}><span>Average payout</span><strong>{money(totals.managers?totals.final/totals.managers:0)}</strong><small>Across visible managers</small></article>
+        <article className={styles.dashboardCard}><span>Review completion</span><strong>{totals.managers?`${Math.round((totals.done/totals.managers)*100)}%`:'0%'}</strong><small>{totals.done} done · {totals.inProgress} in progress · {totals.notStarted} not started</small></article>
+        <article className={styles.dashboardCard}><span>Average score</span><strong>{totals.managers?`${((totals.score/totals.managers)*100).toFixed(1)}%`:'0.0%'}</strong><small>Based on scored criteria</small></article>
+        <article className={styles.dashboardCard}><span>Best manager</span><strong>{topManagers[0]?.employee_name || '—'}</strong><small>{topManagers[0] ? `${topManagers[0].location} · ${(topManagers[0].scorePercent*100).toFixed(1)}% · ${money(topManagers[0].finalBonus)}` : 'No scored managers yet'}</small></article>
+        <article className={styles.dashboardCard}><span>Best location</span><strong>{bestLocation?.location || '—'}</strong><small>{bestLocation ? `${bestLocation.done}/${bestLocation.managers} complete · ${bestLocation.managers ? ((bestLocation.score/bestLocation.managers)*100).toFixed(1) : '0.0'}% avg` : 'No locations yet'}</small></article>
       </div>
       <div className={styles.dashboardColumns}>
         <article className={styles.panel}>
-          <div className={styles.panelHeader}><div><h3>By location</h3><small>Managers, hours, and payout</small></div></div>
+          <div className={styles.panelHeader}><div><h3>Bonus payout by location</h3><small>Managers, completion, hours, and payout</small></div></div>
           <div className={styles.simpleTable}>{locationDashboard.map(item=><button key={item.location} onClick={()=>{setLocation(item.location);setActiveTab('current')}}>
-            <strong>{item.location}</strong><span>{item.managers} managers</span><span>{item.hours.toFixed(1)}h</span><span>{money(item.final)}</span>
+            <strong>{item.location}</strong><span>{item.done}/{item.managers} complete</span><span>{item.hours.toFixed(1)}h</span><span>{money(item.final)}</span>
           </button>)}</div>
         </article>
         <article className={styles.panel}>
@@ -540,6 +583,20 @@ export default function ManagerBonusApp() {
           <div className={styles.simpleTable}>{needsReview.length?needsReview.map(row=><button key={keyFor(row)} onClick={()=>{setSelectedKey(keyFor(row));setActiveTab('current')}}>
             <strong>{row.employee_name}</strong><span>{row.location}</span><span>{row.worked_hours.toFixed(1)}h</span><span>{statusText(status(row))}</span>
           </button>):<div className={styles.emptyMini}>All visible managers are reviewed.</div>}</div>
+        </article>
+      </div>
+      <div className={styles.dashboardColumns}>
+        <article className={styles.panel}>
+          <div className={styles.panelHeader}><div><h3>Top scorecard performers</h3><small>Best criteria completion and score</small></div></div>
+          <div className={styles.simpleTable}>{topManagers.length?topManagers.map(row=><button key={keyFor(row)} onClick={()=>{setSelectedKey(keyFor(row));setActiveTab('current')}}>
+            <strong>{row.employee_name}</strong><span>{row.location}</span><span>{row.totalPoints}/{row.max_points} pts</span><span>{(row.scorePercent*100).toFixed(1)}%</span>
+          </button>):<div className={styles.emptyMini}>No scored managers yet.</div>}</div>
+        </article>
+        <article className={styles.panel}>
+          <div className={styles.panelHeader}><div><h3>Largest bonus payouts</h3><small>Owner cash planning view</small></div></div>
+          <div className={styles.simpleTable}>{payoutLeaders.length?payoutLeaders.map(row=><button key={keyFor(row)} onClick={()=>{setSelectedKey(keyFor(row));setActiveTab('current')}}>
+            <strong>{row.employee_name}</strong><span>{row.location}</span><span>{row.worked_hours.toFixed(1)}h</span><span>{money(row.finalBonus)}</span>
+          </button>):<div className={styles.emptyMini}>No bonus payouts entered yet.</div>}</div>
         </article>
       </div>
     </section>}
