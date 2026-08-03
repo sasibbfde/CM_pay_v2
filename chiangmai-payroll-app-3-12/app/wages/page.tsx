@@ -302,21 +302,54 @@ export default function WagesPage() {
   const backfillPayrollReportWageHistory = async () => {
     setReportBackfilling(true); setMsg(null);
     try {
-      const response = await fetch('/api/wage-history', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ start:'2026-01-01', mode:'payroll_reports' }),
-      });
-      const result = await response.json();
-      if (!response.ok || result.ok===false) throw new Error(result.error || 'Payroll report wage-history backfill failed');
+      const start = '2026-01-01';
+      const end = new Date().toISOString().slice(0,10);
+      const periods: Array<{start:string; end:string}> = [];
+      const cursor = new Date(`${start}T00:00:00Z`);
+      while (cursor.toISOString().slice(0,10) <= end) {
+        const year = cursor.getUTCFullYear();
+        const month = cursor.getUTCMonth();
+        const yyyyMm = `${year}-${String(month + 1).padStart(2,'0')}`;
+        const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+        for (const period of [
+          { start:`${yyyyMm}-01`, end:`${yyyyMm}-15` },
+          { start:`${yyyyMm}-16`, end:`${yyyyMm}-${String(lastDay).padStart(2,'0')}` },
+        ]) {
+          if (period.end < start || period.start > end) continue;
+          periods.push({ start:period.start < start ? start : period.start, end:period.end > end ? end : period.end });
+        }
+        cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+      }
+
+      let historyRows = 0;
+      let inserted = 0;
+      let skipped = 0;
+      let reportRows = 0;
+      let errorCount = 0;
+      for (let index = 0; index < periods.length; index += 1) {
+        const period = periods[index];
+        setMsg({ text:`Scanning 7shifts payroll reports ${index + 1}/${periods.length}: ${period.start} → ${period.end}`, ok:true });
+        const response = await fetch('/api/wage-history', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ start:period.start, end:period.end, mode:'payroll_reports' }),
+        });
+        const result = await response.json();
+        if (!response.ok || result.ok===false) throw new Error(result.error || `Payroll report wage-history backfill failed for ${period.start} → ${period.end}`);
+        historyRows += Number(result.history_rows_found || 0);
+        inserted += Number(result.inserted || 0);
+        skipped += Number(result.skipped || 0);
+        reportRows += Number(result.report_rows_found || 0);
+        errorCount += result.errors?.length || 0;
+      }
       invalidateClientCache(['/api/wage-history','/api/employees']);
       loadWageHistory(true);
-      setMsg({text:`✓ Payroll reports checked ${result.periods_checked || 0} pay periods; found ${result.history_rows_found || 0} wage trend rows${result.errors?.length ? ` · ${result.errors.length} report issue(s)` : ''}`,ok:!result.errors?.length});
+      setMsg({text:`✓ Payroll reports checked ${periods.length} pay periods; ${reportRows} report rows scanned; ${historyRows} trend rows found; ${inserted} saved; ${skipped} already existed${errorCount ? ` · ${errorCount} report issue(s)` : ''}`,ok:errorCount===0});
     } catch(error:any) {
       setMsg({text:error.message,ok:false});
     } finally {
       setReportBackfilling(false);
-      setTimeout(()=>setMsg(null),8000);
+      setTimeout(()=>setMsg(null),15000);
     }
   };
 
