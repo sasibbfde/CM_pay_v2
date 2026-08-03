@@ -445,7 +445,7 @@ async function runSync(body: any): Promise<NextResponse> {
   const usingReportRows = reportRows.length > 0 && !hoursAndWagesError;
   const representedRawPunchIds = new Set<string>();
 
-  const addRawPunchToMap = (p: any) => {
+  const addRawPunchToMap = (p: any, options: { skipReportLookup?: boolean } = {}) => {
     const rawPunchId = p.id ?? p.punch_id;
     if (rawPunchId == null || rawPunchId === '') return false;
     const punchId = String(rawPunchId);
@@ -490,14 +490,14 @@ async function runSync(body: any): Promise<NextResponse> {
     const { unpaidMinutes, breakMinutes } = calculateBreaks(breaks);
 
     // Payroll hours = gross - unpaid breaks (matching 7shifts payroll export exactly)
-    const reportEntry = hoursAndWages.find({
-      punch_id: punchId,
-      user_id: userId,
-      employee_name: name,
-      clocked_in: clockIn,
-      location_id: locId,
-      location,
-    });
+    const reportEntry = options.skipReportLookup ? undefined : hoursAndWages.find({
+        punch_id: punchId,
+        user_id: userId,
+        employee_name: name,
+        clocked_in: clockIn,
+        location_id: locId,
+        location,
+      });
     if (usingReportRows && reportEntry) return false;
     const reportPayrollHours = Number(reportEntry?.regular_hours);
     const reportGrossHours = Number(reportEntry?.gross_hours);
@@ -618,7 +618,12 @@ async function runSync(body: any): Promise<NextResponse> {
       const rawPunchId = p.id ?? p.punch_id;
       if (rawPunchId == null || rawPunchId === '') continue;
       if (representedRawPunchIds.has(String(rawPunchId))) continue;
-      addRawPunchToMap(p);
+      // At this point the Hours & Wages report rows have already been inserted,
+      // and represented raw punch IDs have already been marked. Do not run the
+      // fallback report lookup again here: it can match a different same-day row
+      // with identical payable hours and falsely drop tiny exception punches
+      // such as two separate 0.25h fragments on the same day.
+      addRawPunchToMap(p, { skipReportLookup: true });
     }
     reportMatchedPunches = punchMap.size;
   } else {
