@@ -8,6 +8,7 @@ import { flattenHoursAndWagesReport, hoursWagesLookup, supplementEqualPayableSpl
 import { resolveCashWage } from '@/lib/cash-rates';
 import { evaluateSyncSafety } from '@/lib/sync-safety';
 import { getPayrollDate } from '@/lib/payroll';
+import { insertWageHistoryRows, normalizeSevenShiftsWageHistory } from '@/lib/wage-history';
 
 export const maxDuration = 300;
 
@@ -143,6 +144,8 @@ async function runSync(body: any): Promise<NextResponse> {
 
   const startIso = body.start || new Date(new Date().setDate(new Date().getDate() - 1)).toISOString().replace(/T.*/, 'T00:00:00.000Z');
   const endIso   = body.end   || new Date().toISOString().replace(/T.*/, 'T23:59:59.999Z');
+  const startDate = startIso.split('T')[0];
+  const endDate   = endIso.split('T')[0];
   const triggeredBy = body.triggered_by || 'manual';
   const allowDecrease = body.allow_decrease === true || body.force === true;
   const expectedPayableHours = Number(body.expected_payable_hours || body.expectedPayableHours || 0);
@@ -199,6 +202,7 @@ async function runSync(body: any): Promise<NextResponse> {
   const syncNow = new Date();
   const syncNowIso = syncNow.toISOString();
   const wageUpgrades: any[] = [];
+  const wageHistoryRows: any[] = [];
   const employeeDetailChanges: any[] = [];
   const userRows = [...userById.values()].map((u: any) => {
     const existing = existingBy7shiftsId.get(String(u.id));
@@ -228,6 +232,21 @@ async function runSync(body: any): Promise<NextResponse> {
       return detailKey(oldValue) !== detailKey(newValue);
     });
     const cashWage = resolveCashWage({ name: fullName(u), location: completed.location, cash_wage: existing?.cash_wage });
+    wageHistoryRows.push(...normalizeSevenShiftsWageHistory({
+      employee_id: existing?.employee_id || `7S-${u.id}`,
+      seven_shifts_user_id: String(u.id),
+      full_name: fullName(u),
+      location: completed.location,
+      department: completed.department,
+      role: completed.role,
+      role_id: u.role_id,
+      wage: oldWage,
+    }, wagesByUser.get(String(u.id)) || [], {
+      detectedAt: syncNowIso,
+      periodStart: startDate,
+      periodEnd: endDate,
+      earliestEffectiveDate: body.wage_history_start || body.wageHistoryStart || null,
+    }));
     if (upgradedFrom7shifts) {
       wageUpgrades.push({
         employee_id: existing?.employee_id || `7S-${u.id}`,
@@ -296,6 +315,8 @@ async function runSync(body: any): Promise<NextResponse> {
     }
   }
 
+  const wageHistoryWrite = await insertWageHistoryRows(supabase, wageHistoryRows);
+
   if (employeeDetailChanges.length > 0) {
     for (let i = 0; i < employeeDetailChanges.length; i += BATCH) {
       const { error } = await supabase.from('audit_log').insert(employeeDetailChanges.slice(i, i + BATCH).map(item => ({
@@ -327,8 +348,6 @@ async function runSync(body: any): Promise<NextResponse> {
   }
 
   // ─── 4. Fetch time punches ────────────────────────────────────────────────
-  const startDate = startIso.split('T')[0];
-  const endDate   = endIso.split('T')[0];
   const queryStart = new Date(`${startDate}T00:00:00Z`);
   queryStart.setUTCDate(queryStart.getUTCDate() - 1);
   const queryEnd = new Date(`${endDate}T23:59:59Z`);
@@ -700,6 +719,8 @@ async function runSync(body: any): Promise<NextResponse> {
       ? `supplemented ${supplementedHoursAndWages.supplemented} equal-payable split punches from raw API`
       : '',
     wageUpgrades.length ? `wage upgraded for ${wageUpgrades.length} employees from 7shifts` : '',
+    wageHistoryWrite.inserted ? `wage history rows stored ${wageHistoryWrite.inserted}` : '',
+    wageHistoryWrite.warning || '',
     employeeDetailChanges.length ? `employee role/location changed for ${employeeDetailChanges.length}` : '',
     employeeRepair.details_filled ? `employee details filled from punches for ${employeeRepair.details_filled}` : '',
     employeeRepair.wages_filled ? `employee wages saved from punches for ${employeeRepair.wages_filled}` : '',
@@ -721,6 +742,7 @@ async function runSync(body: any): Promise<NextResponse> {
       new_wage: item.new_wage,
       note: item.reason,
     })),
+    wage_history: wageHistoryWrite,
     employee_detail_changes: employeeDetailChanges.map(item => ({
       employee: item.employee_name,
       note: item.reason,

@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 import { fillMissingRosterDetails } from '@/lib/roster-details';
 import { firstPayrollPeriodEnd, isNewEmployee } from '@/lib/employee-status';
 import { applyCashWage } from '@/lib/cash-rates';
+import { insertWageHistoryRows, manualWageHistoryRow } from '@/lib/wage-history';
 
 const PAGE = 1000;
 
@@ -84,7 +85,7 @@ export async function PATCH(req: NextRequest) {
     const supabase = getSupabaseAdmin();
     const { data: current } = await supabase
       .from('employees')
-      .select('employee_id, seven_shifts_user_id, full_name, wage')
+      .select('employee_id, seven_shifts_user_id, full_name, location, department, role, wage')
       .or(id ? `id.eq.${id}` : `seven_shifts_user_id.eq.${String(seven_shifts_user_id)}`)
       .limit(1)
       .maybeSingle();
@@ -128,6 +129,7 @@ export async function PATCH(req: NextRequest) {
         created_at: now.toISOString(),
       });
       if (historyError) throw historyError;
+      await insertWageHistoryRows(supabase, [manualWageHistoryRow(current, Number(current.wage || 0), Number(wage), now.toISOString())]);
     }
     return NextResponse.json({ ok: true });
   } catch (e: any) {

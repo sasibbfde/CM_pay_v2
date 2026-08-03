@@ -12,6 +12,24 @@ type Employee = {
   active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
 };
 
+type WageHistory = {
+  id?: string;
+  employee_id: string;
+  seven_shifts_user_id?: string | null;
+  employee_name?: string | null;
+  location?: string | null;
+  department?: string | null;
+  role?: string | null;
+  old_wage?: number | null;
+  new_wage?: number | null;
+  effective_date?: string | null;
+  detected_at?: string | null;
+  source?: string | null;
+  notes?: string | null;
+  reason?: string | null;
+  changed_at?: string | null;
+};
+
 type RuleForm = {
   id?: string;
   employee_name: string;
@@ -43,6 +61,10 @@ export default function WagesPage() {
   const [employees, setEmployees]   = useState<Employee[]>(() => initial?.employees || []);
   const initialRules = peekJson<{rules:EmployeeRule[]}>('/api/rules');
   const [rules, setRules]           = useState<EmployeeRule[]>(() => initialRules?.rules || []);
+  const initialHistory = peekJson<{history:WageHistory[]}>('/api/wage-history');
+  const [wageHistory, setWageHistory] = useState<WageHistory[]>(() => initialHistory?.history || []);
+  const [historyLoading, setHistoryLoading] = useState(() => !initialHistory);
+  const [backfilling, setBackfilling] = useState(false);
   const [rulesLoading, setRulesLoading] = useState(() => !initialRules);
   const [ruleForm, setRuleForm]     = useState<RuleForm>(emptyRuleForm);
   const [ruleSaving, setRuleSaving] = useState(false);
@@ -83,7 +105,18 @@ export default function WagesPage() {
       .finally(()=>setRulesLoading(false));
   };
 
-  useEffect(()=>{ load(); loadRules(); },[]);
+  const loadWageHistory = (force = false) => {
+    const url = '/api/wage-history';
+    const cached = !force ? peekJson<{history:WageHistory[]}>(url) : undefined;
+    if (cached) setWageHistory(cached.history || []);
+    setHistoryLoading(!cached);
+    cachedJson<{history:WageHistory[]}>(url, 120_000, force)
+      .then(d => setWageHistory(d.history || []))
+      .catch(()=>{})
+      .finally(()=>setHistoryLoading(false));
+  };
+
+  useEffect(()=>{ load(); loadRules(); loadWageHistory(); },[]);
 
   const locations = useMemo(()=>['ALL',...[...new Set(employees.map(e=>e.location).filter(Boolean))].sort()],[employees]);
   const ruleByName = useMemo(()=>{
@@ -125,6 +158,7 @@ export default function WagesPage() {
       const d = await res.json();
       if (d.ok) {
         invalidateClientCache(['/api/employees', '/api/payroll', '/api/payroll-report']);
+        loadWageHistory(true);
         setEmployees(p=>p.map(e=>e.id===emp.id?{...e,wage,cash_wage,wage_locked:true,wage_source:'manual'}:e));
         setSaved(p=>new Set([...p,emp.id]));
         setTimeout(()=>setSaved(p=>{const n=new Set(p);n.delete(emp.id);return n;}),2000);
@@ -232,6 +266,7 @@ export default function WagesPage() {
       if (!response.ok || !result.ok) throw new Error(result.error || '7shifts sync failed');
       invalidateClientCache(['/api/employees','/api/payroll','/api/payroll-report','/api/synclog']);
       load(true);
+      loadWageHistory(true);
       const failed = result.wage_errors?.length || 0;
       const upgraded = result.wage_upgrades?.length || 0;
       setMsg({text:failed ? `Synced employee data; ${failed} wage lookups failed` : `✓ Employee data synced${upgraded ? `; ${upgraded} wage upgraded from 7shifts` : '; no higher 7shifts wages found'}`,ok:failed===0});
@@ -239,6 +274,27 @@ export default function WagesPage() {
       setMsg({text:error.message,ok:false});
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const backfillWageHistory = async () => {
+    setBackfilling(true); setMsg(null);
+    try {
+      const response = await fetch('/api/wage-history', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ start:'2026-01-01' }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.ok===false) throw new Error(result.error || 'Wage history backfill failed');
+      invalidateClientCache(['/api/wage-history','/api/employees']);
+      loadWageHistory(true);
+      setMsg({text:`✓ Wage history checked ${result.employees_checked || 0} employees; stored ${result.inserted || 0} history rows${result.warning ? ` · ${result.warning}` : ''}`,ok:!result.warning});
+    } catch(error:any) {
+      setMsg({text:error.message,ok:false});
+    } finally {
+      setBackfilling(false);
+      setTimeout(()=>setMsg(null),6000);
     }
   };
 
@@ -310,6 +366,40 @@ export default function WagesPage() {
       </div>
 
       {missingWages.length>0&&<div style={{marginBottom:16,padding:'12px 14px',borderRadius:10,background:'rgba(248,113,113,.08)',border:'1px solid rgba(248,113,113,.28)'}}><div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}><div><div style={{fontSize:13,fontWeight:700,color:'#f87171'}}>⚠ {missingWages.length} active employees need a wage</div><div style={{fontSize:11,color:'#9ca3af',marginTop:3}}>{missingWages.slice(0,12).map(employee=>`${employee.full_name} (${employee.location||'No location'})`).join(' · ')}{missingWages.length>12?' …':''}</div></div><button onClick={()=>{setMissingOnly(true);setLocFilter('ALL');setSearch('');}} style={{...sel,borderColor:'rgba(248,113,113,.35)',color:'#f87171'}}>Show missing wages</button></div></div>}
+
+      <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:12,padding:16,marginBottom:18}}>
+        <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',flexWrap:'wrap',marginBottom:12}}>
+          <div>
+            <h2 style={{fontSize:16,fontWeight:700,color:'#f9fafb',margin:0}}>Wage History</h2>
+            <p style={{fontSize:12,color:'#6b7280',margin:'4px 0 0'}}>Permanent wage-change audit trail. 7shifts effective dates are stored when the API provides them; manual edits are recorded by saved date.</p>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={backfillWageHistory} disabled={backfilling} style={{background:'rgba(167,139,250,.10)',border:'1px solid rgba(167,139,250,.28)',color:'#a78bfa',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:backfilling?'wait':'pointer'}}>{backfilling?'Backfilling…':'Backfill from Jan 1, 2026'}</button>
+            <button onClick={()=>loadWageHistory(true)} style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)',color:'#9ca3af',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:'pointer'}}>Refresh history</button>
+          </div>
+        </div>
+        <div style={{border:'1px solid rgba(255,255,255,0.06)',borderRadius:10,overflow:'hidden',maxHeight:260,overflowY:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+            <thead><tr style={{background:'rgba(0,0,0,0.22)'}}>
+              {['EMPLOYEE','EFFECTIVE','FROM','TO','SOURCE','NOTE'].map(header=><th key={header} style={{padding:'8px 10px',textAlign:'left',color:'#6b7280',fontSize:10,fontWeight:600,letterSpacing:'.06em'}}>{header}</th>)}
+            </tr></thead>
+            <tbody>
+              {historyLoading ? <tr><td colSpan={6} style={{padding:18,color:'#6b7280',textAlign:'center'}}>Loading wage history…</td></tr> :
+              wageHistory.length===0 ? <tr><td colSpan={6} style={{padding:18,color:'#6b7280',textAlign:'center'}}>No wage changes stored yet. Run Backfill or Sync employee data.</td></tr> :
+              wageHistory.slice(0,80).map((row,index)=>(
+                <tr key={row.id || `${row.employee_id}-${index}`} style={{borderTop:'1px solid rgba(255,255,255,0.05)'}}>
+                  <td style={{padding:'8px 10px',fontWeight:600,color:'#f9fafb'}}>{row.employee_name || row.employee_id}<div style={{fontSize:10,color:'#6b7280'}}>{[row.location,row.role].filter(Boolean).join(' · ')}</div></td>
+                  <td style={{padding:'8px 10px',color:'#22d3ee'}}>{row.effective_date || row.detected_at?.slice(0,10) || row.changed_at?.slice(0,10) || 'Detected only'}</td>
+                  <td style={{padding:'8px 10px',color:'#9ca3af'}}>${Number(row.old_wage || 0).toFixed(2)}</td>
+                  <td style={{padding:'8px 10px',color:'#34d399',fontWeight:700}}>${Number(row.new_wage || 0).toFixed(2)}</td>
+                  <td style={{padding:'8px 10px'}}><span style={{fontSize:10,color:'#a78bfa',background:'rgba(167,139,250,.12)',border:'1px solid rgba(167,139,250,.22)',borderRadius:5,padding:'3px 6px'}}>{row.source || '7shifts'}</span></td>
+                  <td style={{padding:'8px 10px',color:'#6b7280'}}>{row.notes || row.reason || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:12,padding:16,marginBottom:18}}>
         <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',flexWrap:'wrap',marginBottom:12}}>
