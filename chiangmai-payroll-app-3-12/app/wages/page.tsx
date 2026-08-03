@@ -332,7 +332,7 @@ export default function WagesPage() {
         const response = await fetch('/api/wage-history', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ start:period.start, end:period.end, mode:'payroll_reports' }),
+          body: JSON.stringify({ start:period.start, end:period.end, mode:'payroll_reports', reset_source:index===0 }),
         });
         const result = await response.json();
         if (!response.ok || result.ok===false) throw new Error(result.error || `Payroll report wage-history backfill failed for ${period.start} → ${period.end}`);
@@ -402,8 +402,8 @@ export default function WagesPage() {
       <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:12,padding:16,marginBottom:18}}>
         <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',flexWrap:'wrap',marginBottom:12}}>
           <div>
-            <h2 style={{fontSize:16,fontWeight:700,color:'#f9fafb',margin:0}}>Wage History</h2>
-            <p style={{fontSize:12,color:'#6b7280',margin:'4px 0 0'}}>Permanent wage-change audit trail. 7shifts effective dates are stored when the API provides them; manual edits are recorded by saved date.</p>
+            <h2 style={{fontSize:16,fontWeight:700,color:'#f9fafb',margin:0}}>Wage Evolution</h2>
+            <p style={{fontSize:12,color:'#6b7280',margin:'4px 0 0'}}>Shows each employee’s baseline wage from Jan 2026, then only real wage changes through today. Employees with no change keep one baseline row.</p>
           </div>
           <div style={{display:'flex',gap:8}}>
             <button onClick={backfillWageHistory} disabled={backfilling} style={{background:'rgba(167,139,250,.10)',border:'1px solid rgba(167,139,250,.28)',color:'#a78bfa',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:backfilling?'wait':'pointer'}}>{backfilling?'Backfilling…':'Backfill from Jan 1, 2026'}</button>

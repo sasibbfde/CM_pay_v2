@@ -86,3 +86,16 @@ test('payroll report wage history keeps first observed rate and later changes on
   assert.equal(rows[1].new_wage, 18.5);
   assert.equal(rows[1].source, '7shifts_punch_report');
 });
+
+test('payroll report wage history compares against previous employee wage across batched periods', () => {
+  const rows = normalizePayrollReportWageHistory([
+    { employee_id:'7S-2', seven_shifts_user_id:'2', employee_name:'Batch Staff', location:'Chiang Mai York Mills', role:'Server', wage:20, observed_date:'2026-04-03', period_start:'2026-04-01', period_end:'2026-04-15' },
+    { employee_id:'7S-2', seven_shifts_user_id:'2', employee_name:'Batch Staff', location:'Chiang Mai York Mills', role:'Host', wage:20, observed_date:'2026-04-04', period_start:'2026-04-01', period_end:'2026-04-15' },
+    { employee_id:'7S-2', seven_shifts_user_id:'2', employee_name:'Batch Staff', location:'Chiang Mai York Mills', role:'Server', wage:21, observed_date:'2026-04-08', period_start:'2026-04-01', period_end:'2026-04-15' },
+  ], '2026-08-03T12:00:00.000Z', { '7S-2': 20 });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].old_wage, 20);
+  assert.equal(rows[0].new_wage, 21);
+  assert.equal(rows[0].role_id, '__employee_wage_evolution__');
+});

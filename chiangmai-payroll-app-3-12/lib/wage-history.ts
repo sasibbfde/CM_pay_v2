@@ -149,31 +149,64 @@ export function manualWageHistoryRow(
 export function normalizePayrollReportWageHistory(
   entries: PayrollReportWageEntry[],
   detectedAt = new Date().toISOString(),
+  previousWageByEmployee: Record<string, number> = {},
 ): WageHistoryRow[] {
-  const sorted = entries
-    .filter(entry => entry.employee_id && entry.employee_name && Number(entry.wage || 0) > 0 && cleanDate(entry.observed_date))
+  const dateWageGroups = new Map<string, PayrollReportWageEntry[]>();
+  for (const entry of entries) {
+    if (!entry.employee_id || !entry.employee_name || Number(entry.wage || 0) <= 0 || !cleanDate(entry.observed_date)) continue;
+    const wage = Math.round(Number(entry.wage || 0) * 100) / 100;
+    const key = `${entry.employee_id}|${cleanDate(entry.observed_date)}|${wage.toFixed(2)}`;
+    dateWageGroups.set(key, [...(dateWageGroups.get(key) || []), entry]);
+  }
+
+  const dailyEntries = new Map<string, PayrollReportWageEntry>();
+  for (const group of dateWageGroups.values()) {
+    const entry = group[0];
+    const wage = Math.round(Number(entry.wage || 0) * 100) / 100;
+    const key = `${entry.employee_id}|${cleanDate(entry.observed_date)}`;
+    const existing = dailyEntries.get(key);
+    if (!existing) {
+      dailyEntries.set(key, { ...entry, wage });
+      continue;
+    }
+    const existingCount = dateWageGroups.get(`${existing.employee_id}|${cleanDate(existing.observed_date)}|${Number(existing.wage || 0).toFixed(2)}`)?.length || 0;
+    const candidateCount = group.length;
+    const existingWage = Number(existing.wage || 0);
+    // If one wage appears more often on the same employee/day, use it as the
+    // day-level salary observation. On ties, keep the higher observed rate so
+    // raises are not hidden by one lower-rate shift on the same day.
+    if (candidateCount > existingCount || (candidateCount === existingCount && wage > existingWage)) {
+      dailyEntries.set(key, { ...entry, wage });
+    }
+  }
+
+  const sorted = [...dailyEntries.values()]
     .sort((a, b) => [
       a.employee_id || '',
-      a.role || '',
-      a.location || '',
       a.observed_date,
       a.period_start,
+      a.location || '',
+      a.role || '',
     ].join('|').localeCompare([
       b.employee_id || '',
-      b.role || '',
-      b.location || '',
       b.observed_date,
       b.period_start,
+      b.location || '',
+      b.role || '',
     ].join('|')));
 
-  const lastByEmployeeRole = new Map<string, number>();
+  const lastByEmployee = new Map<string, number>();
+  for (const [employeeId, wage] of Object.entries(previousWageByEmployee || {})) {
+    const parsed = Math.round(Number(wage || 0) * 100) / 100;
+    if (parsed > 0) lastByEmployee.set(employeeId, parsed);
+  }
   const rows: WageHistoryRow[] = [];
   for (const entry of sorted) {
     const wage = Math.round(Number(entry.wage || 0) * 100) / 100;
-    const key = `${entry.employee_id}|${entry.role || '__role__'}`;
-    const previous = lastByEmployeeRole.get(key) || 0;
+    const key = String(entry.employee_id);
+    const previous = lastByEmployee.get(key) || 0;
     if (previous > 0 && Math.abs(previous - wage) < 0.005) continue;
-    lastByEmployeeRole.set(key, wage);
+    lastByEmployee.set(key, wage);
 
     const effectiveDate = cleanDate(entry.observed_date);
     rows.push({
@@ -183,7 +216,7 @@ export function normalizePayrollReportWageHistory(
       location: entry.location || null,
       department: entry.department || null,
       role: entry.role || null,
-      role_id: entry.role || '__report__',
+      role_id: '__employee_wage_evolution__',
       old_wage: previous,
       new_wage: wage,
       effective_date: effectiveDate,
@@ -192,9 +225,10 @@ export function normalizePayrollReportWageHistory(
       source_period_start: cleanDate(entry.period_start),
       source_period_end: cleanDate(entry.period_end),
       notes: previous > 0
-        ? `Observed payroll report wage change on ${effectiveDate}: ${money(previous)} → ${money(wage)}`
-        : `Observed payroll report wage on ${effectiveDate}: ${money(wage)}`,
+        ? `Employee wage evolution from payroll reports: ${money(previous)} → ${money(wage)} on ${effectiveDate}`
+        : `Employee wage baseline from payroll reports: ${money(wage)} first observed on ${effectiveDate}`,
       metadata: {
+        history_type: 'employee_wage_evolution',
         location: entry.location || null,
         role: entry.role || null,
       },

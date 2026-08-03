@@ -140,6 +140,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (mode === 'payroll_reports') {
+      if (body.reset_source === true) {
+        const { error: deleteError } = await supabase
+          .from('employee_wage_history')
+          .delete()
+          .eq('source', '7shifts_punch_report');
+        if (deleteError) throw deleteError;
+      }
+
       const employeeByName = new Map<string, any>();
       for (const employee of employeesRes.data || []) employeeByName.set(nameKey(employee.full_name), employee);
       const rows: any[] = [];
@@ -175,7 +183,23 @@ export async function POST(req: NextRequest) {
           }
         }
       }
-      const historyRows = normalizePayrollReportWageHistory(rows, new Date().toISOString());
+      const previousWageByEmployee: Record<string, number> = {};
+      const { data: previousRows, error: previousError } = await supabase
+        .from('employee_wage_history')
+        .select('employee_id,new_wage,effective_date,detected_at')
+        .eq('source', '7shifts_punch_report')
+        .lt('effective_date', start)
+        .order('effective_date', { ascending: false, nullsFirst: false })
+        .order('detected_at', { ascending: false })
+        .limit(5000);
+      if (previousError) throw previousError;
+      for (const row of previousRows || []) {
+        if (!row.employee_id || previousWageByEmployee[row.employee_id]) continue;
+        const wage = Number(row.new_wage || 0);
+        if (wage > 0) previousWageByEmployee[row.employee_id] = wage;
+      }
+
+      const historyRows = normalizePayrollReportWageHistory(rows, new Date().toISOString(), previousWageByEmployee);
       const result = await insertWageHistoryRows(supabase, historyRows);
       return NextResponse.json({
         ok: true,
