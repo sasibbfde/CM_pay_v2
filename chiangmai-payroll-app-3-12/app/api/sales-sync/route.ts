@@ -15,6 +15,14 @@ const LOCATION_MAP: Record<string, string> = {
 
 export const maxDuration = 300;
 
+function friendlySyncError(message: string) {
+  if (/429|1015|rate[- ]limited/i.test(message)) {
+    return '7shifts is rate-limiting requests. Please wait 30 seconds, then try again.';
+  }
+  const compact = String(message || '').replace(/\s+/g, ' ').trim();
+  return compact.length > 220 ? `${compact.slice(0, 220)}…` : compact;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -60,7 +68,7 @@ export async function POST(req: NextRequest) {
           }
         }
       } catch (e: any) {
-        errors.push(`${locName}: ${e.message}`);
+        errors.push(`${locName}: ${friendlySyncError(e.message)}`);
       }
     }
 

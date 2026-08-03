@@ -30,6 +30,13 @@ const sel: React.CSSProperties = {background:'#1a1f2e',border:'1px solid rgba(25
 const inp: React.CSSProperties = {background:'#0d1117',border:'1px solid rgba(255,255,255,0.12)',borderRadius:6,color:'#f9fafb',padding:'6px 10px',fontSize:13,outline:'none'};
 
 function isoDate(d: Date) { return d.toISOString().split('T')[0]; }
+function friendlySyncMessage(message: string) {
+  if (/429|1015|rate[- ]limited/i.test(message)) {
+    return '7shifts is rate-limiting requests. Please wait 30 seconds, then click sync again. No saved payroll hours were changed by this failed request.';
+  }
+  const compact = String(message || '').replace(/\s+/g, ' ').trim();
+  return compact.length > 240 ? `${compact.slice(0, 240)}…` : compact;
+}
 function reportRowsToInsightRows(reportRows: PayrollReportRow[]): Row[] {
   return reportRows.flatMap(row => row.locations.map(location => {
     const local = payrollLocationView(row, location);
@@ -300,7 +307,7 @@ export default function InsightsPage() {
       setSales(refreshed.sales || []);
       if (!automatic) setSalesMsg(`✓ Updated ${result.synced || 0} Snappy sales records`);
     } catch (error:any) {
-      setSalesMsg(`Sales update failed: ${error.message}`);
+      setSalesMsg(`Sales update failed: ${friendlySyncMessage(error.message)}`);
     } finally {
       setSyncingSnappy(false);
     }
@@ -335,7 +342,7 @@ export default function InsightsPage() {
       const punchCount = result.synced?.punches ?? result.punches ?? 0;
       if (!automatic) setSalesMsg(`✓ Updated ${punchCount} 7shifts punches for ${fromDate} → ${toDate}`);
     } catch (error:any) {
-      setSalesMsg(`7shifts update failed: ${error.message}`);
+      setSalesMsg(`7shifts update failed: ${friendlySyncMessage(error.message)}`);
     } finally {
       setSyncing7shifts(false);
     }

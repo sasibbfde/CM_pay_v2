@@ -21,7 +21,10 @@ export function calculateBreaks(breaks: any[]): BreakTotals {
     const end = breakTime(item, ['out', 'clocked_out', 'break_out', 'end']);
     if (!start || !end) continue;
     const minutes = (new Date(end).getTime() - new Date(start).getTime()) / 60000;
-    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 240) continue;
+    // Do not cap long breaks. 7shifts sometimes stores an approved punch with a
+    // long unpaid break that represents the non-working portion of a split/edited
+    // shift. Payroll must follow the approved 7shifts break value exactly.
+    if (!Number.isFinite(minutes) || minutes <= 0) continue;
     if (item.paid === true || item.is_paid === true) paidMinutes += minutes;
     else unpaidMinutes += minutes;
   }

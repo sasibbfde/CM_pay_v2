@@ -1,14 +1,52 @@
 const BASE = 'https://api.7shifts.com/v2';
 
+const RATE_LIMIT_MESSAGE = '7shifts is rate-limiting requests. Please wait 30 seconds, then try again.';
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function parseRetryAfter(res: Response, body: string) {
+  const header = res.headers.get('retry-after');
+  const headerSeconds = header ? Number(header) : NaN;
+  if (Number.isFinite(headerSeconds) && headerSeconds > 0) return headerSeconds;
+  const match = body.match(/"retry_after"\s*:\s*"?(\d+)"?/i);
+  const bodySeconds = match ? Number(match[1]) : NaN;
+  if (Number.isFinite(bodySeconds) && bodySeconds > 0) return bodySeconds;
+  return 30;
+}
+
+function friendlySevenShiftsError(status: number, body: string) {
+  if (status === 429 || /rate[- ]limited|error[-_ ]?1015/i.test(body)) {
+    return RATE_LIMIT_MESSAGE;
+  }
+  const compact = body.replace(/\s+/g, ' ').trim();
+  return `7shifts ${status}: ${compact.slice(0, 300)}${compact.length > 300 ? '…' : ''}`;
+}
+
 async function sevenFetch(path: string) {
   const token = process.env.SEVENSHIFTS_API_KEY;
   if (!token) throw new Error('Missing SEVENSHIFTS_API_KEY');
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-    cache: 'no-store',
-  });
-  if (!res.ok) throw new Error(`7shifts ${res.status}: ${await res.text()}`);
-  return res.json();
+  const maxAttempts = 2;
+  let lastError = RATE_LIMIT_MESSAGE;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(`${BASE}${path}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (res.ok) return res.json();
+
+    const body = await res.text();
+    const isRateLimited = res.status === 429 || /rate[- ]limited|error[-_ ]?1015/i.test(body);
+    lastError = friendlySevenShiftsError(res.status, body);
+
+    if (!isRateLimited || attempt === maxAttempts) break;
+    const retrySeconds = Math.min(parseRetryAfter(res, body), 60);
+    await sleep(retrySeconds * 1000);
+  }
+
+  throw new Error(lastError);
 }
 
 function companyPath(path: string) {

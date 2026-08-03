@@ -20,3 +20,14 @@ test('accepts alternate 7shifts break field names and calculates actual hours', 
   assert.equal(calculateGrossHours('2026-06-29T12:00:00Z', '2026-06-29T20:00:00Z'), 8);
   assert.equal(calculatePayrollHours(8, breaks.unpaidMinutes), 7.67);
 });
+
+test('counts long approved 7shifts unpaid breaks instead of dropping them', () => {
+  const gross = calculateGrossHours('2026-08-01T11:00:00-04:00', '2026-08-01T22:15:00-04:00');
+  const breaks = calculateBreaks([
+    { in:'2026-08-01T15:55:00-04:00', out:'2026-08-01T22:16:00-04:00', paid:false },
+  ]);
+
+  assert.equal(gross, 11.25);
+  assert.equal(breaks.unpaidMinutes, 381);
+  assert.equal(calculatePayrollHours(gross, breaks.unpaidMinutes), 4.9);
+});

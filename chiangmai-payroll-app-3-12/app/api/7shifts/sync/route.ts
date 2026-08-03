@@ -352,15 +352,18 @@ async function runSync(body: any): Promise<NextResponse> {
   queryStart.setUTCDate(queryStart.getUTCDate() - 1);
   const queryEnd = new Date(`${endDate}T23:59:59Z`);
   queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
-  const [punchesRes, ...hoursAndWagesReports] = await Promise.all([
-    fetchTimePunches(queryStart.toISOString(), queryEnd.toISOString()),
-    ...PAYROLL_REPORT_LOCATION_IDS.map(locationId => fetchHoursAndWages(startDate, endDate, locationId)
-      .then(report => ({
-        ...report,
-        location_id: locationId,
-        location_name: mapLoc(locationId),
-      }))),
-  ]);
+  const punchesRes = await fetchTimePunches(queryStart.toISOString(), queryEnd.toISOString());
+  const hoursAndWagesReports: any[] = [];
+  // Fetch location reports one at a time. 7shifts/Cloudflare rate-limits bursts,
+  // and payroll sync should prefer reliability over shaving a few seconds.
+  for (const locationId of PAYROLL_REPORT_LOCATION_IDS) {
+    const report = await fetchHoursAndWages(startDate, endDate, locationId);
+    hoursAndWagesReports.push({
+      ...report,
+      location_id: locationId,
+      location_name: mapLoc(locationId),
+    });
+  }
   const rawPunches: any[] = punchesRes.data || [];
   const rawPunchById = new Map<string, any>();
   const rawPunchByReportKey = new Map<string, any[]>();
