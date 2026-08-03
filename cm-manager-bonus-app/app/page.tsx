@@ -114,7 +114,7 @@ export default function ManagerBonusApp() {
   const pastMonths = useMemo(()=>{
     const items:{month:string;label:string}[] = [];
     const seen = new Set<string>();
-    for (let offset = 0; offset > -12; offset -= 1) {
+    for (let offset = 1; offset > -24; offset -= 1) {
       const value = monthValue(new Date(now.getFullYear(), now.getMonth() + offset, 1));
       if (seen.has(value)) continue;
       seen.add(value);
@@ -696,7 +696,7 @@ export default function ManagerBonusApp() {
     </section>}
 
     <section className={styles.filters}>
-      <label>Month<input type="month" value={month} onChange={event=>setMonth(event.target.value)} /></label>
+      <label>Month<select value={month} onChange={event=>setMonth(event.target.value)}>{pastMonths.map(item=><option key={item.month} value={item.month}>{item.label}</option>)}</select></label>
       <label>Payroll filter<select value={period} onChange={event=>setPeriod(event.target.value)}><option value="month">Full month</option><option value="1-15">1–15</option><option value="16-end">16–End</option></select></label>
       <label>Location<select value={location} disabled={Boolean(locationScope)} onChange={event=>{setLocation(event.target.value);setSelectedKey('')}}>{!locationScope && <option value="ALL">{locationScopes.length > 1 ? 'All assigned locations' : 'All locations'}</option>}{locationOptions.map(item=><option key={item}>{item}</option>)}</select></label>
       <label>Search<input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Manager or location" /></label>
