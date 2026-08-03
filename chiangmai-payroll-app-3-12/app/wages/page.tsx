@@ -65,6 +65,7 @@ export default function WagesPage() {
   const [wageHistory, setWageHistory] = useState<WageHistory[]>(() => initialHistory?.history || []);
   const [historyLoading, setHistoryLoading] = useState(() => !initialHistory);
   const [backfilling, setBackfilling] = useState(false);
+  const [reportBackfilling, setReportBackfilling] = useState(false);
   const [rulesLoading, setRulesLoading] = useState(() => !initialRules);
   const [ruleForm, setRuleForm]     = useState<RuleForm>(emptyRuleForm);
   const [ruleSaving, setRuleSaving] = useState(false);
@@ -298,6 +299,27 @@ export default function WagesPage() {
     }
   };
 
+  const backfillPayrollReportWageHistory = async () => {
+    setReportBackfilling(true); setMsg(null);
+    try {
+      const response = await fetch('/api/wage-history', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ start:'2026-01-01', mode:'payroll_reports' }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.ok===false) throw new Error(result.error || 'Payroll report wage-history backfill failed');
+      invalidateClientCache(['/api/wage-history','/api/employees']);
+      loadWageHistory(true);
+      setMsg({text:`✓ Payroll reports checked ${result.periods_checked || 0} pay periods; found ${result.history_rows_found || 0} wage trend rows${result.errors?.length ? ` · ${result.errors.length} report issue(s)` : ''}`,ok:!result.errors?.length});
+    } catch(error:any) {
+      setMsg({text:error.message,ok:false});
+    } finally {
+      setReportBackfilling(false);
+      setTimeout(()=>setMsg(null),8000);
+    }
+  };
+
   const exportWages = () => {
     const params = new URLSearchParams();
     params.set('location', locFilter);
@@ -352,6 +374,7 @@ export default function WagesPage() {
           </div>
           <div style={{display:'flex',gap:8}}>
             <button onClick={backfillWageHistory} disabled={backfilling} style={{background:'rgba(167,139,250,.10)',border:'1px solid rgba(167,139,250,.28)',color:'#a78bfa',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:backfilling?'wait':'pointer'}}>{backfilling?'Backfilling…':'Backfill from Jan 1, 2026'}</button>
+            <button onClick={backfillPayrollReportWageHistory} disabled={reportBackfilling} style={{background:'rgba(251,191,36,.10)',border:'1px solid rgba(251,191,36,.28)',color:'#fbbf24',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:reportBackfilling?'wait':'pointer'}}>{reportBackfilling?'Scanning reports…':'Build trend from payroll reports'}</button>
             <button onClick={()=>loadWageHistory(true)} style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)',color:'#9ca3af',borderRadius:7,padding:'7px 12px',fontSize:12,cursor:'pointer'}}>Refresh history</button>
           </div>
         </div>

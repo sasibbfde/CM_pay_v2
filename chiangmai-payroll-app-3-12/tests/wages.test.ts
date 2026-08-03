@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveEmployeeWage, selectHourlyWage, shouldUpgradeEmployeeWage, wageUpgradeNote } from '../lib/wages';
-import { manualWageHistoryRow, normalizeSevenShiftsWageHistory } from '../lib/wage-history';
+import { manualWageHistoryRow, normalizePayrollReportWageHistory, normalizeSevenShiftsWageHistory } from '../lib/wage-history';
 
 test('selects the latest effective role-specific 7shifts wage', () => {
   const wages = [
@@ -69,4 +69,20 @@ test('manual wage edits produce history rows with saved date', () => {
   assert.equal(row.new_wage, 18.5);
   assert.equal(row.effective_date, '2026-08-03');
   assert.equal(row.source, 'manual');
+});
+
+test('payroll report wage history keeps first observed rate and later changes only', () => {
+  const rows = normalizePayrollReportWageHistory([
+    { employee_id:'7S-1', seven_shifts_user_id:'1', employee_name:'Trend Staff', location:'Chiang Mai Parklawn', role:'Server', wage:17.6, observed_date:'2026-01-03', period_start:'2026-01-01', period_end:'2026-01-15' },
+    { employee_id:'7S-1', seven_shifts_user_id:'1', employee_name:'Trend Staff', location:'Chiang Mai Parklawn', role:'Server', wage:17.6, observed_date:'2026-01-10', period_start:'2026-01-01', period_end:'2026-01-15' },
+    { employee_id:'7S-1', seven_shifts_user_id:'1', employee_name:'Trend Staff', location:'Chiang Mai Parklawn', role:'Server', wage:18.5, observed_date:'2026-03-02', period_start:'2026-03-01', period_end:'2026-03-15' },
+  ], '2026-08-03T12:00:00.000Z');
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].old_wage, 0);
+  assert.equal(rows[0].new_wage, 17.6);
+  assert.equal(rows[0].effective_date, '2026-01-03');
+  assert.equal(rows[1].old_wage, 17.6);
+  assert.equal(rows[1].new_wage, 18.5);
+  assert.equal(rows[1].source, '7shifts_punch_report');
 });

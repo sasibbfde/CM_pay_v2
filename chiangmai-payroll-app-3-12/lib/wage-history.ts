@@ -11,6 +11,19 @@ export type WageHistoryEmployee = {
   wage?: number | string | null;
 };
 
+export type PayrollReportWageEntry = {
+  employee_id?: string | null;
+  seven_shifts_user_id?: string | null;
+  employee_name: string;
+  location?: string | null;
+  department?: string | null;
+  role?: string | null;
+  wage: number;
+  observed_date: string;
+  period_start: string;
+  period_end: string;
+};
+
 export type WageHistoryRow = {
   employee_id: string;
   seven_shifts_user_id: string | null;
@@ -131,6 +144,63 @@ export function manualWageHistoryRow(
     notes: `Manual wage changed from ${money(numeric(oldWage))} to ${money(numeric(newWage))} on ${detectedAt.slice(0, 10)}`,
     metadata: {},
   };
+}
+
+export function normalizePayrollReportWageHistory(
+  entries: PayrollReportWageEntry[],
+  detectedAt = new Date().toISOString(),
+): WageHistoryRow[] {
+  const sorted = entries
+    .filter(entry => entry.employee_id && entry.employee_name && Number(entry.wage || 0) > 0 && cleanDate(entry.observed_date))
+    .sort((a, b) => [
+      a.employee_id || '',
+      a.role || '',
+      a.location || '',
+      a.observed_date,
+      a.period_start,
+    ].join('|').localeCompare([
+      b.employee_id || '',
+      b.role || '',
+      b.location || '',
+      b.observed_date,
+      b.period_start,
+    ].join('|')));
+
+  const lastByEmployeeRole = new Map<string, number>();
+  const rows: WageHistoryRow[] = [];
+  for (const entry of sorted) {
+    const wage = Math.round(Number(entry.wage || 0) * 100) / 100;
+    const key = `${entry.employee_id}|${entry.role || '__role__'}`;
+    const previous = lastByEmployeeRole.get(key) || 0;
+    if (previous > 0 && Math.abs(previous - wage) < 0.005) continue;
+    lastByEmployeeRole.set(key, wage);
+
+    const effectiveDate = cleanDate(entry.observed_date);
+    rows.push({
+      employee_id: String(entry.employee_id),
+      seven_shifts_user_id: entry.seven_shifts_user_id ? String(entry.seven_shifts_user_id) : null,
+      employee_name: entry.employee_name,
+      location: entry.location || null,
+      department: entry.department || null,
+      role: entry.role || null,
+      role_id: entry.role || '__report__',
+      old_wage: previous,
+      new_wage: wage,
+      effective_date: effectiveDate,
+      detected_at: detectedAt,
+      source: '7shifts_punch_report',
+      source_period_start: cleanDate(entry.period_start),
+      source_period_end: cleanDate(entry.period_end),
+      notes: previous > 0
+        ? `Observed payroll report wage change on ${effectiveDate}: ${money(previous)} → ${money(wage)}`
+        : `Observed payroll report wage on ${effectiveDate}: ${money(wage)}`,
+      metadata: {
+        location: entry.location || null,
+        role: entry.role || null,
+      },
+    });
+  }
+  return rows;
 }
 
 export async function insertWageHistoryRows(supabase: any, rows: WageHistoryRow[]) {
