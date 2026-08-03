@@ -7,14 +7,15 @@ import { insertWageHistoryRows, manualWageHistoryRow } from '@/lib/wage-history'
 
 const PAGE = 1000;
 
-async function fetchAllEmployees(supabase: any, activeOnly: boolean) {
+async function fetchAllEmployees(supabase: any, activeFilter: 'active' | 'inactive' | 'all') {
   const all: any[] = [];
   let from = 0;
   while (true) {
     let q = supabase.from('employees')
       .select('id, employee_id, seven_shifts_user_id, full_name, location, department, role, wage, cash_wage, wage_locked, wage_source, active, created_at')
       .range(from, from + PAGE - 1).order('full_name');
-    if (activeOnly) q = q.eq('active', true);
+    if (activeFilter === 'active') q = q.eq('active', true);
+    if (activeFilter === 'inactive') q = q.eq('active', false);
     const { data, error } = await q;
     if (error) throw error;
     if (!data || data.length === 0) break;
@@ -25,14 +26,78 @@ async function fetchAllEmployees(supabase: any, activeOnly: boolean) {
   return all;
 }
 
+function torontoDate(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value).slice(0, 10);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const byType = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
+function isSameTorontoMonth(value?: string | null, now = new Date()) {
+  const date = torontoDate(value);
+  const current = torontoDate(now.toISOString());
+  return Boolean(date && current && date.slice(0, 7) === current.slice(0, 7));
+}
+
+async function punchSummarySinceJan(supabase: any, employeeIds: string[]) {
+  const summary = new Map<string, {
+    first_payroll_date: string;
+    last_payroll_date: string;
+    last_punch_at: string;
+    payroll_hours_since_jan: number;
+    locations: Set<string>;
+  }>();
+  if (!employeeIds.length) return summary;
+  const start = `${new Date().getFullYear()}-01-01T00:00:00.000Z`;
+  for (let i = 0; i < employeeIds.length; i += 200) {
+    const ids = employeeIds.slice(i, i + 200);
+    const { data, error } = await supabase
+      .from('punches')
+      .select('employee_id, clocked_in, payroll_hours, location')
+      .in('employee_id', ids)
+      .gte('clocked_in', start)
+      .order('clocked_in', { ascending: true });
+    if (error) throw error;
+    for (const punch of data || []) {
+      const employeeId = punch.employee_id;
+      if (!employeeId) continue;
+      const day = torontoDate(punch.clocked_in);
+      const row = summary.get(employeeId) || {
+        first_payroll_date: day,
+        last_payroll_date: day,
+        last_punch_at: punch.clocked_in,
+        payroll_hours_since_jan: 0,
+        locations: new Set<string>(),
+      };
+      if (day && (!row.first_payroll_date || day < row.first_payroll_date)) row.first_payroll_date = day;
+      if (day && (!row.last_payroll_date || day > row.last_payroll_date)) row.last_payroll_date = day;
+      if (punch.clocked_in && (!row.last_punch_at || punch.clocked_in > row.last_punch_at)) row.last_punch_at = punch.clocked_in;
+      row.payroll_hours_since_jan = Math.round((row.payroll_hours_since_jan + Number(punch.payroll_hours || 0)) * 100) / 100;
+      if (punch.location) row.locations.add(String(punch.location));
+      summary.set(employeeId, row);
+    }
+  }
+  return summary;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const sp         = req.nextUrl.searchParams;
-    const activeOnly = sp.get('active') !== 'false';
+    const activeParam = sp.get('active');
+    const activeFilter: 'active' | 'inactive' | 'all' =
+      activeParam === 'all' ? 'all' : activeParam === 'false' ? 'inactive' : 'active';
     const supabase   = getSupabaseAdmin();
 
-    const baseEmployees = (await fetchAllEmployees(supabase, activeOnly)).map(fillMissingRosterDetails).map(applyCashWage);
+    const baseEmployees = (await fetchAllEmployees(supabase, activeFilter)).map(fillMissingRosterDetails).map(applyCashWage);
     const employeeIds = baseEmployees.map(employee => employee.employee_id).filter(Boolean);
+    const punchSummary = await punchSummarySinceJan(supabase, employeeIds);
     const { data: wageLogs } = employeeIds.length
       ? await supabase
         .from('audit_log')
@@ -62,20 +127,79 @@ export async function GET(req: NextRequest) {
     const employees = baseEmployees.map(employee => {
       const wageLog = latestWageLog.get(employee.employee_id);
       const detailLog = latestDetailLog.get(employee.employee_id);
+      const payroll = punchSummary.get(employee.employee_id);
+      const firstSeenDate = payroll?.first_payroll_date || torontoDate(employee.created_at);
       return {
       ...employee,
+      status: employee.active === false ? 'Inactive' : 'Active',
+      first_payroll_date: payroll?.first_payroll_date || null,
+      last_payroll_date: payroll?.last_payroll_date || null,
+      last_punch_at: payroll?.last_punch_at || null,
+      first_seen_date: firstSeenDate || null,
+      payroll_hours_since_jan: payroll?.payroll_hours_since_jan || 0,
+      worked_locations_since_jan: payroll ? [...payroll.locations].sort() : [],
       wage_updated_at:wageLog?.created_at || null,
       wage_upgrade_note:wageLog?.notes || null,
       detail_updated_at:detailLog?.created_at || null,
       detail_change_note:detailLog?.notes || null,
       new_until:firstPayrollPeriodEnd(employee.created_at),
       is_new:isNewEmployee(employee.created_at),
+      is_new_this_month:isSameTorontoMonth(firstSeenDate || employee.created_at),
     };
     });
 
     return NextResponse.json({ employees });
   } catch (e: any) {
     return NextResponse.json({ employees: [], error: e.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const sp = req.nextUrl.searchParams;
+    const body = await req.json().catch(() => ({}));
+    const id = body.id || sp.get('id');
+    const hard = body.hard === true || sp.get('hard') === 'true';
+    if (!id) return NextResponse.json({ ok:false, error:'Employee id is required' }, { status:400 });
+    const supabase = getSupabaseAdmin();
+    const { data: current, error: currentError } = await supabase
+      .from('employees')
+      .select('id, employee_id, full_name, active')
+      .eq('id', id)
+      .maybeSingle();
+    if (currentError) throw currentError;
+    if (!current) return NextResponse.json({ ok:false, error:'Employee not found' }, { status:404 });
+    if (hard) {
+      if (current.active !== false) {
+        return NextResponse.json({ ok:false, error:'Only inactive employees can be deleted. Terminate first, then delete.' }, { status:400 });
+      }
+      const { error } = await supabase.from('employees').delete().eq('id', id).eq('active', false);
+      if (error) throw error;
+      await supabase.from('audit_log').insert({
+        action: 'employee_deleted_from_management',
+        table_name: 'employees',
+        record_id: current.employee_id,
+        old_value: current,
+        new_value: null,
+        notes: `Inactive employee ${current.full_name} deleted from employee management. Historical punches/payroll rows are retained.`,
+        created_at: new Date().toISOString(),
+      });
+      return NextResponse.json({ ok:true, deleted:true });
+    }
+    const { error } = await supabase.from('employees').update({ active:false, updated_at:new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+    await supabase.from('audit_log').insert({
+      action: 'employee_terminated_from_management',
+      table_name: 'employees',
+      record_id: current.employee_id,
+      old_value: { active: current.active },
+      new_value: { active: false },
+      notes: `Employee ${current.full_name} marked inactive/terminated from Employee Management.`,
+      created_at: new Date().toISOString(),
+    });
+    return NextResponse.json({ ok:true, terminated:true });
+  } catch (e: any) {
+    return NextResponse.json({ ok:false, error:e.message }, { status:500 });
   }
 }
 
