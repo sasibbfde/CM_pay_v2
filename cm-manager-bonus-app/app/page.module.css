@@ -255,6 +255,59 @@
   margin-bottom: 14px;
 }
 
+.dashboardFilterBar {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) minmax(170px, .7fr) minmax(190px, .8fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff7e4;
+}
+
+.dashboardFilterBar label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.dashboardFilterBar select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  background: #fffaf1;
+  color: var(--ink);
+  border-radius: 12px;
+}
+
+.dashboardFilterBar div {
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255,255,255,.72);
+}
+
+.dashboardFilterBar strong,
+.dashboardFilterBar span {
+  display: block;
+}
+
+.dashboardFilterBar strong {
+  color: var(--plum-deep);
+  font-size: 18px;
+}
+
+.dashboardFilterBar span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .dashboardCard {
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -328,6 +381,38 @@
 .emptyMini {
   padding: 16px;
   color: var(--muted);
+}
+
+.criteriaTable {
+  display: grid;
+}
+
+.criteriaHead,
+.criteriaRow {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(5, minmax(90px, .6fr));
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.criteriaHead {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  background: rgba(255,247,228,.75);
+}
+
+.criteriaRow strong {
+  color: var(--plum-deep);
+}
+
+.criteriaRow span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .addManagerBox {

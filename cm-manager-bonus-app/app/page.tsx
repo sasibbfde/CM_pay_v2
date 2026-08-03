@@ -93,6 +93,7 @@ export default function ManagerBonusApp() {
   const [period,setPeriod] = useState('month');
   const [location,setLocation] = useState('ALL');
   const [query,setQuery] = useState('');
+  const [dashboardStatus,setDashboardStatus] = useState('all');
   const [rows,setRows] = useState<ManagerRow[]>([]);
   const [selectedKey,setSelectedKey] = useState('');
   const [saving,setSaving] = useState('');
@@ -174,8 +175,17 @@ export default function ManagerBonusApp() {
     .filter(row=>(locationScope ? row.location === locationScope : scopedOptions.length ? (scopedOptions.includes(row.location) && (location==='ALL'||row.location===location)) : location==='ALL'||row.location===location))
     .filter(row=>!query.trim()||row.employee_name.toLowerCase().includes(query.toLowerCase().trim())||row.location.toLowerCase().includes(query.toLowerCase().trim())),
     [rows,location,locationScope,scopedOptions,query]);
+  const dashboardRows = useMemo(()=>visible.filter(row=>{
+    const rowStatus = status(row);
+    if (dashboardStatus === 'done') return rowStatus === 'done';
+    if (dashboardStatus === 'part') return rowStatus === 'part';
+    if (dashboardStatus === 'none') return rowStatus === 'none';
+    if (dashboardStatus === 'needs-payout') return row.original_bonus <= 0 || row.finalBonus <= 0;
+    if (dashboardStatus === 'no-hours') return row.worked_hours <= 0;
+    return true;
+  }),[visible,dashboardStatus]);
   const selected = useMemo(()=>visible.find(row=>`${row.employee_id}\u0000${row.location}`===selectedKey) || visible[0] || null,[visible,selectedKey]);
-  const totals = useMemo(()=>visible.reduce((sum,row)=>({
+  const buildTotals = (input:ManagerRow[]) => input.reduce((sum,row)=>({
     managers:sum.managers+1,
     hours:sum.hours+row.worked_hours,
     original:sum.original+row.original_bonus,
@@ -187,8 +197,10 @@ export default function ManagerBonusApp() {
     score:sum.score+row.scorePercent,
     archived:sum.archived+(row.archived_record?1:0),
     withHours:sum.withHours+(row.seven_shifts_hours>0?1:0),
-  }),{managers:0,hours:0,original:0,extra:0,final:0,done:0,inProgress:0,notStarted:0,score:0,archived:0,withHours:0}),[visible]);
-  const locationDashboard = useMemo(()=>[...visible.reduce((map,row)=>{
+  }),{managers:0,hours:0,original:0,extra:0,final:0,done:0,inProgress:0,notStarted:0,score:0,archived:0,withHours:0});
+  const totals = useMemo(()=>buildTotals(visible),[visible]);
+  const dashboardTotals = useMemo(()=>buildTotals(dashboardRows),[dashboardRows]);
+  const locationDashboard = useMemo(()=>[...dashboardRows.reduce((map,row)=>{
     const item = map.get(row.location) || { location:row.location, managers:0, hours:0, final:0, original:0, extra:0, done:0, inProgress:0, notStarted:0, score:0, addHours:0 };
     item.managers += 1;
     item.hours += row.worked_hours;
@@ -203,18 +215,47 @@ export default function ManagerBonusApp() {
     item.addHours += Number(row.manual_hours || 0);
     map.set(row.location,item);
     return map;
-  },new Map<string,{location:string;managers:number;hours:number;final:number;original:number;extra:number;done:number;inProgress:number;notStarted:number;score:number;addHours:number}>()).values()].sort((a,b)=>b.final-a.final),[visible]);
-  const needsReview = useMemo(()=>visible.filter(row=>status(row)!=='done').slice(0,8),[visible]);
-  const topManagers = useMemo(()=>[...visible]
+  },new Map<string,{location:string;managers:number;hours:number;final:number;original:number;extra:number;done:number;inProgress:number;notStarted:number;score:number;addHours:number}>()).values()].sort((a,b)=>b.final-a.final),[dashboardRows]);
+  const needsReview = useMemo(()=>dashboardRows.filter(row=>status(row)!=='done').slice(0,8),[dashboardRows]);
+  const topManagers = useMemo(()=>[...dashboardRows]
     .filter(row=>row.original_bonus > 0 || row.finalBonus > 0 || row.totalPoints > 0)
     .sort((a,b)=>(b.scorePercent-a.scorePercent) || (b.finalBonus-a.finalBonus) || (b.worked_hours-a.worked_hours))
-    .slice(0,6),[visible]);
-  const payoutLeaders = useMemo(()=>[...visible]
+    .slice(0,6),[dashboardRows]);
+  const payoutLeaders = useMemo(()=>[...dashboardRows]
     .filter(row=>row.finalBonus > 0)
     .sort((a,b)=>b.finalBonus-a.finalBonus)
-    .slice(0,6),[visible]);
+    .slice(0,6),[dashboardRows]);
   const bestLocation = useMemo(()=>[...locationDashboard]
     .sort((a,b)=>((b.managers?b.done/b.managers:0)-(a.managers?a.done/a.managers:0)) || ((b.managers?b.score/b.managers:0)-(a.managers?a.score/a.managers:0)) || b.final-a.final)[0] || null,[locationDashboard]);
+  const criteriaStats = useMemo(()=>{
+    const map = new Map<string,{label:string; scored:number; missing:number; total:number; fullMarks:number; lowScores:number; possible:number; managers:number}>();
+    dashboardRows.forEach(row=>{
+      const rubric = rubricForManager(row.department,row.role);
+      row.rubric_ratings.slice(0,10).forEach((value,index)=>{
+        const label = rubric[index]?.label || `Criteria ${index+1}`;
+        const item = map.get(label) || { label, scored:0, missing:0, total:0, fullMarks:0, lowScores:0, possible:0, managers:0 };
+        item.managers += 1;
+        item.possible += 5;
+        if (value === null || value === undefined) {
+          item.missing += 1;
+        } else {
+          const score = Number(value) || 0;
+          item.scored += 1;
+          item.total += score;
+          item.fullMarks += score === 5 ? 1 : 0;
+          item.lowScores += score <= 2 ? 1 : 0;
+        }
+        map.set(label,item);
+      });
+    });
+    return [...map.values()].sort((a,b)=>{
+      const aAvg = a.scored ? a.total/a.scored : -1;
+      const bAvg = b.scored ? b.total/b.scored : -1;
+      return aAvg-bAvg || b.missing-a.missing || a.label.localeCompare(b.label);
+    });
+  },[dashboardRows]);
+  const strongestCriteria = useMemo(()=>[...criteriaStats].filter(item=>item.scored).sort((a,b)=>(b.total/b.scored)-(a.total/a.scored)).slice(0,3),[criteriaStats]);
+  const weakestCriteria = useMemo(()=>criteriaStats.slice(0,3),[criteriaStats]);
 
   function keyFor(row:ManagerRow) {
     return `${row.employee_id}\u0000${row.location}`;
@@ -545,6 +586,21 @@ export default function ManagerBonusApp() {
           {sessionRole === 'owner' && <button className={styles.historyActive} onClick={()=>setAddingManager(value=>!value)}>{addingManager?'Close add manager':'+ Add manager'}</button>}
         </div>
       </div>
+      <div className={styles.dashboardFilterBar}>
+        <label>Status filter
+          <select value={dashboardStatus} onChange={event=>setDashboardStatus(event.target.value)}>
+            <option value="all">All managers</option>
+            <option value="done">Done reviews</option>
+            <option value="part">In progress</option>
+            <option value="none">Not started</option>
+            <option value="needs-payout">Needs payout setup</option>
+            <option value="no-hours">No hours</option>
+          </select>
+        </label>
+        <div><strong>{dashboardRows.length}</strong><span> managers in this dashboard filter</span></div>
+        <div><strong>{money(dashboardTotals.final)}</strong><span> total payout in filter</span></div>
+        <button className={styles.secondaryDark} onClick={()=>{setDashboardStatus('all');setQuery('');setLocation(locationScope || 'ALL')}}>Reset dashboard</button>
+      </div>
       {addingManager && <div className={styles.addManagerBox}>
         <label className={styles.field}>Manager name<input value={newManager.employee_name} onChange={event=>setNewManager(current=>({...current,employee_name:event.target.value}))} placeholder="Manager name" /></label>
         <div className={styles.field}>Locations <span className={styles.requiredHint}>select one or more</span>
@@ -562,14 +618,18 @@ export default function ManagerBonusApp() {
         <button className={styles.primary} disabled={Boolean(saving)} onClick={addManager}>Save manager</button>
       </div>}
       <div className={styles.dashboardGrid}>
-        <article className={styles.dashboardCard}><span>Final payout</span><strong>{money(totals.final)}</strong><small>{totals.managers} managers · {totals.done} complete</small></article>
-        <article className={styles.dashboardCard}><span>Manager hours</span><strong>{totals.hours.toFixed(1)}h</strong><small>{totals.withHours} managers with 7shifts hours</small></article>
-        <article className={styles.dashboardCard}><span>Manual added hours</span><strong>{visible.reduce((sum,row)=>sum+Number(row.manual_hours||0),0).toFixed(1)}h</strong><small>Added inside Manager Bonus</small></article>
-        <article className={styles.dashboardCard}><span>Average payout</span><strong>{money(totals.managers?totals.final/totals.managers:0)}</strong><small>Across visible managers</small></article>
-        <article className={styles.dashboardCard}><span>Review completion</span><strong>{totals.managers?`${Math.round((totals.done/totals.managers)*100)}%`:'0%'}</strong><small>{totals.done} done · {totals.inProgress} in progress · {totals.notStarted} not started</small></article>
-        <article className={styles.dashboardCard}><span>Average score</span><strong>{totals.managers?`${((totals.score/totals.managers)*100).toFixed(1)}%`:'0.0%'}</strong><small>Based on scored criteria</small></article>
+        <article className={styles.dashboardCard}><span>Total payout</span><strong>{money(dashboardTotals.final)}</strong><small>{dashboardTotals.managers} managers · {dashboardTotals.done} complete</small></article>
+        <article className={styles.dashboardCard}><span>Original bonus</span><strong>{money(dashboardTotals.original)}</strong><small>Base bonus entered before score</small></article>
+        <article className={styles.dashboardCard}><span>Earned extra</span><strong>{money(dashboardTotals.extra)}</strong><small>Extra earned from criteria score</small></article>
+        <article className={styles.dashboardCard}><span>Manager hours</span><strong>{dashboardTotals.hours.toFixed(1)}h</strong><small>{dashboardTotals.withHours} managers with 7shifts hours</small></article>
+        <article className={styles.dashboardCard}><span>Manual added hours</span><strong>{dashboardRows.reduce((sum,row)=>sum+Number(row.manual_hours||0),0).toFixed(1)}h</strong><small>Added inside Manager Bonus</small></article>
+        <article className={styles.dashboardCard}><span>Average payout</span><strong>{money(dashboardTotals.managers?dashboardTotals.final/dashboardTotals.managers:0)}</strong><small>Across filtered managers</small></article>
+        <article className={styles.dashboardCard}><span>Review completion</span><strong>{dashboardTotals.managers?`${Math.round((dashboardTotals.done/dashboardTotals.managers)*100)}%`:'0%'}</strong><small>{dashboardTotals.done} done · {dashboardTotals.inProgress} in progress · {dashboardTotals.notStarted} not started</small></article>
+        <article className={styles.dashboardCard}><span>Average score</span><strong>{dashboardTotals.managers?`${((dashboardTotals.score/dashboardTotals.managers)*100).toFixed(1)}%`:'0.0%'}</strong><small>Based on scored criteria</small></article>
         <article className={styles.dashboardCard}><span>Best manager</span><strong>{topManagers[0]?.employee_name || '—'}</strong><small>{topManagers[0] ? `${topManagers[0].location} · ${(topManagers[0].scorePercent*100).toFixed(1)}% · ${money(topManagers[0].finalBonus)}` : 'No scored managers yet'}</small></article>
         <article className={styles.dashboardCard}><span>Best location</span><strong>{bestLocation?.location || '—'}</strong><small>{bestLocation ? `${bestLocation.done}/${bestLocation.managers} complete · ${bestLocation.managers ? ((bestLocation.score/bestLocation.managers)*100).toFixed(1) : '0.0'}% avg` : 'No locations yet'}</small></article>
+        <article className={styles.dashboardCard}><span>Strongest criteria</span><strong>{strongestCriteria[0]?.label || '—'}</strong><small>{strongestCriteria[0] ? `${(strongestCriteria[0].total/strongestCriteria[0].scored).toFixed(1)}/5 avg · ${strongestCriteria[0].fullMarks} perfect scores` : 'No criteria scored yet'}</small></article>
+        <article className={styles.dashboardCard}><span>Needs coaching</span><strong>{weakestCriteria[0]?.label || '—'}</strong><small>{weakestCriteria[0] ? `${weakestCriteria[0].scored ? (weakestCriteria[0].total/weakestCriteria[0].scored).toFixed(1) : '0.0'}/5 avg · ${weakestCriteria[0].missing} missing` : 'No criteria scored yet'}</small></article>
       </div>
       <div className={styles.dashboardColumns}>
         <article className={styles.panel}>
@@ -599,6 +659,20 @@ export default function ManagerBonusApp() {
           </button>):<div className={styles.emptyMini}>No bonus payouts entered yet.</div>}</div>
         </article>
       </div>
+      <article className={styles.panel}>
+        <div className={styles.panelHeader}><div><h3>Criteria KPI</h3><small>Average score, missing scores, low scores, and perfect scores by criterion</small></div></div>
+        <div className={styles.criteriaTable}>
+          <div className={styles.criteriaHead}><span>Criteria</span><span>Avg score</span><span>Scored</span><span>Missing</span><span>Low scores</span><span>5/5 scores</span></div>
+          {criteriaStats.length?criteriaStats.map(item=><div key={item.label} className={styles.criteriaRow}>
+            <strong>{item.label}</strong>
+            <span>{item.scored ? `${(item.total/item.scored).toFixed(1)}/5` : '—'}</span>
+            <span>{item.scored}/{item.managers}</span>
+            <span>{item.missing}</span>
+            <span>{item.lowScores}</span>
+            <span>{item.fullMarks}</span>
+          </div>):<div className={styles.emptyMini}>No criteria scores yet.</div>}
+        </div>
+      </article>
     </section>}
     {activeTab === 'past' && <section className={styles.historyPanel}>
       <div className={styles.historyHead}>
