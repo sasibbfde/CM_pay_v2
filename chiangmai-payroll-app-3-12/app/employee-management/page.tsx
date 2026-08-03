@@ -249,49 +249,147 @@ export default function EmployeeManagementPage() {
   }
 
   function exportExcel() {
-    const rows = [
-      [
-        'Employee',
-        'Status',
-        'New label',
-        'Location',
-        'Department',
-        'Role',
-        'Cheque wage',
-        'Cash wage',
-        'Wage source',
-        'Rules',
-        'First payroll / start',
-        'Last payroll date',
-        'Payroll hours since Jan',
-        'Worked locations since Jan',
-        'Wage change note',
-        'Role/location change note',
-        '7shifts ID',
-      ],
-      ...filtered.map((employee) => [
-        employee.full_name,
-        employee.active === false ? 'Inactive' : 'Active',
-        newHireMonthLabel(employee),
-        employee.location || '',
-        employee.department || '',
-        employee.role || '',
-        Number(employee.wage || 0) || '',
-        Number(employee.cash_wage || 0) || '',
-        employee.wage_source || '',
-        ruleListFor(employee).map(ruleSummary).join(' | '),
-        shortDate(employeeStartDate(employee)),
-        shortDate(employee.last_payroll_date),
-        Number(employee.payroll_hours_since_jan || 0).toFixed(2),
-        (employee.worked_locations_since_jan || []).join(' | '),
-        employee.wage_upgrade_note || '',
-        employee.detail_change_note || '',
-        employee.seven_shifts_user_id || employee.employee_id || '',
-      ]),
+    const locationLabel = locationFilter === 'ALL' ? 'All locations' : locationFilter;
+    const statusLabel = {
+      ALL: 'All status',
+      ACTIVE: 'Active only',
+      INACTIVE: 'Inactive only',
+      NEW: 'New employees',
+      MISSING: 'Missing details/wage',
+      WAGE_CHANGES: 'Wage changes',
+      ROLE_CHANGES: 'Role/location changes',
+    }[statusFilter] || statusFilter;
+    const generatedAt = new Date().toLocaleString('en-CA', { timeZone: 'America/Toronto' });
+    const headers = [
+      'Employee',
+      'Status',
+      'Cohort label',
+      'Location',
+      'Department',
+      'Role',
+      'Cheque wage',
+      'Cash wage',
+      'Wage source',
+      'Rules',
+      'First payroll / start',
+      'Last payroll date',
+      'Payroll hours since Jan',
+      'Worked locations since Jan',
+      'Wage change note',
+      'Role/location change note',
+      '7shifts ID',
     ];
-    const html = `<!doctype html><html><head><meta charset="utf-8" /></head><body><table border="1">${rows
-      .map((row) => `<tr>${row.map((cell) => `<td>${htmlCell(cell)}</td>`).join('')}</tr>`)
-      .join('')}</table></body></html>`;
+    const cohortFor = (employee: Employee) => {
+      const labels: string[] = [];
+      if (employee.active === false) labels.push('INACTIVE');
+      else labels.push('ACTIVE');
+      const newLabel = newHireMonthLabel(employee);
+      if (newLabel) labels.push(newLabel);
+      if (missingDetails(employee)) labels.push('NEEDS DETAILS');
+      if (employee.wage_upgrade_note) labels.push('WAGE CHANGED');
+      if (employee.detail_change_note) labels.push('ROLE/LOCATION CHANGED');
+      return labels.join(' · ');
+    };
+    const rowClassFor = (employee: Employee) => {
+      if (missingDetails(employee)) return 'rowMissing';
+      if (newHireMonthLabel(employee)) return 'rowNew';
+      if (employee.active === false) return 'rowInactive';
+      if (employee.wage_upgrade_note) return 'rowWage';
+      return 'rowActive';
+    };
+    const statusClassFor = (employee: Employee) => employee.active === false ? 'statusInactive' : 'statusActive';
+    const cohortClassFor = (employee: Employee) => {
+      if (missingDetails(employee)) return 'cohortMissing';
+      if (newHireMonthLabel(employee)) return 'cohortNew';
+      if (employee.wage_upgrade_note) return 'cohortWage';
+      if (employee.detail_change_note) return 'cohortRole';
+      return employee.active === false ? 'cohortInactive' : 'cohortActive';
+    };
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <style>
+            body { font-family: Arial, sans-serif; color: #111827; }
+            table { border-collapse: collapse; width: 100%; }
+            td, th { border: 1px solid #d9e2ef; padding: 7px 9px; vertical-align: top; }
+            .title { background: #0f172a; color: #ffffff; font-size: 20px; font-weight: 800; }
+            .subtitle { background: #f8fafc; color: #475569; font-weight: 700; }
+            .filterLabel { background: #eff6ff; color: #1e40af; font-weight: 800; }
+            .filterValue { background: #ffffff; color: #111827; }
+            .summaryHeader { background: #111827; color: #ffffff; font-weight: 800; }
+            .summaryAll { background: #e0f2fe; color: #075985; font-weight: 800; }
+            .summaryActive { background: #dcfce7; color: #166534; font-weight: 800; }
+            .summaryInactive { background: #fef3c7; color: #92400e; font-weight: 800; }
+            .summaryNew { background: #cffafe; color: #0e7490; font-weight: 800; }
+            .summaryMissing { background: #fee2e2; color: #b91c1c; font-weight: 800; }
+            .summaryWage { background: #ede9fe; color: #5b21b6; font-weight: 800; }
+            .header { background: #111827; color: #ffffff; font-weight: 800; }
+            .rowActive { background: #f7fff9; }
+            .rowInactive { background: #fff8e6; }
+            .rowNew { background: #ecfeff; }
+            .rowMissing { background: #fff1f2; }
+            .rowWage { background: #faf5ff; }
+            .statusActive { background: #bbf7d0; color: #166534; font-weight: 800; }
+            .statusInactive { background: #fde68a; color: #92400e; font-weight: 800; }
+            .cohortActive { background: #dcfce7; color: #166534; font-weight: 800; }
+            .cohortInactive { background: #fef3c7; color: #92400e; font-weight: 800; }
+            .cohortNew { background: #cffafe; color: #0e7490; font-weight: 800; }
+            .cohortMissing { background: #fee2e2; color: #b91c1c; font-weight: 800; }
+            .cohortWage { background: #ede9fe; color: #5b21b6; font-weight: 800; }
+            .cohortRole { background: #dbeafe; color: #1d4ed8; font-weight: 800; }
+            .money { color: #166534; font-weight: 800; }
+            .cash { color: #92400e; font-weight: 800; }
+            .hours { color: #075985; font-weight: 800; }
+            .note { color: #475569; }
+          </style>
+        </head>
+        <body>
+          <table>
+            <tr><td colspan="${headers.length}" class="title">CM Pay V2 — Employee Management Export</td></tr>
+            <tr><td colspan="${headers.length}" class="subtitle">Generated: ${htmlCell(generatedAt)} · Showing ${filtered.length} of ${employees.length} employees</td></tr>
+            <tr>
+              <td class="filterLabel">Location filter</td><td class="filterValue">${htmlCell(locationLabel)}</td>
+              <td class="filterLabel">Status/cohort filter</td><td class="filterValue">${htmlCell(statusLabel)}</td>
+              <td class="filterLabel">Search</td><td class="filterValue" colspan="${headers.length - 5}">${htmlCell(search || 'All employees')}</td>
+            </tr>
+            <tr><td colspan="${headers.length}" class="summaryHeader">Cohort Summary</td></tr>
+            <tr>
+              <td class="summaryAll">All: ${summary.total}</td>
+              <td class="summaryActive">Active: ${summary.active}</td>
+              <td class="summaryInactive">Inactive: ${summary.inactive}</td>
+              <td class="summaryNew">New: ${summary.newEmployees}</td>
+              <td class="summaryMissing">Missing details/wage: ${summary.missing}</td>
+              <td class="summaryWage">Wage changes: ${summary.wageChanges}</td>
+              <td colspan="${headers.length - 6}"></td>
+            </tr>
+            <tr>${headers.map((header) => `<th class="header">${htmlCell(header)}</th>`).join('')}</tr>
+            ${filtered.map((employee) => {
+              const employeeRules = ruleListFor(employee).map(ruleSummary).join(' | ');
+              const cells = [
+                htmlCell(employee.full_name),
+                `<span class="${statusClassFor(employee)}">${employee.active === false ? 'Inactive' : 'Active'}</span>`,
+                `<span class="${cohortClassFor(employee)}">${htmlCell(cohortFor(employee))}</span>`,
+                htmlCell(employee.location || ''),
+                htmlCell(employee.department || ''),
+                htmlCell(employee.role || ''),
+                `<span class="money">${htmlCell(Number(employee.wage || 0) || '')}</span>`,
+                `<span class="cash">${htmlCell(Number(employee.cash_wage || 0) || '')}</span>`,
+                htmlCell(employee.wage_source || ''),
+                htmlCell(employeeRules),
+                htmlCell(shortDate(employeeStartDate(employee))),
+                htmlCell(shortDate(employee.last_payroll_date)),
+                `<span class="hours">${htmlCell(Number(employee.payroll_hours_since_jan || 0).toFixed(2))}</span>`,
+                htmlCell((employee.worked_locations_since_jan || []).join(' | ')),
+                `<span class="note">${htmlCell(employee.wage_upgrade_note || '')}</span>`,
+                `<span class="note">${htmlCell(employee.detail_change_note || '')}</span>`,
+                htmlCell(employee.seven_shifts_user_id || employee.employee_id || ''),
+              ];
+              return `<tr class="${rowClassFor(employee)}">${cells.map((cell) => `<td>${cell}</td>`).join('')}</tr>`;
+            }).join('')}
+          </table>
+        </body>
+      </html>`;
     const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
