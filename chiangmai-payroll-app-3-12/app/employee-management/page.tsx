@@ -325,29 +325,35 @@ export default function EmployeeManagementPage() {
       </section>
 
       <section className="cards">
-        <button className={`card ${statusFilter === 'ALL' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('ALL')}>
+        <button className={`card all ${statusFilter === 'ALL' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('ALL')}>
           <span>All employees</span>
           <strong>{summary.total}</strong>
+          <small>Full employee master view</small>
         </button>
-        <button className={`card ${statusFilter === 'ACTIVE' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('ACTIVE')}>
+        <button className={`card activeCohort ${statusFilter === 'ACTIVE' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('ACTIVE')}>
           <span>Active</span>
           <strong>{summary.active}</strong>
+          <small>Currently working staff</small>
         </button>
-        <button className={`card ${statusFilter === 'INACTIVE' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('INACTIVE')}>
+        <button className={`card inactiveCohort ${statusFilter === 'INACTIVE' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('INACTIVE')}>
           <span>Inactive</span>
           <strong>{summary.inactive}</strong>
+          <small>Quit / terminated records</small>
         </button>
-        <button className={`card ${statusFilter === 'NEW' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('NEW')}>
-          <span>New labels</span>
+        <button className={`card newCohort ${statusFilter === 'NEW' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('NEW')}>
+          <span>New employees</span>
           <strong>{summary.newEmployees}</strong>
+          <small>Recent payroll starters</small>
         </button>
-        <button className={`card ${statusFilter === 'MISSING' ? 'activeCard danger' : ''}`} onClick={() => setStatusFilter('MISSING')}>
+        <button className={`card missingCohort ${statusFilter === 'MISSING' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('MISSING')}>
           <span>Missing details/wage</span>
           <strong>{summary.missing}</strong>
+          <small>Needs location, role, or wage</small>
         </button>
-        <button className={`card ${statusFilter === 'WAGE_CHANGES' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('WAGE_CHANGES')}>
+        <button className={`card wageCohort ${statusFilter === 'WAGE_CHANGES' ? 'activeCard' : ''}`} onClick={() => setStatusFilter('WAGE_CHANGES')}>
           <span>Wage changes</span>
           <strong>{summary.wageChanges}</strong>
+          <small>7shifts / manual wage notes</small>
         </button>
       </section>
 
@@ -467,8 +473,11 @@ export default function EmployeeManagementPage() {
       </section>
 
       <style jsx>{`
-        .employee-management { min-height: 100vh; padding: 28px 34px 48px; background: var(--bg); color: var(--text); }
-        .hero { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
+        .employee-management { min-height: 100vh; padding: 28px 34px 48px; background:
+          radial-gradient(circle at top left, rgba(34,211,238,.10), transparent 32rem),
+          radial-gradient(circle at top right, rgba(167,139,250,.10), transparent 34rem),
+          var(--bg); color: var(--text); }
+        .hero { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 20px; padding: 18px; border: 1px solid var(--border); border-radius: 22px; background: rgba(255,255,255,.025); }
         .eyebrow { margin: 0 0 6px; text-transform: uppercase; letter-spacing: .18em; color: var(--accent); font-weight: 800; font-size: 12px; }
         h1 { margin: 0; font-size: 34px; line-height: 1.1; letter-spacing: -.04em; }
         .subcopy { margin: 10px 0 0; color: var(--muted); max-width: 920px; font-size: 14px; }
@@ -482,34 +491,45 @@ export default function EmployeeManagementPage() {
         .dangerButton { padding: 7px 10px; color: var(--red); background: rgba(248, 113, 113, .12); border-color: rgba(248, 113, 113, .35); font-size: 12px; }
         button:disabled { opacity: .6; cursor: not-allowed; }
         .cards { display: grid; grid-template-columns: repeat(6, minmax(135px, 1fr)); gap: 12px; margin-bottom: 14px; }
-        .card { text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px; color: var(--text); }
-        .card span { display: block; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-size: 11px; font-weight: 800; }
-        .card strong { display: block; margin-top: 8px; font-size: 26px; line-height: 1; }
-        .activeCard { border-color: rgba(34, 211, 238, .42); box-shadow: inset 0 0 0 1px rgba(34, 211, 238, .16); }
-        .activeCard.danger { border-color: rgba(248, 113, 113, .5); }
-        .toolbar { display: grid; grid-template-columns: minmax(280px, 1fr) 220px 210px auto auto; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px; margin-bottom: 12px; }
+        .card { position: relative; overflow: hidden; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 16px; color: var(--text); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
+        .card:before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--cohort, var(--accent)); }
+        .card:after { content: ''; position: absolute; right: -36px; top: -46px; width: 104px; height: 104px; border-radius: 999px; background: color-mix(in srgb, var(--cohort, var(--accent)) 18%, transparent); }
+        .card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--cohort, var(--accent)) 55%, var(--border)); }
+        .card span { display: block; color: color-mix(in srgb, var(--cohort, var(--accent)) 74%, var(--text)); text-transform: uppercase; letter-spacing: .1em; font-size: 11px; font-weight: 900; }
+        .card strong { display: block; margin-top: 8px; font-size: 28px; line-height: 1; letter-spacing: -.03em; }
+        .card small { display: block; color: var(--muted); margin-top: 8px; font-size: 12px; line-height: 1.35; }
+        .card.all { --cohort: var(--accent); }
+        .card.activeCohort { --cohort: var(--green); }
+        .card.inactiveCohort { --cohort: var(--amber); }
+        .card.newCohort { --cohort: var(--accent); }
+        .card.missingCohort { --cohort: var(--red); }
+        .card.wageCohort { --cohort: var(--accent2); }
+        .activeCard { border-color: color-mix(in srgb, var(--cohort, var(--accent)) 74%, var(--border)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cohort, var(--accent)) 28%, transparent), 0 14px 32px color-mix(in srgb, var(--cohort, var(--accent)) 13%, transparent); }
+        .toolbar { display: grid; grid-template-columns: minmax(280px, 1fr) 220px 210px auto auto; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 12px; margin-bottom: 12px; }
         input, select { width: 100%; background: var(--surface2); border: 1px solid var(--border2); border-radius: 12px; padding: 10px 12px; color: var(--text); outline: none; }
         input:focus, select:focus { border-color: var(--accent); }
         .count { color: var(--muted); text-align: right; white-space: nowrap; }
         .notice { margin: 0 0 12px; border: 1px solid rgba(251, 191, 36, .35); background: rgba(251, 191, 36, .1); color: var(--amber); border-radius: 14px; padding: 12px 14px; }
-        .tableWrap { border: 1px solid var(--border); border-radius: 18px; overflow: auto; background: var(--surface); box-shadow: var(--shadow-lg); }
+        .tableWrap { border: 1px solid var(--border); border-radius: 20px; overflow: auto; background: var(--surface); box-shadow: var(--shadow-lg); }
         table { width: 100%; min-width: 1450px; border-collapse: collapse; }
-        th { position: sticky; top: 0; z-index: 1; background: var(--nav-bg); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 11px; text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+        th { position: sticky; top: 0; z-index: 1; background: var(--nav-bg); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 11px; text-align: left; padding: 13px 14px; border-bottom: 1px solid var(--border); }
         td { padding: 13px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
-        tbody tr:hover { background: rgba(34, 211, 238, .05); }
-        .newRow { box-shadow: inset 4px 0 0 var(--accent); }
-        .inactiveRow { opacity: .72; }
-        .missingRow { box-shadow: inset 4px 0 0 var(--red); }
+        tbody tr { transition: background .14s ease; }
+        tbody tr:hover { background: rgba(34, 211, 238, .06); }
+        .newRow { box-shadow: inset 5px 0 0 var(--accent); background: rgba(34, 211, 238, .035); }
+        .inactiveRow { box-shadow: inset 5px 0 0 var(--amber); background: rgba(251, 191, 36, .035); opacity: .82; }
+        .missingRow { box-shadow: inset 5px 0 0 var(--red); background: rgba(248, 113, 113, .04); }
+        .newRow.missingRow { box-shadow: inset 5px 0 0 var(--red), inset 10px 0 0 var(--accent); }
         .nameCell strong { display: block; font-size: 15px; }
         .nameCell > span, .muted { color: var(--muted); }
         .badges, .ruleList, .locationList { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
         .badge, .ruleList span, .locationList span, .status { border-radius: 999px; padding: 3px 8px; font-style: normal; font-size: 11px; font-weight: 800; line-height: 1.4; }
-        .badge.cyan { background: rgba(34, 211, 238, .14); color: var(--accent); }
-        .badge.purple { background: rgba(167, 139, 250, .14); color: var(--accent2); }
-        .badge.blue { background: rgba(96, 165, 250, .14); color: var(--blue); }
-        .badge.red { background: rgba(248, 113, 113, .14); color: var(--red); }
-        .status.on { background: rgba(52, 211, 153, .14); color: var(--green); }
-        .status.off { background: rgba(251, 191, 36, .14); color: var(--amber); }
+        .badge.cyan { background: rgba(34, 211, 238, .16); color: var(--accent); border: 1px solid rgba(34, 211, 238, .22); }
+        .badge.purple { background: rgba(167, 139, 250, .16); color: var(--accent2); border: 1px solid rgba(167, 139, 250, .22); }
+        .badge.blue { background: rgba(96, 165, 250, .16); color: var(--blue); border: 1px solid rgba(96, 165, 250, .22); }
+        .badge.red { background: rgba(248, 113, 113, .16); color: var(--red); border: 1px solid rgba(248, 113, 113, .25); }
+        .status.on { background: rgba(52, 211, 153, .16); color: var(--green); border: 1px solid rgba(52, 211, 153, .22); }
+        .status.off { background: rgba(251, 191, 36, .16); color: var(--amber); border: 1px solid rgba(251, 191, 36, .24); }
         .ruleList span { background: rgba(167, 139, 250, .12); color: var(--accent2); }
         .locationList span { background: rgba(34, 211, 238, .1); color: var(--accent); }
         .wageLine { white-space: nowrap; }
