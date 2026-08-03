@@ -4,11 +4,13 @@ import { cachedJson, invalidateClientCache, peekJson } from '@/lib/client-cache'
 import type { EmployeeRule } from '@/lib/types';
 
 type Employee = {
-  id: string; seven_shifts_user_id: string; full_name: string;
+  id: string; employee_id?: string; seven_shifts_user_id: string; full_name: string;
   location: string; department: string; role: string;
   wage: number; cash_wage: number; wage_source?: string | null; wage_updated_at?: string | null; wage_upgrade_note?: string | null;
   detail_updated_at?: string | null; detail_change_note?: string | null;
-  active: boolean; created_at?:string; new_until?:string; is_new?:boolean;
+  active: boolean; status?: string; created_at?:string; new_until?:string; is_new?:boolean; is_new_this_month?:boolean;
+  first_seen_date?: string | null; first_payroll_date?: string | null; last_payroll_date?: string | null; last_punch_at?: string | null;
+  payroll_hours_since_jan?: number; worked_locations_since_jan?: string[];
 };
 type Punch = {
   punch_id: string; location: string; department: string; role: string;
@@ -38,6 +40,22 @@ function isoDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 function cad(n: number) { return `$${n.toFixed(2)}`; }
+function shortDate(value?: string | null) { return value ? new Date(`${String(value).slice(0,10)}T12:00:00`).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '—'; }
+function employeeStartDate(employee: Pick<Employee, 'first_seen_date'|'first_payroll_date'|'created_at'>) {
+  return employee.first_seen_date || employee.first_payroll_date || employee.created_at || null;
+}
+function newHireMonthLabel(employee: Pick<Employee, 'first_seen_date'|'first_payroll_date'|'created_at'>) {
+  const value = employeeStartDate(employee);
+  if (!value) return '';
+  const day = String(value).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return '';
+  const date = new Date(`${day}T12:00:00`);
+  if (!Number.isFinite(date.getTime())) return '';
+  // Management asked to see recent new hires by month, including July and
+  // August, while keeping Logbook's normal NEW behavior unchanged.
+  if (date < new Date('2026-07-01T00:00:00')) return '';
+  return `NEW ${MONTHS[date.getMonth()].toUpperCase()}`;
+}
 const normName = (value: string) => value.trim().toLowerCase().replace(/\s+/g,' ');
 const isIsoDate = (value: string | null) => !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
 function punchSourceLabel(source: string | null | undefined) {
@@ -61,7 +79,7 @@ function isWebPunch(punch: Pick<Punch, 'punch_source'|'source'>) {
 
 export default function EmployeesPage() {
   const today = new Date();
-  const initialEmployeeUrl = '/api/employees?active=true';
+  const initialEmployeeUrl = '/api/employees?active=all';
   const initialEmployees = peekJson<{employees:Employee[]}>(initialEmployeeUrl);
   const initialRules = peekJson<{rules:EmployeeRule[]}>('/api/rules');
   const [employees, setEmployees]  = useState<Employee[]>(() => initialEmployees?.employees || []);
@@ -77,7 +95,8 @@ export default function EmployeesPage() {
   const [alerts, setAlerts] = useState<PayrollAlert[]>([]);
   const [search,    setSearch]     = useState('');
   const [locFilter, setLocFilter]  = useState('ALL');
-  const [showInactive, setShowInactive] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [employeeMessage, setEmployeeMessage] = useState('');
   const [employeePage, setEmployeePage] = useState(0);
   // Date range — default to current month
   const [fromDate, setFromDate] = useState(`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-01`);
@@ -105,14 +124,14 @@ export default function EmployeesPage() {
   };
 
   useEffect(() => {
-    const url = showInactive ? '/api/employees?active=false' : '/api/employees?active=true';
+    const url = '/api/employees?active=all';
     const cached = peekJson<{employees:Employee[]}>(url);
     if (cached) setEmployees(cached.employees || []);
     setLoading(!cached);
     cachedJson<{employees:Employee[]}>(url)
       .then(d=>setEmployees((d.employees||[]).sort((a: Employee,b: Employee)=>a.full_name.localeCompare(b.full_name))))
       .finally(()=>setLoading(false));
-  }, [showInactive]);
+  }, []);
 
   useEffect(() => {
     const requested = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('alert');
@@ -165,14 +184,47 @@ export default function EmployeesPage() {
   }, [fromDate, toDate, selected, punchRefresh]);
 
   const locations = useMemo(()=>['ALL',...[...new Set(employees.map(e=>e.location).filter(Boolean))].sort()],[employees]);
+  const activeRulesByEmployee = useMemo(()=>{
+    const map = new Map<string, EmployeeRule[]>();
+    for (const rule of rules) {
+      if (rule.active === false) continue;
+      const keys = [rule.employee_id || '', normName(rule.employee_name || '')].filter(Boolean);
+      for (const key of keys) map.set(key, [...(map.get(key) || []), rule]);
+    }
+    return map;
+  }, [rules]);
+  const ruleListFor = (employee: Employee | null) => {
+    if (!employee) return [];
+    const byId = employee.employee_id ? activeRulesByEmployee.get(employee.employee_id) || [] : [];
+    const byName = activeRulesByEmployee.get(normName(employee.full_name)) || [];
+    const seen = new Set<string>();
+    return [...byId, ...byName].filter(rule => {
+      const key = rule.id || `${rule.employee_name}:${rule.rule_type}:${rule.rule_value}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const selectedRules = ruleListFor(selected);
   const filtered  = useMemo(()=>employees.filter(e=>{
     if (locFilter!=='ALL'&&e.location!==locFilter) return false;
+    if (statusFilter==='ACTIVE'&&e.active===false) return false;
+    if (statusFilter==='INACTIVE'&&e.active!==false) return false;
+    if (statusFilter==='NEW'&&!newHireMonthLabel(e)) return false;
+    if (statusFilter==='MISSING'&&(e.location&&e.role&&Number(e.wage||0)>0)) return false;
     if (search&&!e.full_name?.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
-  }),[employees,locFilter,search]);
+  }),[employees,locFilter,statusFilter,search]);
+  const employeeSummary = useMemo(()=>({
+    total:employees.length,
+    active:employees.filter(employee=>employee.active!==false).length,
+    inactive:employees.filter(employee=>employee.active===false).length,
+    newRecent:employees.filter(employee=>newHireMonthLabel(employee)).length,
+    missingDetails:employees.filter(employee=>!employee.location || !employee.role || Number(employee.wage||0)<=0).length,
+  }),[employees]);
   const employeePageCount = Math.max(1, Math.ceil(filtered.length / EMPLOYEE_PAGE_SIZE));
   const visibleEmployees = filtered.slice(employeePage * EMPLOYEE_PAGE_SIZE, (employeePage + 1) * EMPLOYEE_PAGE_SIZE);
-  useEffect(()=>setEmployeePage(0),[search,locFilter,showInactive,employees.length]);
+  useEffect(()=>setEmployeePage(0),[search,locFilter,statusFilter,employees.length]);
 
   const completedPunches = punches.filter(p=>p.clocked_out);
   // Actual hours are the full clock-in/out duration. Payroll hours deduct only
@@ -190,7 +242,41 @@ export default function EmployeesPage() {
   },0);
   const cashRates = [...new Set(completedPunches.map(p=>Number(p.cash_wage||0)).filter(rate=>rate>0).map(rate=>rate.toFixed(2)))];
   const cashRateLabel = cashRates.length === 0 ? '—' : cashRates.length === 1 ? `$${cashRates[0]}/hr` : 'Multiple';
-  const selectedRule = selected ? rules.find(rule=>rule.active!==false && normName(rule.employee_name) === normName(selected.full_name)) : undefined;
+  const selectedRule = selectedRules[0];
+  const selectedStatus = selected?.active === false ? 'Inactive' : 'Active';
+
+  const refreshEmployees = async () => {
+    invalidateClientCache(['/api/employees?active=all']);
+    const data = await cachedJson<{employees:Employee[]}>('/api/employees?active=all', 0);
+    setEmployees((data.employees || []).sort((a,b)=>a.full_name.localeCompare(b.full_name)));
+  };
+
+  const terminateSelected = async () => {
+    if (!selected) return;
+    const ok = window.confirm(`Mark ${selected.full_name} as inactive/terminated? This does not delete payroll history.`);
+    if (!ok) return;
+    setEmployeeMessage('');
+    const response = await fetch('/api/employees', { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id:selected.id }) });
+    const result = await response.json();
+    if (!response.ok || result.ok === false) { setEmployeeMessage(`Terminate failed: ${result.error || response.status}`); return; }
+    setEmployeeMessage(`${selected.full_name} marked inactive.`);
+    setSelected({...selected, active:false, status:'Inactive'});
+    await refreshEmployees();
+  };
+
+  const deleteSelected = async () => {
+    if (!selected) return;
+    if (selected.active !== false) { setEmployeeMessage('Only inactive employees can be deleted. Terminate first.'); return; }
+    const ok = window.confirm(`Delete inactive employee ${selected.full_name} from employee management? Historical punches/payroll rows stay saved.`);
+    if (!ok) return;
+    setEmployeeMessage('');
+    const response = await fetch('/api/employees?hard=true', { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id:selected.id, hard:true }) });
+    const result = await response.json();
+    if (!response.ok || result.ok === false) { setEmployeeMessage(`Delete failed: ${result.error || response.status}`); return; }
+    setEmployeeMessage(`${selected.full_name} deleted from employee management.`);
+    setSelected(null);
+    await refreshEmployees();
+  };
 
   const syncSelectedPeriod = async () => {
     if (!selected || periodSyncing) return;
@@ -271,9 +357,23 @@ export default function EmployeesPage() {
     <div style={{background:'#0a0c10',minHeight:'100vh',color:'#e5e7eb',fontFamily:'Inter,sans-serif',display:'flex',height:'100vh'}}>
 
       {/* Left panel */}
-      <div style={{width:280,borderRight:'1px solid rgba(255,255,255,0.07)',display:'flex',flexDirection:'column',height:'100vh',position:'sticky',top:0,flexShrink:0}}>
+      <div style={{width:315,borderRight:'1px solid rgba(255,255,255,0.07)',display:'flex',flexDirection:'column',height:'100vh',position:'sticky',top:0,flexShrink:0}}>
         <div style={{padding:'14px 12px 10px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}>
-          <h1 style={{fontSize:14,fontWeight:700,color:'#f9fafb',margin:'0 0 10px'}}>Employee Logbook</h1>
+          <h1 style={{fontSize:14,fontWeight:700,color:'#f9fafb',margin:'0 0 4px'}}>Employee Management</h1>
+          <div style={{fontSize:10,color:'#6b7280',marginBottom:10}}>All employees since Jan · active/inactive/new labels · wages/rules read-only</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:5,marginBottom:9}}>
+            {[
+              ['All',employeeSummary.total,'ALL','#22d3ee'],
+              ['Active',employeeSummary.active,'ACTIVE','#34d399'],
+              ['Inactive',employeeSummary.inactive,'INACTIVE','#f97316'],
+              ['New',employeeSummary.newRecent,'NEW','#a78bfa'],
+            ].map(([label,value,key,color])=>(
+              <button key={String(key)} onClick={()=>setStatusFilter(String(key))} style={{textAlign:'left',borderRadius:8,padding:'7px 8px',cursor:'pointer',background:statusFilter===key?'rgba(34,211,238,.10)':'rgba(255,255,255,.035)',border:`1px solid ${statusFilter===key?'rgba(34,211,238,.32)':'rgba(255,255,255,.07)'}`}}>
+                <div style={{fontSize:9,color:'#6b7280',textTransform:'uppercase'}}>{String(label)}</div>
+                <div style={{fontSize:15,fontWeight:800,color:String(color)}}>{String(value)}</div>
+              </button>
+            ))}
+          </div>
           <input placeholder="Search employee…" value={search} onChange={e=>setSearch(e.target.value)}
             style={{...sel,width:'100%',boxSizing:'border-box',marginBottom:7}}/>
           {/* Location filter */}
@@ -281,10 +381,10 @@ export default function EmployeesPage() {
             style={{...sel,width:'100%',boxSizing:'border-box',marginBottom:7}}>
             {locations.map(l=><option key={l}>{l}</option>)}
           </select>
-          <label style={{display:'flex',alignItems:'center',gap:7,fontSize:11,color:'#6b7280',cursor:'pointer'}}>
-            <input type="checkbox" checked={showInactive} onChange={e=>setShowInactive(e.target.checked)}/>
-            Show inactive staff
-          </label>
+          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+            <button onClick={()=>setStatusFilter('MISSING')} style={{...sel,padding:'4px 7px',fontSize:10,color:statusFilter==='MISSING'?'#f87171':'#9ca3af'}}>Missing details ({employeeSummary.missingDetails})</button>
+            <button onClick={()=>{setStatusFilter('ALL');setLocFilter('ALL');setSearch('');}} style={{...sel,padding:'4px 7px',fontSize:10}}>Reset</button>
+          </div>
         </div>
         <div style={{overflowY:'auto',flex:1}}>
           {loading ? <div style={{color:'#6b7280',padding:16,textAlign:'center',fontSize:12}}>Loading…</div> :
@@ -295,12 +395,14 @@ export default function EmployeesPage() {
                   borderLeft:selected?.id===emp.id?'2px solid #22d3ee':'2px solid transparent'}}>
                 <div style={{fontWeight:500,fontSize:12,color:'#f9fafb',display:'flex',alignItems:'center',gap:5}}>
                   {emp.full_name}
-                  {emp.is_new&&<span title={`New through ${emp.new_until}`} style={{fontSize:9,background:'rgba(34,211,238,.18)',color:'#22d3ee',borderRadius:3,padding:'1px 4px'}}>NEW</span>}
+                  {emp.active===false&&<span title={`Last payroll date: ${emp.last_payroll_date || 'No payroll since Jan'}`} style={{fontSize:9,background:'rgba(249,115,22,.16)',color:'#f97316',borderRadius:3,padding:'1px 4px'}}>INACTIVE</span>}
+                  {emp.active!==false&&<span style={{fontSize:9,background:'rgba(52,211,153,.12)',color:'#34d399',borderRadius:3,padding:'1px 4px'}}>ACTIVE</span>}
+                  {newHireMonthLabel(emp)&&<span title={`First seen ${shortDate(employeeStartDate(emp))}`} style={{fontSize:9,background:'rgba(34,211,238,.18)',color:'#22d3ee',borderRadius:3,padding:'1px 4px'}}>{newHireMonthLabel(emp)}</span>}
                   {emp.detail_change_note&&<span title={emp.detail_change_note} style={{fontSize:9,background:'rgba(167,139,250,0.16)',color:'#a78bfa',borderRadius:3,padding:'1px 4px'}}>ROLE</span>}
                   {(!emp.wage||+emp.wage===0)&&<span style={{fontSize:9,background:'rgba(248,113,113,0.2)',color:'#f87171',borderRadius:3,padding:'1px 4px'}}>$0</span>}
                 </div>
-                <div style={{fontSize:10,color:'#4b5563',marginTop:1}}>{emp.location} · {emp.role||emp.department}</div>
-                <div style={{fontSize:10,color:'#34d399',marginTop:1}}>${(+emp.wage||0).toFixed(2)}/hr</div>
+                <div style={{fontSize:10,color:'#4b5563',marginTop:1}}>{emp.location || 'No location'} · {emp.role||emp.department||'No role'}</div>
+                <div style={{fontSize:10,color:'#34d399',marginTop:1}}>${(+emp.wage||0).toFixed(2)}/hr <span style={{color:'#6b7280'}}>· Last payroll {emp.last_payroll_date || '—'}</span></div>
               </div>
             ))
           }
@@ -317,35 +419,91 @@ export default function EmployeesPage() {
         {!selected ? (
           <div style={{color:'#6b7280',textAlign:'center',marginTop:80}}>
             <div style={{fontSize:32,marginBottom:10}}>👤</div>
-            <div style={{fontSize:14}}>Select an employee to view their logbook</div>
-            <div style={{fontSize:12,marginTop:6,color:'#374151'}}>Use the location filter and search to find staff</div>
+            <div style={{fontSize:14}}>Select an employee to view management details</div>
+            <div style={{fontSize:12,marginTop:6,color:'#374151'}}>Use the status, location, and search filters to find staff</div>
           </div>
         ) : (
           <>
             {/* Header */}
-            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:10}}>
+            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:12,flexWrap:'wrap',gap:10}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
                 <div style={{width:40,height:40,borderRadius:'50%',background:'rgba(34,211,238,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:'#22d3ee',flexShrink:0}}>
                   {selected.full_name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}
                 </div>
                 <div>
-                  <div style={{fontSize:16,fontWeight:700,color:'#f9fafb'}}>{selected.full_name}</div>
+                  <div style={{fontSize:16,fontWeight:700,color:'#f9fafb',display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
+                    {selected.full_name}
+                    <span style={{fontSize:10,background:selected.active===false?'rgba(249,115,22,.16)':'rgba(52,211,153,.12)',color:selected.active===false?'#f97316':'#34d399',borderRadius:999,padding:'2px 7px'}}>{selectedStatus}</span>
+                    {newHireMonthLabel(selected)&&<span title={`First seen ${shortDate(employeeStartDate(selected))}`} style={{fontSize:10,background:'rgba(34,211,238,.16)',color:'#22d3ee',borderRadius:999,padding:'2px 7px'}}>{newHireMonthLabel(selected)}</span>}
+                  </div>
                   <div style={{fontSize:11,color:'#6b7280',marginTop:2}}>{selected.location} · {selected.department} · {selected.role}</div>
                   {(!selected.wage||+selected.wage===0)&&<div style={{fontSize:10,color:'#f87171',marginTop:2}}>⚠ No wage set</div>}
                   {selected.wage_upgrade_note&&<div style={{fontSize:10,color:'#22d3ee',marginTop:3}}>↗ {selected.wage_upgrade_note}</div>}
                   {selected.detail_change_note&&<div style={{fontSize:10,color:'#a78bfa',marginTop:3}}>↔ {selected.detail_change_note}</div>}
-                  {selectedRule&&<div style={{fontSize:10,color:'#a78bfa',marginTop:3}}>
-                    Payroll rule: <span style={{fontWeight:700}}>{selectedRule.rule_type.replaceAll('_',' ')}</span>
-                    {selectedRule.rule_value !== undefined && selectedRule.rule_value !== null ? ` · Value ${selectedRule.rule_value}` : ''}
-                    {selectedRule.combined_locations ? ` · ${selectedRule.combined_locations}` : ''}
-                    {selectedRule.payroll_location ? ` · Payroll location: ${selectedRule.payroll_location}` : ''}
-                    {selectedRule.notes ? ` · ${selectedRule.notes}` : ''}
-                  </div>}
                 </div>
               </div>
-              <button onClick={downloadExcel} disabled={punches.length===0} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:punches.length?'#34d399':'#4b5563',borderRadius:7,padding:'6px 14px',fontSize:12,cursor:punches.length?'pointer':'not-allowed',fontWeight:500,flexShrink:0}}>
-                ↓ Download Logbook CSV
-              </button>
+              <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                <button onClick={downloadExcel} disabled={punches.length===0} style={{background:'rgba(52,211,153,0.1)',border:'1px solid rgba(52,211,153,0.3)',color:punches.length?'#34d399':'#4b5563',borderRadius:7,padding:'6px 14px',fontSize:12,cursor:punches.length?'pointer':'not-allowed',fontWeight:500,flexShrink:0}}>
+                  ↓ Download Logbook CSV
+                </button>
+                {selected.active!==false ? (
+                  <button onClick={terminateSelected} style={{background:'rgba(249,115,22,0.10)',border:'1px solid rgba(249,115,22,0.34)',color:'#f97316',borderRadius:7,padding:'6px 14px',fontSize:12,cursor:'pointer',fontWeight:600}}>
+                    Terminate / Quit
+                  </button>
+                ) : (
+                  <button onClick={deleteSelected} style={{background:'rgba(248,113,113,0.10)',border:'1px solid rgba(248,113,113,0.34)',color:'#f87171',borderRadius:7,padding:'6px 14px',fontSize:12,cursor:'pointer',fontWeight:600}}>
+                    Delete inactive
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {employeeMessage&&<div style={{margin:'0 0 12px 50px',background:employeeMessage.includes('failed')||employeeMessage.includes('Only inactive')?'rgba(248,113,113,.09)':'rgba(52,211,153,.09)',border:`1px solid ${employeeMessage.includes('failed')||employeeMessage.includes('Only inactive')?'rgba(248,113,113,.25)':'rgba(52,211,153,.22)'}`,borderRadius:8,padding:'8px 10px',fontSize:11,color:employeeMessage.includes('failed')||employeeMessage.includes('Only inactive')?'#f87171':'#34d399'}}>{employeeMessage}</div>}
+
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(155px,1fr))',gap:8,margin:'0 0 14px 50px'}}>
+              {[
+                {label:'Status',value:selectedStatus,color:selected.active===false?'#f97316':'#34d399'},
+                {label:'First payroll / start',value:shortDate(selected.first_payroll_date || selected.first_seen_date || selected.created_at),color:'#22d3ee'},
+                {label:'Last payroll date',value:shortDate(selected.last_payroll_date),color:selected.active===false?'#f97316':'#9ca3af'},
+                {label:'Payroll hrs since Jan',value:`${Number(selected.payroll_hours_since_jan || 0).toFixed(2)}h`,color:'#a78bfa'},
+                {label:'Cheque wage',value:`$${(+selected.wage||0).toFixed(2)}/hr`,color:'#34d399'},
+                {label:'Cash wage',value:selected.cash_wage?`$${(+selected.cash_wage).toFixed(2)}/hr`:'—',color:'#fbbf24'},
+                {label:'7shifts ID',value:selected.seven_shifts_user_id || '—',color:'#9ca3af'},
+                {label:'Wage source',value:selected.wage_source || '—',color:'#9ca3af'},
+              ].map(card=>(
+                <div key={card.label} style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:9,padding:'9px 11px'}}>
+                  <div style={{fontSize:9,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.05em'}}>{card.label}</div>
+                  <div style={{fontSize:13,fontWeight:800,color:card.color,marginTop:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={String(card.value)}>{card.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:10,margin:'0 0 14px 50px'}}>
+              <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10,padding:'11px 12px'}}>
+                <div style={{fontSize:11,fontWeight:800,color:'#f9fafb',marginBottom:7}}>Employee details from 7shifts / payroll</div>
+                <div style={{display:'grid',gap:5,fontSize:11,color:'#9ca3af'}}>
+                  <div><span style={{color:'#6b7280'}}>Primary location:</span> {selected.location || 'No location'}</div>
+                  <div><span style={{color:'#6b7280'}}>Department:</span> {selected.department || 'No department'}</div>
+                  <div><span style={{color:'#6b7280'}}>Role:</span> {selected.role || 'No role'}</div>
+                  <div><span style={{color:'#6b7280'}}>Worked locations since Jan:</span> {(selected.worked_locations_since_jan || []).join(', ') || '—'}</div>
+                  {selected.active===false&&<div style={{color:'#f97316'}}><span style={{color:'#6b7280'}}>Inactive from:</span> last payroll {shortDate(selected.last_payroll_date)}</div>}
+                </div>
+              </div>
+              <div style={{background:'#131720',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10,padding:'11px 12px'}}>
+                <div style={{fontSize:11,fontWeight:800,color:'#f9fafb',marginBottom:7}}>Read-only wages & rules</div>
+                <div style={{fontSize:10,color:'#6b7280',marginBottom:7}}>Edit wages and payroll rules only in the Wages tab. This page is for employee management.</div>
+                <div style={{display:'grid',gap:6}}>
+                  {selectedRules.length===0 ? <div style={{fontSize:11,color:'#9ca3af'}}>No special payroll rules</div> : selectedRules.map(rule=>(
+                    <div key={rule.id || `${rule.employee_name}-${rule.rule_type}`} style={{background:'rgba(167,139,250,.08)',border:'1px solid rgba(167,139,250,.18)',borderRadius:7,padding:'6px 8px',fontSize:11,color:'#d8b4fe'}}>
+                      <span style={{fontWeight:800}}>{rule.rule_type.replaceAll('_',' ')}</span>
+                      {rule.rule_value !== undefined && rule.rule_value !== null ? ` · Value ${rule.rule_value}` : ''}
+                      {rule.combined_locations ? ` · Combined: ${rule.combined_locations}` : ''}
+                      {rule.payroll_location ? ` · Payroll location: ${rule.payroll_location}` : ''}
+                      {rule.notes ? <span style={{color:'#9ca3af'}}> · {rule.notes}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {workedLocations.length>0&&<div style={{display:'flex',gap:6,flexWrap:'wrap',margin:'-8px 0 14px 50px'}}>{workedLocations.map(([location,hours])=><span key={location} style={{fontSize:10,color:'#22d3ee',background:'rgba(34,211,238,.08)',border:'1px solid rgba(34,211,238,.16)',borderRadius:5,padding:'3px 7px'}}>{location}: {hours.actual.toFixed(2)} actual · {(hours.breakMinutes/60).toFixed(2)} break · {hours.payroll.toFixed(2)} payroll</span>)}</div>}

@@ -16,6 +16,7 @@ const links = [
   { href: '/manager-bonus', label: 'Manager Bonus' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/location', label: 'By Location' },
+  { href: '/employee-management', label: 'Employee Management' },
   { href: '/employees',label: 'Logbook'     },
   { href: '/wages',    label: 'Wages'       },
   { href: '/synclog',  label: 'Sync Log'    },
