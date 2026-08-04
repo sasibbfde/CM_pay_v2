@@ -299,6 +299,42 @@ export default function ManagerBonusApp() {
     }
   }
 
+  async function clearReview() {
+    if (!selected) return;
+    const key = keyFor(selected);
+    const confirmed = window.confirm(`Clear saved bonus inputs for ${selected.employee_name} — ${selected.location}?\n\nThis will reset bonus amount, added hours, ratings, notes, and approval for this period. It will NOT change 7shifts hours or wage rate.`);
+    if (!confirmed) return;
+    const cleared = calculate({
+      ...selected,
+      manual_hours:0,
+      original_bonus:0,
+      rubric_ratings:Array(10).fill(null),
+      bonus_pool:50,
+      max_points:50,
+      notes:'',
+      approval:'',
+      bonus_excluded:false,
+    });
+    setSaving(key);
+    setMessage('');
+    try {
+      const response = await fetch('/api/manager-bonus', {
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...cleared,period_start:dates.start,period_end:dates.end}),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Clear failed');
+      setRows(current=>current.map(row=>keyFor(row)===key?cleared:row));
+      setMessage(`Cleared saved bonus for ${selected.employee_name} — 7shifts hours and wage rate were kept.`);
+      setRefreshKey(value=>value+1);
+    } catch (error:any) {
+      setMessage(error.message);
+    } finally {
+      setSaving('');
+    }
+  }
+
   async function saveManagerPayload(payload:Partial<ManagerRow>, success:string) {
     setSaving(String(payload.employee_id || 'manager-action'));
     setMessage('');
@@ -785,6 +821,7 @@ export default function ManagerBonusApp() {
           <div className={styles.actions}>
             <button className={styles.primary} disabled={saving===keyFor(selected)} onClick={saveReview}>{saving===keyFor(selected)?'Saving…':'Save review'}</button>
             <button className={styles.secondary} onClick={()=>window.location.href=`/api/manager-bonus/export?start=${dates.start}&end=${dates.end}&employee_id=${encodeURIComponent(selected.employee_id)}&location=${encodeURIComponent(selected.location)}`}>Download manager sheet</button>
+            <button className={styles.warningButton} disabled={Boolean(saving)} onClick={clearReview}>Clear saved bonus</button>
             {sessionRole === 'owner' && <button className={styles.dangerButton} disabled={Boolean(saving)} onClick={removeSelectedManager}>Remove from this period</button>}
           </div>
         </div>
