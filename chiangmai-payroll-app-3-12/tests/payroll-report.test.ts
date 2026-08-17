@@ -77,6 +77,20 @@ test('location-filtered payroll gives each worked location its own 88h cheque al
   assert.equal(combined.cash_hours,0);
 });
 
+test('multi-location note/reroute rules still keep hours with the worked location',()=>{
+  const [combined]=buildPayrollReport([
+    punch({location:'Chiang Mai Danforth',hours:46,payroll_hours:46,gross_hours:48.5,break_minutes:150,wage:20}),
+    punch({location:'Chiang Mai Mississauga',hours:35.5,payroll_hours:35.5,gross_hours:36,break_minutes:30,wage:20}),
+  ],[{employee_name:'Test Employee',rule_type:'PAY_UNDER_OTHER_LOCATION',combined_locations:'Danforth;SQ1',notes:'works multiple locations'}],'2026-08-15');
+  const danforth=payrollLocationView(combined,'Chiang Mai Danforth');
+  const mississauga=payrollLocationView(combined,'Chiang Mai Mississauga');
+  assert.equal(danforth.payable_hours,46);
+  assert.equal(danforth.cheque_hours,46);
+  assert.equal(mississauga.payable_hours,35.5);
+  assert.equal(mississauga.cheque_hours,35.5);
+  assert.equal(combined.cheque_hours,81.5);
+});
+
 test('location-filtered cash-only payroll uses the selected location hours, not prorated combined cash',()=>{
   const [combined]=buildPayrollReport([
     punch({location:'Chiang Mai Danforth',hours:46,payroll_hours:46,gross_hours:48.5,break_minutes:150,wage:18.5,cash_wage:18.5}),

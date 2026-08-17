@@ -13,8 +13,7 @@ insert into public.employee_rules (employee_id, employee_name, rule_type, rule_v
 ('EMP-003','Osmar Marron','PAYROLL_HOURS_CAP',48,null,null,'48 HOURS TOTAL.',true),
 ('EMP-004','Komalpreet Kaur','COMBINED_LOCATION_CAP',88,'Imm Thai Kitchen,Office',null,'Imm and Office combined LMIA 88 hours total.',true),
 ('EMP-005','Vincent Selva','SALARY_FIXED',4000,null,null,'Salary 4000. Do not change until advised.',true),
-(null,'Renzo Mendoza','CASH_ONLY',null,'Chiang Mai Parklawn,Chiang Mai Mississauga',null,'Cash only. Works at Parklawn and Mississauga.',true),
-(null,'Nibisha Singh','HOLD_PAYROLL',null,null,null,'Hold payroll June 16-June 31 applying for work permit.',true);
+(null,'Renzo Mendoza','CASH_ONLY',null,'Chiang Mai Parklawn,Chiang Mai Mississauga',null,'Cash only. Works at Parklawn and Mississauga.',true);
 
 insert into public.punches (punch_id, employee_id, employee_name, location, department, role, clocked_in, clocked_out, hours, wage, source) values
 ('MOCK-001','EMP-001','Seng Thai','Imm Thai Kitchen','Back of House','Wok','2026-06-01T14:00:00Z','2026-06-01T23:00:00Z',9,26,'seed'),

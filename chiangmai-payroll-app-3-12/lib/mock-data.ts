@@ -11,8 +11,7 @@ export const mockRules:EmployeeRule[]=[
 {employee_name:'Osmar Marron',rule_type:'PAYROLL_HOURS_CAP',rule_value:48,notes:'48 HOURS TOTAL',active:true},
 {employee_name:'Komalpreet Kaur',rule_type:'COMBINED_LOCATION_CAP',rule_value:88,combined_locations:'Imm Thai Kitchen,Office',notes:'Imm thai and office combined LMIA 88 hours total',active:true},
 {employee_name:'Vincent Selva',rule_type:'SALARY_FIXED',rule_value:4000,notes:'Salary 4000 - do not change until advise',active:true},
-{employee_name:'Renzo Mendoza',rule_type:'CASH_ONLY',notes:'CASH works at Parklawn and Mississauga',active:true},
-{employee_name:'Nibisha Singh',rule_type:'HOLD_PAYROLL',notes:'Hold payroll June 16-June 31 applying for work permit',active:true}
+{employee_name:'Renzo Mendoza',rule_type:'CASH_ONLY',notes:'CASH works at Parklawn and Mississauga',active:true}
 ];
 export const mockPunches:Punch[]=[
 {employee_name:'Seng Thai',location:'Imm Thai Kitchen',department:'Back of House',role:'Wok',clocked_in:'2026-06-01T14:00:00Z',clocked_out:'2026-06-01T23:00:00Z',hours:9,wage:26,source:'mock'},
