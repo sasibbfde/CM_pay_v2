@@ -104,6 +104,18 @@ test('location-filtered cash-only payroll uses the selected location hours, not 
   assert.equal(imm.cash_hours,64);
 });
 
+test('payroll report flags employees with more than 14.2 gross hours in one payroll day',()=>{
+  const [row]=buildPayrollReport([
+    punch({clocked_in:'2026-08-01T10:00:00-04:00',clocked_out:'2026-08-01T18:00:00-04:00',hours:8,payroll_hours:8,gross_hours:8,break_minutes:0}),
+    punch({clocked_in:'2026-08-01T19:00:00-04:00',clocked_out:'2026-08-02T01:30:00-04:00',hours:6.5,payroll_hours:6.5,gross_hours:6.5,break_minutes:0}),
+    punch({clocked_in:'2026-08-02T10:00:00-04:00',clocked_out:'2026-08-02T18:00:00-04:00',hours:8,payroll_hours:8,gross_hours:8,break_minutes:0}),
+  ],[],'2026-08-15');
+  assert.equal(row.daily_over_14_alerts?.length,1);
+  assert.equal(row.daily_over_14_alerts?.[0].date,'2026-08-01');
+  assert.equal(row.daily_over_14_alerts?.[0].gross_hours,14.5);
+  assert.match(row.notes,/Daily over 14\.2h: 2026-08-01 recorded 14\.50h/);
+});
+
 test('Ontario public holiday hours are separated from regular cheque cash hours',()=>{
   const [row]=buildPayrollReport([
     punch({clocked_in:'2026-07-01T14:00:00-04:00',clocked_out:'2026-07-01T20:00:00-04:00',hours:6,payroll_hours:6,gross_hours:6,break_minutes:0,wage:20}),

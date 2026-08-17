@@ -56,6 +56,7 @@ export async function getPayrollReport(start:string,end:string){
     if(newUntil&&end<=newUntil)labels.push('NEW');
     if(wageLog)labels.push('WAGE ↑');
     if(detailLog)labels.push('POSITION CHANGED');
+    if(row.daily_over_14_alerts?.length)labels.push('OVER 14.2H');
     return {
       ...row,
       is_new:Boolean(newUntil&&end<=newUntil),

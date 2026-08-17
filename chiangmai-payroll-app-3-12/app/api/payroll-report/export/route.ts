@@ -5,7 +5,7 @@ import { payrollLocationView, summarizePayrollReport } from '@/lib/payroll-repor
 import { ontarioHolidayLabel } from '@/lib/ontario-holidays';
 
 const green='FF087866',light='FFD7F0EC',orange='FFFFE0B2',yellow='FFFFF176',red='FFFFCDD2';
-const cyan='FFDFFBFF',purple='FFEDE9FE',wageGreen='FFD1FAE5';
+const cyan='FFDFFBFF',purple='FFEDE9FE',wageGreen='FFD1FAE5',warningRed='FFFFE4E6';
 function header(row:ExcelJS.Row){row.font={bold:true,color:{argb:'FFFFFFFF'}};row.fill={type:'pattern',pattern:'solid',fgColor:{argb:green}};row.alignment={vertical:'middle',wrapText:true};row.height=34;}
 function changeLabels(row:any){return (row.employee_labels||[]).join(', ');}
 function multiLocationLabel(row:any){return row.locations?.length>1?'MULTI-LOCATION — split by worked location':'';}
@@ -17,9 +17,14 @@ function locationHourBreakdown(row:any){
 function applyChangeHighlights(excelRow:ExcelJS.Row,row:any,columns:{employee?:number;role?:number;wage?:number;labels?:number;notes?:number}){
   const labels=row.employee_labels||[];
   if(!labels.length)return;
+  const over14=labels.includes('OVER 14.2H');
   if(labels.includes('NEW')){
     excelRow.fill={type:'pattern',pattern:'solid',fgColor:{argb:cyan}};
     if(columns.employee)excelRow.getCell(columns.employee).font={bold:true,color:{argb:'FF0E7490'}};
+  }
+  if(over14){
+    excelRow.fill={type:'pattern',pattern:'solid',fgColor:{argb:warningRed}};
+    if(columns.employee)excelRow.getCell(columns.employee).font={bold:true,color:{argb:'FFB91C1C'}};
   }
   if(labels.includes('WAGE ↑')&&columns.wage){
     excelRow.getCell(columns.wage).fill={type:'pattern',pattern:'solid',fgColor:{argb:wageGreen}};
@@ -30,14 +35,14 @@ function applyChangeHighlights(excelRow:ExcelJS.Row,row:any,columns:{employee?:n
     excelRow.getCell(columns.role).font={bold:true,color:{argb:'FF6D28D9'}};
   }
   for(const column of [columns.labels,columns.notes].filter(Boolean) as number[]){
-    excelRow.getCell(column).fill={type:'pattern',pattern:'solid',fgColor:{argb:labels.includes('NEW')?cyan:labels.includes('WAGE ↑')?wageGreen:purple}};
-    excelRow.getCell(column).font={bold:true,color:{argb:labels.includes('NEW')?'FF0E7490':labels.includes('WAGE ↑')?'FF047857':'FF6D28D9'}};
+    excelRow.getCell(column).fill={type:'pattern',pattern:'solid',fgColor:{argb:over14?warningRed:labels.includes('NEW')?cyan:labels.includes('WAGE ↑')?wageGreen:purple}};
+    excelRow.getCell(column).font={bold:true,color:{argb:over14?'FFB91C1C':labels.includes('NEW')?'FF0E7490':labels.includes('WAGE ↑')?'FF047857':'FF6D28D9'}};
   }
 }
 function addMerged(workbook:ExcelJS.Workbook,rows:any[],start:string,end:string){
   const holidayLabel=ontarioHolidayLabel(start,end);
   const sheet=workbook.addWorksheet('ALL (Merged)');sheet.mergeCells('A1:AA1');sheet.getCell('A1').value=`ALL LOCATIONS MERGED — ${start} to ${end}`;sheet.getCell('A1').font={bold:true,size:15};
-  sheet.mergeCells('A2:AA2');sheet.getCell('A2').value='Payroll authority: completed 7shifts punches only. Payable total still reconciles to 7shifts; Ontario public-holiday hours are separated. Multi-location employees are labelled and their hours stay with the location where they clocked in/out, because separate location payrolls/cheques are run. Holiday pay is capped to 8h and consumes the cheque cap, so regular cheque hours are reduced before excess hours move to cash. NEW, WAGE ↑, and POSITION CHANGED labels are highlighted for payroll review.';sheet.getCell('A2').font={italic:true,color:{argb:'FF666666'}};
+  sheet.mergeCells('A2:AA2');sheet.getCell('A2').value='Payroll authority: completed 7shifts punches only. Payable total still reconciles to 7shifts; Ontario public-holiday hours are separated. Multi-location employees are labelled and their hours stay with the location where they clocked in/out, because separate location payrolls/cheques are run. Holiday pay is capped to 8h and consumes the cheque cap, so regular cheque hours are reduced before excess hours move to cash. NEW, WAGE ↑, POSITION CHANGED, and OVER 14.2H labels are highlighted for payroll review.';sheet.getCell('A2').font={italic:true,color:{argb:'FF666666'}};
   const labels=['#','Employee','Location(s)','Role(s)','Rate ($/hr)','Gross Clock Hours','Break Hours (all)','Unpaid Break Hours','Payable Hours Total',`Regular Payable Hours (excl ${holidayLabel})`,`Holiday Hours (${holidayLabel})`,'Rounded Regular Hours (0.25h)','Cheque Hours','Cash Hours','Cheque Pay ($)','Cash Pay ($)','Holiday Premium Pay (1.5x)','Total Pay ($)','Status','Notes','Rule Type','Cheque Cap','Rule Value','Cash Rate ($/hr)','Change Labels','Multi-location Label','Location Hour Breakdown'];
   sheet.addRow([]);const top=sheet.addRow(labels);header(top);
   rows.forEach((row,index)=>{const labelNotes=[(row.employee_labels||[]).length?`Labels: ${(row.employee_labels||[]).join(', ')}`:'',row.wage_change_note,row.detail_change_note,row.notes].filter(Boolean).join('; ');const excelRow=sheet.addRow([index+1,row.employee_name,row.locations.join('; '),row.roles.join(', '),row.wage,row.gross_hours,row.break_hours,row.unpaid_break_hours,row.payable_hours,row.regular_payable_hours,row.holiday_hours,null,null,null,null,null,row.holiday_pay,null,row.status,labelNotes,row.rule_type,row.cheque_cap,row.rule_value,row.cash_wage,changeLabels(row),multiLocationLabel(row),locationHourBreakdown(row)]);const n=excelRow.number;
