@@ -18,7 +18,12 @@ function applyChangeHighlights(excelRow:ExcelJS.Row,row:any,columns:{employee?:n
   const labels=row.employee_labels||[];
   if(!labels.length)return;
   const over14=labels.includes('OVER 14.2H');
+  const multi=labels.includes('MULTI-LOCATION');
   if(labels.includes('NEW')){
+    excelRow.fill={type:'pattern',pattern:'solid',fgColor:{argb:cyan}};
+    if(columns.employee)excelRow.getCell(columns.employee).font={bold:true,color:{argb:'FF0E7490'}};
+  }
+  if(multi&&!labels.includes('NEW')&&!over14){
     excelRow.fill={type:'pattern',pattern:'solid',fgColor:{argb:cyan}};
     if(columns.employee)excelRow.getCell(columns.employee).font={bold:true,color:{argb:'FF0E7490'}};
   }
@@ -35,8 +40,8 @@ function applyChangeHighlights(excelRow:ExcelJS.Row,row:any,columns:{employee?:n
     excelRow.getCell(columns.role).font={bold:true,color:{argb:'FF6D28D9'}};
   }
   for(const column of [columns.labels,columns.notes].filter(Boolean) as number[]){
-    excelRow.getCell(column).fill={type:'pattern',pattern:'solid',fgColor:{argb:over14?warningRed:labels.includes('NEW')?cyan:labels.includes('WAGE ↑')?wageGreen:purple}};
-    excelRow.getCell(column).font={bold:true,color:{argb:over14?'FFB91C1C':labels.includes('NEW')?'FF0E7490':labels.includes('WAGE ↑')?'FF047857':'FF6D28D9'}};
+    excelRow.getCell(column).fill={type:'pattern',pattern:'solid',fgColor:{argb:over14?warningRed:labels.includes('NEW')||multi?cyan:labels.includes('WAGE ↑')?wageGreen:purple}};
+    excelRow.getCell(column).font={bold:true,color:{argb:over14?'FFB91C1C':labels.includes('NEW')||multi?'FF0E7490':labels.includes('WAGE ↑')?'FF047857':'FF6D28D9'}};
   }
 }
 function addMerged(workbook:ExcelJS.Workbook,rows:any[],start:string,end:string){
