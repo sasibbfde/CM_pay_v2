@@ -153,10 +153,13 @@ export function payrollLocationView(row:PayrollReportRow, location:string):Payro
   const localRounded = localAllocation.rounded;
   const perLocationDefaultCap = row.rule_type === 'STANDARD' || row.rule_type === 'NOTE_ONLY' || row.rule_type === 'PAY_UNDER_OTHER_LOCATION';
   const share = row.regular_payable_hours > 0 ? regularPayable / row.regular_payable_hours : 0;
-  const chequeHours = perLocationDefaultCap ? localAllocation.cheque : round2(row.cheque_hours * share);
-  const cashHours = perLocationDefaultCap ? localAllocation.cash : round2(row.cash_hours * share);
-  const chequePay = perLocationDefaultCap ? localAllocation.chequePay : round2(row.cheque_pay * share);
-  const cashPay = perLocationDefaultCap ? localAllocation.cashPay : round2(row.cash_pay * share);
+  const cashOnly = row.rule_type === 'CASH_ONLY';
+  const holdPayroll = row.rule_type === 'HOLD_PAYROLL';
+  const salaryFixed = row.rule_type === 'SALARY_FIXED';
+  const chequeHours = holdPayroll || cashOnly ? 0 : salaryFixed ? localRounded : perLocationDefaultCap ? localAllocation.cheque : round2(row.cheque_hours * share);
+  const cashHours = holdPayroll || salaryFixed ? 0 : cashOnly ? round2(localRounded + holidayHours) : perLocationDefaultCap ? localAllocation.cash : round2(row.cash_hours * share);
+  const chequePay = holdPayroll || cashOnly ? 0 : salaryFixed ? round2(row.cheque_pay * share) : perLocationDefaultCap ? localAllocation.chequePay : round2(row.cheque_pay * share);
+  const cashPay = holdPayroll || salaryFixed ? 0 : cashOnly ? round2(cashHours * row.cash_wage) : perLocationDefaultCap ? localAllocation.cashPay : round2(row.cash_pay * share);
   const cappedHolidayPay = perLocationDefaultCap ? localAllocation.holidayPay : holidayPay;
   return {
     ...row,

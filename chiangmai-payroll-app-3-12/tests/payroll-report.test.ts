@@ -77,6 +77,19 @@ test('location-filtered payroll gives each worked location its own 88h cheque al
   assert.equal(combined.cash_hours,0);
 });
 
+test('location-filtered cash-only payroll uses the selected location hours, not prorated combined cash',()=>{
+  const [combined]=buildPayrollReport([
+    punch({location:'Chiang Mai Danforth',hours:46,payroll_hours:46,gross_hours:48.5,break_minutes:150,wage:18.5,cash_wage:18.5}),
+    punch({location:'Imm Thai Kitchen',hours:63.91,payroll_hours:63.91,gross_hours:63.91,break_minutes:0,wage:18.5,cash_wage:18.5}),
+  ],[{employee_name:'Test Employee',rule_type:'CASH_ONLY'}],'2026-08-15');
+  const imm=payrollLocationView(combined,'Imm Thai Kitchen');
+  assert.equal(combined.payable_hours,109.91);
+  assert.equal(imm.payable_hours,63.91);
+  assert.equal(imm.rounded_hours,64);
+  assert.equal(imm.cheque_hours,0);
+  assert.equal(imm.cash_hours,64);
+});
+
 test('Ontario public holiday hours are separated from regular cheque cash hours',()=>{
   const [row]=buildPayrollReport([
     punch({clocked_in:'2026-07-01T14:00:00-04:00',clocked_out:'2026-07-01T20:00:00-04:00',hours:6,payroll_hours:6,gross_hours:6,break_minutes:0,wage:20}),
