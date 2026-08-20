@@ -15,6 +15,7 @@ export type PayrollReportRow={
   total_pay:number; status:string; notes:string; holiday_notes:string[]; rule_locations?:string[];
   daily_over_14_alerts?:Array<{date:string;gross_hours:number;locations:string[]}>;
   is_new?:boolean; new_until?:string; employee_labels?:string[]; wage_change_note?:string|null; wage_change_source?:WageChangeSource; detail_change_note?:string|null;
+  display_location?:string; all_locations?:string[];
 };
 
 function ruleFor(employeeId:string,name:string,rules:EmployeeRule[],periodEnd:string){
@@ -214,4 +215,20 @@ export function payrollLocationView(row:PayrollReportRow, location:string):Payro
     notes:`Showing ${location} hours with its own ${row.cheque_cap || 88}h cheque cap${partialCashByLocation ? ' (partial-cash rule applies only to its selected cash location(s))' : perLocationDefaultCap ? '' : ' (special employee rule allocated from the combined result)'}. ${row.notes || ''}`.trim(),
     daily_over_14_alerts:dailyOver14Alerts,
   };
+}
+
+export function payrollAssignmentView(row:PayrollReportRow, location:string):PayrollReportRow {
+  const view=payrollLocationView(row,location);
+  return {
+    ...view,
+    display_location:location,
+    all_locations:row.all_locations || row.locations,
+    locations:[location],
+  };
+}
+
+export function payrollAssignmentRows(rows:PayrollReportRow[]):PayrollReportRow[] {
+  return rows.flatMap(row=>row.locations.length>1
+    ? row.locations.map(location=>payrollAssignmentView(row,location))
+    : [{...row,display_location:row.locations[0],all_locations:row.locations}]);
 }

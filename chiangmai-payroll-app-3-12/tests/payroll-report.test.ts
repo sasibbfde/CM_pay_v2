@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildPayrollReport, payrollLocationView, roundQuarterHour } from '../lib/payroll-report';
+import { buildPayrollReport, payrollAssignmentRows, payrollLocationView, roundQuarterHour } from '../lib/payroll-report';
 import { Punch } from '../lib/types';
 
 const punch=(overrides:Partial<Punch>):Punch=>({employee_id:'7S-1',employee_name:'Test Employee',location:'Location A',department:'Back of House',role:'Wok',clocked_in:'2026-06-16T14:00:00Z',clocked_out:'2026-06-16T22:00:00Z',hours:8,payroll_hours:8,gross_hours:8,break_minutes:0,wage:20,...overrides});
@@ -77,6 +77,23 @@ test('location-filtered payroll gives each worked location its own 88h cheque al
   assert.equal(mississauga.cash_hours,0);
   assert.equal(combined.cheque_hours,100.25);
   assert.equal(combined.cash_hours,0);
+});
+
+test('all-location payroll view splits multi-location employees into location assignment rows',()=>{
+  const [combined]=buildPayrollReport([
+    punch({location:'Chiang Mai York Mills',hours:79,payroll_hours:79,gross_hours:79,wage:20}),
+    punch({location:'Chiang Mai Junction',hours:88,payroll_hours:88,gross_hours:88,wage:20}),
+  ],[],'2026-08-15');
+  const rows=payrollAssignmentRows([{...combined,employee_labels:['MULTI-LOCATION']}]);
+  assert.equal(rows.length,2);
+  assert.deepEqual(rows.map(row=>row.display_location),['Chiang Mai Junction','Chiang Mai York Mills']);
+  assert.deepEqual(rows.map(row=>row.locations),[['Chiang Mai Junction'],['Chiang Mai York Mills']]);
+  assert.deepEqual(rows.map(row=>row.payable_hours),[88,79]);
+  assert.deepEqual(rows.map(row=>row.employee_labels),[['MULTI-LOCATION'],['MULTI-LOCATION']]);
+  assert.deepEqual(rows.map(row=>row.all_locations),[
+    ['Chiang Mai Junction','Chiang Mai York Mills'],
+    ['Chiang Mai Junction','Chiang Mai York Mills'],
+  ]);
 });
 
 test('partial cash by location does not combine the 88h cap across non-cash locations',()=>{
