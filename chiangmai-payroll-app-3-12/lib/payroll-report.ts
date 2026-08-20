@@ -103,13 +103,17 @@ export function buildPayrollReport(punches:Punch[],rules:EmployeeRule[],periodEn
     if(rule?.rule_type==='CASH_ONLY'){cheque=0;cash=round2(rounded+holidayHours);holidayPay=0;status='CASH (all)';}
     if(rule?.rule_type==='PARTIAL_CASH'){
       const cashLocations=locationSet(rule.combined_locations);
-      const rawCash=Object.entries(locationRegularHours).reduce((sum,[location,hours])=>sum+(cashLocations.has(normalize(location))?hours:0),0);
+      const fixedCashHours=Number(rule.rule_value||0);
+      const rawCash=cashLocations.size
+        ? Object.entries(locationRegularHours).reduce((sum,[location,hours])=>sum+(cashLocations.has(normalize(location))?hours:0),0)
+        : 0;
       const base=combinedAllocation(regularPayable,holidayHours,wage,cashWage,cap);
-      const regularCash=Math.min(base.cheque,roundQuarterHour(rawCash));
-      cash=round2(base.cash+regularCash);
-      cheque=round2(Math.max(0,base.cheque-regularCash));
+      const requestedCash=cashLocations.size?roundQuarterHour(rawCash):roundQuarterHour(fixedCashHours);
+      const regularCash=cashLocations.size?round2(base.cash+Math.min(base.cheque,requestedCash)):Math.max(base.cash,Math.min(combinedRounded,requestedCash));
+      cash=round2(regularCash);
+      cheque=round2(Math.max(0,combinedRounded-cash));
       holidayPay=base.holidayPay;
-      status=cash>0?'Partial cash by location':'Partial cash rule';
+      status=cash>0?(cashLocations.size?'Partial cash by location':`Partial cash ${cash}h`):'Partial cash rule';
     }
     if(rule?.rule_type==='HOLD_PAYROLL'){cheque=0;cash=0;holidayPay=0;status='HOLD — NO PAY';}
     if(rule?.rule_type==='PAYROLL_HOURS_CAP'||rule?.rule_type==='COMBINED_LOCATION_CAP'){

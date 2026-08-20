@@ -22,6 +22,17 @@ test('a payroll cap uses cash wage for excess hours', () => {
   assert.equal(rows[0].cash_amount, 150);
 });
 
+test('partial cash numeric value moves that many period hours to cash', () => {
+  const rows = calculatePayroll(
+    [punch({ hours: 8 }), punch({ clocked_in:'2026-06-02T14:00:00Z', hours:8 })],
+    [{ employee_name:'Test Employee', rule_type:'PARTIAL_CASH', rule_value:6 }],
+  );
+  assert.equal(rows[0].payroll_hours, 10);
+  assert.equal(rows[0].cash_hours, 6);
+  assert.equal(rows[0].payroll_amount, 200);
+  assert.equal(rows[0].cash_amount, 150);
+});
+
 test('effective dates apply a rule only to covered punches', () => {
   const rules: EmployeeRule[] = [{
     employee_name:'Test Employee', rule_type:'CASH_ONLY', effective_from:'2026-06-15',

@@ -153,14 +153,21 @@ export function calculatePayroll(punches: Punch[], rules: EmployeeRule[]): Payro
       }
 
       const capLocations = new Set((rule?.combined_locations || '').split(',').map(norm).filter(Boolean));
+      let fixedCashRemaining = type === 'PARTIAL_CASH' && capLocations.size === 0 ? cap : 0;
       for (const punch of segment) {
         const hours = getPunchHours(punch);
         if (type === 'HOLD_PAYROLL') continue;
         if (type === 'CASH_ONLY') {
           addPay(punch, 0, hours, totals);
         } else if (type === 'PARTIAL_CASH') {
-          if (capLocations.has(norm(punch.location))) addPay(punch, 0, hours, totals);
-          else addPay(punch, hours, 0, totals);
+          if (capLocations.size > 0) {
+            if (capLocations.has(norm(punch.location))) addPay(punch, 0, hours, totals);
+            else addPay(punch, hours, 0, totals);
+          } else {
+            const cashHours = Math.min(hours, Math.max(fixedCashRemaining, 0));
+            addPay(punch, hours - cashHours, cashHours, totals);
+            fixedCashRemaining -= cashHours;
+          }
         } else if (type === 'PAYROLL_HOURS_CAP') {
           const payrollHours = Math.min(hours, Math.max(remaining, 0));
           addPay(punch, payrollHours, hours - payrollHours, totals);

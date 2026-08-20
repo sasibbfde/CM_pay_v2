@@ -37,6 +37,8 @@ test('payroll report applies cash, cap, and hold rules after quarter-hour roundi
   assert.equal(buildPayrollReport(punches,[{employee_name:'Test Employee',rule_type:'CASH_ONLY'}],'2026-06-30')[0].cash_hours,100.25);
   const capped=buildPayrollReport(punches,[{employee_name:'Test Employee',rule_type:'PAYROLL_HOURS_CAP',rule_value:48}],'2026-06-30')[0];
   assert.equal(capped.cheque_hours,48);assert.equal(capped.cash_hours,52.25);
+  const partialCash=buildPayrollReport(punches,[{employee_name:'Test Employee',rule_type:'PARTIAL_CASH',rule_value:60}],'2026-06-30')[0];
+  assert.equal(partialCash.cheque_hours,40.25);assert.equal(partialCash.cash_hours,60);
   const held=buildPayrollReport(punches,[{employee_name:'Test Employee',rule_type:'HOLD_PAYROLL'}],'2026-06-30')[0];
   assert.equal(held.cheque_hours,0);assert.equal(held.cash_hours,0);assert.equal(held.total_pay,0);
 });
