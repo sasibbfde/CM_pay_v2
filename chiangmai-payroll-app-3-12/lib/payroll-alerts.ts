@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseAdmin } from '@/lib/supabase';
+import { getSupabaseAdmin } from './supabase';
 
-type PunchRow = {
+export type PunchRow = {
   punch_id: string | null;
   employee_id: string | null;
   seven_shifts_user_id: string | null;
@@ -16,7 +15,7 @@ type PunchRow = {
   source: string | null;
 };
 
-type PayrollAlert = {
+export type PayrollAlert = {
   id: string;
   type: 'OVERNIGHT_PUNCH' | 'DAILY_OVER_14_HOURS' | 'WEB_PUNCH_SOURCE';
   employee_id: string;
@@ -30,13 +29,8 @@ type PayrollAlert = {
 };
 
 const TORONTO_TZ = 'America/Toronto';
-const DAY_MS = 24 * 60 * 60 * 1000;
 const OVERNIGHT_ALERT_START_MINUTE = 5; // 12:05am Toronto time
 const OVERNIGHT_ALERT_END_HOUR = 7; // 7:00am Toronto time
-
-function isoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
 
 function localParts(iso: string) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -145,7 +139,7 @@ function isWebPunchSource(source: string | null | undefined) {
   return normalized === 'web' || normalized.includes('web');
 }
 
-function buildAlerts(punches: PunchRow[]) {
+export function buildAlerts(punches: PunchRow[]) {
   const alerts: PayrollAlert[] = [];
   const daily = new Map<string, { hours: number; employee_id: string; employee_name: string; date: string; locations: Set<string>; punches: number }>();
 
@@ -193,19 +187,10 @@ function buildAlerts(punches: PunchRow[]) {
       alerts.push(alert);
     }
 
-    if (!touchesOvernightAlertWindow(inParts,outParts)) continue;
+    if (!touchesOvernightAlertWindow(inParts, outParts)) continue;
 
-    alerts.push({
-      id: alertRecordId({
-        type: 'OVERNIGHT_PUNCH',
-        employee_id: id,
-        employee_name: punch.employee_name,
-        location,
-        alert_date: inParts.date,
-        severity: 'warning',
-        message: '',
-        details: {},
-      } as PayrollAlert),
+    const overnightAlert: PayrollAlert = {
+      id: '',
       type: 'OVERNIGHT_PUNCH',
       employee_id: id,
       employee_name: punch.employee_name,
@@ -222,7 +207,9 @@ function buildAlerts(punches: PunchRow[]) {
         punch_source: punch.punch_source,
         source: punch.source,
       },
-    });
+    };
+    overnightAlert.id = alertRecordId(overnightAlert);
+    alerts.push(overnightAlert);
   }
 
   for (const row of daily.values()) {
@@ -359,7 +346,7 @@ async function fetchPunchesInRange(supabase: any, startIso: string, endIso: stri
   return all;
 }
 
-async function loadPayrollAlerts(params: { from: string; to: string; employee?: string }) {
+export async function loadPayrollAlerts(params: { from: string; to: string; employee?: string }) {
   const from = params.from;
   const to = params.to;
   const employee = (params.employee || '').trim().toLowerCase();
@@ -385,19 +372,4 @@ async function loadPayrollAlerts(params: { from: string; to: string; employee?: 
   for (const alert of computedAlerts) merged.set(alert.id, alert);
   const alerts = [...merged.values()].sort((a, b) => `${b.alert_date}|${b.severity}|${b.employee_name}`.localeCompare(`${a.alert_date}|${a.severity}|${a.employee_name}`));
   return { alerts, inserted: inserted.length, punch_rows: filtered.length };
-}
-
-export async function GET(req: NextRequest) {
-  try {
-    const sp = req.nextUrl.searchParams;
-    const today = new Date();
-    const days = Math.max(1, Math.min(31, Number(sp.get('days') || 7)));
-    const from = sp.get('from') || isoDate(new Date(today.getTime() - (days - 1) * DAY_MS));
-    const to = sp.get('to') || isoDate(today);
-    const employee = (sp.get('employee') || '').trim();
-    const result = await loadPayrollAlerts({ from, to, employee });
-    return NextResponse.json({ ...result, from, to, saved: true });
-  } catch (error: any) {
-    return NextResponse.json({ alerts: [], saved: false, error: error.message }, { status: 500 });
-  }
 }

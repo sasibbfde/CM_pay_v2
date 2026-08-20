@@ -6,8 +6,8 @@ import { usePathname } from 'next/navigation';
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 const DAILY_LIMIT = 3;
-const STORAGE_KEY = 'cm-pay-ai-agent-v1';
-const COUNT_KEY = 'cm-pay-ai-agent-count-v1';
+const STORAGE_KEY = 'cm-pay-ai-agent-v2';
+const COUNT_KEY = 'cm-pay-ai-agent-count-v2';
 
 function todayKey() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
@@ -29,6 +29,24 @@ function saveCount(count: number) {
 
 function shortAnswer(text: string) {
   return text.length > 1200 ? `${text.slice(0, 1200).trim()}…` : text;
+}
+
+function renderAnswer(text: string) {
+  const parts = shortAnswer(text).split(/((?:https?:\/\/|\/api\/)[^\s]+)/g);
+  return parts.map((part, index) => {
+    if (!/^(?:https?:\/\/|\/api\/)/.test(part)) return part;
+    return (
+      <a
+        key={`${part}-${index}`}
+        href={part}
+        target={part.startsWith('http') ? '_blank' : undefined}
+        rel={part.startsWith('http') ? 'noreferrer' : undefined}
+        style={{ color: 'var(--accent)', textDecoration: 'underline', fontWeight: 800 }}
+      >
+        {part}
+      </a>
+    );
+  });
 }
 
 export default function AiAgentWidget() {
@@ -168,7 +186,7 @@ export default function AiAgentWidget() {
                   background: message.role === 'user' ? '#22d3ee' : 'var(--surface2)',
                   border: message.role === 'user' ? '1px solid rgba(34,211,238,.45)' : '1px solid var(--border)',
                 }}>
-                  {message.role === 'assistant' ? shortAnswer(message.content) : message.content}
+                  {message.role === 'assistant' ? renderAnswer(message.content) : message.content}
                 </div>
               </div>
             ))}

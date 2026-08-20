@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { loadPayrollAlerts, type PayrollAlert } from '../route';
+import { loadPayrollAlerts, type PayrollAlert } from '@/lib/payroll-alerts';
 
 type PdfText = { text: string; x: number; y: number; size: number };
 

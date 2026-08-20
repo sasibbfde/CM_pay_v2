@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildAlerts } from '../app/api/alerts/route';
+import { buildAlerts } from '../lib/payroll-alerts';
 
 const punch = (overrides: any = {}) => ({
   punch_id: 'p-1',

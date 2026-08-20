@@ -83,7 +83,55 @@ function parseDateFromMessage(message: string) {
   return null;
 }
 
+function orderedRange(start: string, end: string, label?: string) {
+  return start <= end
+    ? { start, end, label: label || `${start} → ${end}` }
+    : { start: end, end: start, label: label || `${end} → ${start}` };
+}
+
 function selectedRangeFromMessage(message: string) {
+  const prompt = message.toLowerCase();
+  const todayParts = torontoParts();
+
+  const isoRange = prompt.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\s*(?:to|through|until|[-–—])\s*(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+  if (isoRange) {
+    return orderedRange(
+      dateString(Number(isoRange[1]), Number(isoRange[2]), Number(isoRange[3])),
+      dateString(Number(isoRange[4]), Number(isoRange[5]), Number(isoRange[6])),
+    );
+  }
+
+  const namedSameMonthRange = prompt.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})\s*(?:to|through|until|[-–—])\s*(\d{1,2})(?:,?\s*(20\d{2}))?\b/);
+  if (namedSameMonthRange) {
+    const month = MONTH_INDEX[namedSameMonthRange[1]];
+    const year = Number(namedSameMonthRange[4] || todayParts.year);
+    return orderedRange(
+      dateString(year, month, Number(namedSameMonthRange[2])),
+      dateString(year, month, Number(namedSameMonthRange[3])),
+      `${namedSameMonthRange[1]} ${namedSameMonthRange[2]}–${namedSameMonthRange[3]}`,
+    );
+  }
+
+  const namedFullRange = prompt.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:,?\s*(20\d{2}))?\s*(?:to|through|until|[-–—])\s*(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:,?\s*(20\d{2}))?\b/);
+  if (namedFullRange) {
+    const startYear = Number(namedFullRange[3] || todayParts.year);
+    const endYear = Number(namedFullRange[6] || startYear);
+    return orderedRange(
+      dateString(startYear, MONTH_INDEX[namedFullRange[1]], Number(namedFullRange[2])),
+      dateString(endYear, MONTH_INDEX[namedFullRange[4]], Number(namedFullRange[5])),
+    );
+  }
+
+  const slashRange = prompt.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?\s*(?:to|through|until|[-–—])\s*(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?\b/);
+  if (slashRange) {
+    const startYear = Number(slashRange[3] || todayParts.year);
+    const endYear = Number(slashRange[6] || startYear);
+    return orderedRange(
+      dateString(startYear, Number(slashRange[1]), Number(slashRange[2])),
+      dateString(endYear, Number(slashRange[4]), Number(slashRange[5])),
+    );
+  }
+
   const date = parseDateFromMessage(message);
   if (date) return { start: date, end: date, label: date };
   return currentPayrollPeriod();
@@ -304,6 +352,10 @@ function locationInsightLine(row: any) {
   return `- ${row.location}: sales ${money(row.sales)}, labour ${money(row.labour_cost)}, burden ${pct(row.labour_percent)}, payable ${round2(row.payable_hours)}h, staff ${row.staff}`;
 }
 
+function agentExportUrl(type: string, start: string, end: string) {
+  return `/api/ai-agent/export?type=${encodeURIComponent(type)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+}
+
 function answerFromPrivateContext(message: string, context: Awaited<ReturnType<typeof buildCmPayContext>>) {
   const prompt = normalize(message);
   const period = `${context.selected_period.start} → ${context.selected_period.end}`;
@@ -358,11 +410,23 @@ function answerFromPrivateContext(message: string, context: Awaited<ReturnType<t
     ].filter(Boolean).join('\n');
   }
 
+  if (/(manager|managers|manger|mangers)/.test(prompt) && /export|excel|xlsx|download/.test(prompt)) {
+    const managers = rows.manager_hours;
+    const url = agentExportUrl('manager-hours', context.selected_period.start, context.selected_period.end);
+    return [
+      `${source}`,
+      `📎 Manager wages/hours Excel is ready for ${period}.`,
+      `Download: ${url}`,
+      `Rows included: ${managers.length} manager payroll rows.`,
+      'This uses CM Pay V2 stored payroll rows only. No Groq and no payroll logic changes. Sync the exact period first if you need the newest 7shifts data. 🤓',
+    ].join('\n');
+  }
+
   if (/export|excel|pdf|download/.test(prompt)) {
     return [
       `${source}`,
-      '📎 I can summarize the data here, but this first AI Agent version does not create Excel/PDF files yet.',
-      'Use the existing Export buttons in Payroll Hours, Wages, Insights, Command Center, or Manager Bonus for approved downloadable reports.',
+      '📎 I can create a manager wages/hours Excel when you ask for “manager hours Excel”.',
+      'For other approved reports, use the existing Export buttons in Payroll Hours, Wages, Insights, Command Center, or Manager Bonus.',
     ].join('\n');
   }
 
