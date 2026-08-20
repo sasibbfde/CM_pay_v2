@@ -79,6 +79,22 @@ test('location-filtered payroll gives each worked location its own 88h cheque al
   assert.equal(combined.cash_hours,0);
 });
 
+test('partial cash by location does not combine the 88h cap across non-cash locations',()=>{
+  const [combined]=buildPayrollReport([
+    punch({location:'Chiang Mai Junction',hours:84.41,payroll_hours:84.41,gross_hours:88.92,break_minutes:271,wage:17.6,cash_wage:17.6}),
+    punch({location:'Chiang Mai Liberty Village',hours:19.03,payroll_hours:19.03,gross_hours:19.25,break_minutes:13,wage:17.6,cash_wage:17.6}),
+  ],[{employee_name:'Test Employee',rule_type:'PARTIAL_CASH',combined_locations:'Chiang Mai Mississauga',notes:'Mississauga hours cash'}],'2026-08-15');
+  const junction=payrollLocationView(combined,'Chiang Mai Junction');
+  const liberty=payrollLocationView(combined,'Chiang Mai Liberty Village');
+  assert.equal(combined.payable_hours,103.44);
+  assert.equal(combined.cheque_hours,103.5);
+  assert.equal(combined.cash_hours,0);
+  assert.equal(junction.cheque_hours,84.5);
+  assert.equal(junction.cash_hours,0);
+  assert.equal(liberty.cheque_hours,19);
+  assert.equal(liberty.cash_hours,0);
+});
+
 test('multi-location note/reroute rules still keep hours with the worked location',()=>{
   const [combined]=buildPayrollReport([
     punch({location:'Chiang Mai Danforth',hours:46,payroll_hours:46,gross_hours:48.5,break_minutes:150,wage:20}),
