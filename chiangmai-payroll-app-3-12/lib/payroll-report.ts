@@ -1,6 +1,7 @@
 import { EmployeeRule, Punch } from './types';
 import { getPayrollDate } from './payroll';
 import { ontarioHolidayMapForRange } from './ontario-holidays';
+import { type WageChangeSource } from './payroll-change-labels';
 
 const normalize=(value:string)=>value.trim().toLowerCase().replace(/\s+/g,' ');
 const round2=(value:number)=>Math.round((value+Number.EPSILON)*100)/100;
@@ -13,7 +14,7 @@ export type PayrollReportRow={
   payable_hours:number; regular_payable_hours:number; holiday_hours:number; holiday_pay:number; rounded_hours:number; cheque_hours:number; cash_hours:number; cheque_pay:number; cash_pay:number;
   total_pay:number; status:string; notes:string; holiday_notes:string[]; rule_locations?:string[];
   daily_over_14_alerts?:Array<{date:string;gross_hours:number;locations:string[]}>;
-  is_new?:boolean; new_until?:string; employee_labels?:string[]; wage_change_note?:string|null; detail_change_note?:string|null;
+  is_new?:boolean; new_until?:string; employee_labels?:string[]; wage_change_note?:string|null; wage_change_source?:WageChangeSource; detail_change_note?:string|null;
 };
 
 function ruleFor(employeeId:string,name:string,rules:EmployeeRule[],periodEnd:string){

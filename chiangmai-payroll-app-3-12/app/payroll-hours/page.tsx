@@ -1,6 +1,7 @@
 'use client';
 import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import { payrollLocationView, type PayrollReportRow } from '@/lib/payroll-report';
+import { isWageChangeLabel, WAGE_CHANGE_LABEL_7SHIFTS, WAGE_CHANGE_LABEL_MANUAL } from '@/lib/payroll-change-labels';
 
 type Row=PayrollReportRow;
 type Summary={employees:number;gross_hours:number;break_hours:number;payable_hours:number;regular_payable_hours:number;holiday_hours:number;holiday_pay:number;rounded_hours:number;cheque_hours:number;cash_hours:number;cheque_pay:number;cash_pay:number;total_pay:number};
@@ -13,10 +14,10 @@ function summarize(rows:Row[]):Summary{return rows.reduce((sum,row)=>({employees
 function hasDailyOver14(row:Row){return Boolean(row.daily_over_14_alerts?.length);}
 function dailyOver14Text(row:Row){return (row.daily_over_14_alerts||[]).map(alert=>`${alert.date}: ${alert.gross_hours.toFixed(2)}h${alert.locations?.length?` (${alert.locations.join(', ')})`:''}`).join(' · ');}
 function labelStyle(label:string):React.CSSProperties{
-  const warning=label==='OVER 14.2H';const newest=label==='NEW';const wage=label==='WAGE ↑';const multi=label==='MULTI-LOCATION';
-  return {fontSize:8,letterSpacing:'.03em',borderRadius:4,padding:'1px 5px',background:warning?'rgba(248,113,113,.18)':newest||multi?'rgba(34,211,238,.18)':wage?'rgba(52,211,153,.16)':'rgba(167,139,250,.16)',color:warning?'#f87171':newest||multi?'#22d3ee':wage?'#34d399':'#a78bfa'};
+  const warning=label==='OVER 14.2H';const newest=label==='NEW';const wage=isWageChangeLabel(label);const manual=label===WAGE_CHANGE_LABEL_MANUAL;const multi=label==='MULTI-LOCATION';
+  return {fontSize:8,letterSpacing:'.03em',borderRadius:4,padding:'1px 5px',background:warning?'rgba(248,113,113,.18)':newest||multi?'rgba(34,211,238,.18)':manual?'rgba(251,191,36,.18)':wage?'rgba(52,211,153,.16)':'rgba(167,139,250,.16)',color:warning?'#f87171':newest||multi?'#22d3ee':manual?'#fbbf24':wage?'#34d399':'#a78bfa'};
 }
-function labelTitle(row:Row,label:string){return label==='NEW'?`New through ${row.new_until}`:label==='WAGE ↑'?(row.wage_change_note||'Wage changed this payroll period'):label==='MULTI-LOCATION'?`Hours split by worked location: ${row.locations.join(', ')}`:label==='OVER 14.2H'?`Daily gross over 14.2h: ${dailyOver14Text(row)}`:(row.detail_change_note||'Position/location changed this payroll period');}
+function labelTitle(row:Row,label:string){return label==='NEW'?`New through ${row.new_until}`:label===WAGE_CHANGE_LABEL_7SHIFTS?(row.wage_change_note||'Wage increased/updated from 7shifts during this payroll period'):label===WAGE_CHANGE_LABEL_MANUAL?(row.wage_change_note||'Wage was manually changed during this payroll period'):isWageChangeLabel(label)?(row.wage_change_note||'Wage changed this payroll period'):label==='MULTI-LOCATION'?`Hours split by worked location: ${row.locations.join(', ')}`:label==='OVER 14.2H'?`Daily gross over 14.2h: ${dailyOver14Text(row)}`:(row.detail_change_note||'Position/location changed this payroll period');}
 
 export default function PayrollHoursPage(){const initial=initialPeriod();const[month,setMonth]=useState(initial.month);const[period,setPeriod]=useState(initial.period);const[location,setLocation]=useState('ALL');const[rows,setRows]=useState<Row[]>([]);const[summary,setSummary]=useState<Summary>(empty);const[loading,setLoading]=useState(true);const[syncing,setSyncing]=useState(false);const[message,setMessage]=useState('');const range=useMemo(()=>dates(month,period),[month,period]);const loadSeq=useRef(0);
   const load=useCallback(async()=>{const seq=++loadSeq.current;setLoading(true);setMessage('');try{const response=await fetch(`/api/payroll-report?start=${range.start}&end=${range.end}`,{cache:'no-store'});const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to load payroll hours');if(seq===loadSeq.current){setRows(data.rows||[]);setSummary(data.summary||empty);}}catch(error:any){if(seq===loadSeq.current)setMessage(error.message);}finally{if(seq===loadSeq.current)setLoading(false);}},[range.start,range.end]);

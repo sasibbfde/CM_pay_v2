@@ -5,6 +5,7 @@ import { buildPayrollReport, summarizePayrollReport } from './payroll-report';
 import { fillMissingRosterDetails } from './roster-details';
 import { Employee, EmployeeRule, Punch } from './types';
 import { firstPayrollPeriodEnd } from './employee-status';
+import { wageChangeLabelForAuditAction, wageChangeSourceForAuditAction } from './payroll-change-labels';
 
 async function fetchAll(supabase:any,table:string,columns:string,filter?:(query:any)=>any){
   const rows:any[]=[];for(let from=0;;from+=1000){let query=supabase.from(table).select(columns).range(from,from+999);if(filter)query=filter(query);const{data,error}=await query;if(error)throw error;rows.push(...(data||[]));if(!data||data.length<1000)break;}return rows;
@@ -51,10 +52,12 @@ export async function getPayrollReport(start:string,end:string){
     const employee=employeeByKey.get(row.employee_id);
     const newUntil=firstPayrollPeriodEnd(employee?.created_at);
     const wageLog=employee?.employee_id?latestWageLog.get(employee.employee_id):null;
+    const wageChangeLabel=wageChangeLabelForAuditAction(wageLog?.action);
+    const wageChangeSource=wageChangeSourceForAuditAction(wageLog?.action);
     const detailLog=employee?.employee_id?latestDetailLog.get(employee.employee_id):null;
     const labels:string[]=[];
     if(newUntil&&end<=newUntil)labels.push('NEW');
-    if(wageLog)labels.push('WAGE ↑');
+    if(wageChangeLabel)labels.push(wageChangeLabel);
     if(detailLog)labels.push('POSITION CHANGED');
     if(row.locations.length>1)labels.push('MULTI-LOCATION');
     if(row.daily_over_14_alerts?.length)labels.push('OVER 14.2H');
@@ -64,6 +67,7 @@ export async function getPayrollReport(start:string,end:string){
       new_until:newUntil,
       employee_labels:labels,
       wage_change_note:wageLog?.notes || null,
+      wage_change_source:wageChangeSource,
       detail_change_note:detailLog?.notes || null,
     };
   });return{rows,summary:summarizePayrollReport(rows),start,end};
