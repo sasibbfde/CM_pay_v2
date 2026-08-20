@@ -89,6 +89,9 @@ test('all-location payroll view splits multi-location employees into location as
   assert.deepEqual(rows.map(row=>row.display_location),['Chiang Mai Junction','Chiang Mai York Mills']);
   assert.deepEqual(rows.map(row=>row.locations),[['Chiang Mai Junction'],['Chiang Mai York Mills']]);
   assert.deepEqual(rows.map(row=>row.payable_hours),[88,79]);
+  assert.equal(rows.reduce((sum,row)=>sum+row.payable_hours,0),167);
+  assert.equal(rows[0].location_hours['Chiang Mai Junction'],88);
+  assert.equal(rows[0].location_hours['Chiang Mai York Mills'],79);
   assert.deepEqual(rows.map(row=>row.employee_labels),[['MULTI-LOCATION'],['MULTI-LOCATION']]);
   assert.deepEqual(rows.map(row=>row.all_locations),[
     ['Chiang Mai Junction','Chiang Mai York Mills'],
