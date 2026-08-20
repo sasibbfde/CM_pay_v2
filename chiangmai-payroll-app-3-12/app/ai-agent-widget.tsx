@@ -28,7 +28,7 @@ function saveCount(count: number) {
 }
 
 function shortAnswer(text: string) {
-  return text.length > 420 ? `${text.slice(0, 420).trim()}…` : text;
+  return text.length > 1200 ? `${text.slice(0, 1200).trim()}…` : text;
 }
 
 export default function AiAgentWidget() {
@@ -62,9 +62,11 @@ export default function AiAgentWidget() {
 
   const suggestions = useMemo(() => [
     'Show manager hours for this pay period',
+    'Check labour burden for yesterday',
+    'Give management insights for Aug 3',
     'Which employees are multi-location?',
     'Any wage changes or missing wages?',
-    'Explain cheque vs cash hours',
+    'Show review rows',
   ], []);
 
   if (hidden) return null;
@@ -112,7 +114,7 @@ export default function AiAgentWidget() {
       saveCount(count);
       setMessages(current => [...current, { role: 'assistant', content: data.answer || 'No answer returned.' }]);
     } catch (error: any) {
-      setMessages(current => [...current, { role: 'assistant', content: `I could not answer yet: ${error.message}` }]);
+      setMessages(current => [...current, { role: 'assistant', content: `😵‍💫 I could not answer yet: ${error.message}` }]);
     } finally {
       setLoading(false);
     }
@@ -139,10 +141,10 @@ export default function AiAgentWidget() {
           }}
         >
           <div style={{ padding: '14px 15px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 42, height: 42, borderRadius: 14, background: 'linear-gradient(135deg,#22d3ee,#a78bfa)', display: 'grid', placeItems: 'center', fontSize: 24, boxShadow: '0 10px 26px rgba(34,211,238,.18)' }}>👨‍💻</div>
+            <div className="ai-agent-mini-avatar">🤓<span>💻</span></div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: 14 }}>AI Payroll Agent</div>
-              <div style={{ color: 'var(--muted)', fontSize: 11 }}>Read-only CM Pay V2 answers · {remaining}/3 left today</div>
+              <div style={{ color: 'var(--muted)', fontSize: 11 }}>Read-only CM Pay V2 answers · private · {remaining}/3 left today</div>
             </div>
             <button onClick={() => setOpen(false)} style={{ background: 'transparent', border: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: 18 }}>×</button>
           </div>
@@ -150,7 +152,7 @@ export default function AiAgentWidget() {
           <div style={{ padding: 12, maxHeight: 390, overflowY: 'auto' }}>
             {messages.length === 0 && (
               <div style={{ border: '1px solid var(--border)', background: 'var(--surface2)', borderRadius: 12, padding: 12, color: 'var(--muted)', fontSize: 12, lineHeight: 1.5 }}>
-                Ask about current payroll period hours, wages, managers, multi-location staff, rule labels, missing wages, or why cheque/cash hours show. I won’t change payroll data.
+                🤓 Ask about payroll hours, wages, managers, multi-location staff, rule labels, missing wages, labour burden, or management insights. I won’t change payroll data.
               </div>
             )}
             {messages.map((message, index) => (
@@ -170,7 +172,7 @@ export default function AiAgentWidget() {
                 </div>
               </div>
             ))}
-            {loading && <div style={{ color: 'var(--accent)', fontSize: 12, marginTop: 10 }}>Thinking through payroll data…</div>}
+            {loading && <div className="ai-agent-thinking">🤓 Checking CM Pay privately…</div>}
             <div ref={endRef} />
           </div>
 
@@ -223,6 +225,7 @@ export default function AiAgentWidget() {
       <button
         aria-label="Open AI Payroll Agent"
         title="Drag me anywhere · AI Payroll Agent"
+        className="ai-agent-orb"
         onPointerDown={startDrag}
         onPointerMove={moveDrag}
         onPointerUp={stopDrag}
@@ -245,7 +248,8 @@ export default function AiAgentWidget() {
           touchAction: 'none',
         }}
       >
-        <span style={{ fontSize: 34, transform: 'translateY(1px)' }}>👨‍💻</span>
+        <span className="ai-agent-orb-face">🤓</span>
+        <span className="ai-agent-orb-laptop">💻</span>
         <span style={{ position: 'absolute', right: -2, top: -3, background: '#fbbf24', color: '#1f1300', borderRadius: 999, padding: '1px 5px', fontSize: 10, fontWeight: 900 }}>AI</span>
       </button>
     </>
