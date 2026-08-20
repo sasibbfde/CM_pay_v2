@@ -22,6 +22,20 @@ const pill: CSSProperties = {
 
 const sections = [
   {
+    title: 'CM Payroll AI Assistant',
+    href: '/command-center',
+    purpose: 'Floating payroll accountant agent for quick CM Pay V2 questions, safe report exports, and owner-approved payroll actions.',
+    use: [
+      'Click the floating assistant avatar when it is available. It is designed to answer from CM Pay V2 data only.',
+      'Ask built-in questions such as employee hours, wages, manager hours, over-88 employees, missing wages, wage changes, multi-location hours, or why cash/cheque hours appear.',
+      'If the answer needs fresh 7shifts data, the assistant must sync first, then answer from refreshed CM Pay V2 data. If sync fails, it must say so and must not guess.',
+      'Ask for Excel or PDF only when you need a downloadable report. Normal questions should be answered directly in the chat.',
+      'Rule, wage, employee-status, or payroll-data changes must be prepared for owner approval before saving. The assistant must not change payroll logic or app code.',
+      'Managers should only see their permitted locations. Owners/admins can see all locations and approve changes.',
+      'Every assistant answer/action should show the source, selected date range, and be saved to audit history when it creates a report or prepares a change.',
+    ],
+  },
+  {
     title: 'Command Center',
     href: '/command-center',
     purpose: 'Owner/manager front page for daily overview, payroll readiness, location budget pressure, and action items.',
@@ -191,6 +205,16 @@ export default function SopPage() {
           <div style={card}>
             <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>Notifications</h2>
             <p style={muted}>The bell in the top-right shows saved alerts from synced punches: overnight/early-morning punch activity that touches 12:05am to 7:00am Toronto time, and any employee over 14 gross hours in one Toronto date.</p>
+          </div>
+          <div style={card}>
+            <h2 style={{fontSize:16,margin:'0 0 8px',color:'#f9fafb'}}>AI assistant safety rules</h2>
+            <ul style={{...muted,margin:'0 0 0 18px',padding:0}}>
+              <li>The assistant is a controlled payroll agent, not a free chat bot.</li>
+              <li>It may read CM Pay V2 data, explain payroll, sync if needed, and generate Excel/PDF reports.</li>
+              <li>It must not invent missing 7shifts hours, wages, rules, or sales.</li>
+              <li>It must not change payroll calculations, app code, wages, rules, or employee status unless an owner confirms the prepared change.</li>
+              <li>If data is stale, it should sync first and then answer. If 7shifts is rate-limited, it should report the error clearly.</li>
+            </ul>
           </div>
         </div>
 
