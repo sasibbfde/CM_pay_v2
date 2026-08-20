@@ -1,6 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import Nav from './nav';
+import AiAgentWidget from './ai-agent-widget';
 
 export const metadata: Metadata = {
   title: 'CM Payroll — Chiang Mai Group',
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <Nav />
         {children}
+        <AiAgentWidget />
       </body>
     </html>
   );
