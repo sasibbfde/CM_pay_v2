@@ -344,6 +344,13 @@ export function resolveCashWage(input: { name?: string | null; location?: string
   const name = normalizeCashRateName(input.name);
   const tokens = tokenKey(input.name);
   const location = normalizeCashRateLocation(input.location);
+  const stored = Number(input.cash_wage || 0);
+
+  // Manual/saved employee cash rates are the payroll source of truth once set.
+  // The bundled cash-rate sheet is only a fallback for employees that do not
+  // yet have a saved cash_wage. Otherwise Wages edits can appear to revert
+  // after refresh whenever an older sheet rate exists for the same name.
+  if (Number.isFinite(stored) && stored > 0) return stored;
 
   const exact = byNameLocation.get(`${name}|${location}`) || byTokenLocation.get(`${tokens}|${location}`);
   if (exact) return exact.cash_wage;
@@ -351,8 +358,7 @@ export function resolveCashWage(input: { name?: string | null; location?: string
   const sheetRate = commonRate(byName.get(name)) ?? commonRate(byToken.get(tokens));
   if (sheetRate) return sheetRate;
 
-  const stored = Number(input.cash_wage || 0);
-  return Number.isFinite(stored) && stored > 0 ? stored : 0;
+  return 0;
 }
 
 export function applyCashWage<T extends { cash_wage?: number | string | null; full_name?: string | null; employee_name?: string | null; location?: string | null }>(row: T): T {

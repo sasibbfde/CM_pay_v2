@@ -13,6 +13,11 @@ test('location-specific cash rates win for multi-location duplicate names', () =
   assert.equal(resolveCashWage({ name: 'Pinatap (Matthew) Srisa-Ardphunwong', location: 'Chiang Mai Mississauga' }), 25);
 });
 
-test('stored cash wage is used only when the sheet has no safe match', () => {
+test('stored cash wage is used when the sheet has no safe match', () => {
   assert.equal(resolveCashWage({ name: 'Unknown Employee', location: 'Nowhere', cash_wage: 22 }), 22);
+});
+
+test('manual stored cash wage wins over older cash-rate sheet values', () => {
+  assert.equal(resolveCashWage({ name: 'Changsathien, Monthol', location: 'Chiang Mai Mississauga', cash_wage: 19 }), 19);
+  assert.equal(resolveCashWage({ name: 'Changsathien, Monthol', location: 'Chiang Mai Mississauga' }), 21);
 });

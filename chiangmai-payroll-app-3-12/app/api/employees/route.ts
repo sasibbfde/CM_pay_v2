@@ -209,7 +209,7 @@ export async function PATCH(req: NextRequest) {
     const supabase = getSupabaseAdmin();
     const { data: current } = await supabase
       .from('employees')
-      .select('employee_id, seven_shifts_user_id, full_name, location, department, role, wage')
+      .select('employee_id, seven_shifts_user_id, full_name, location, department, role, wage, cash_wage')
       .or(id ? `id.eq.${id}` : `seven_shifts_user_id.eq.${String(seven_shifts_user_id)}`)
       .limit(1)
       .maybeSingle();
@@ -228,13 +228,19 @@ export async function PATCH(req: NextRequest) {
       const value = Number(cash_wage);
       if (!Number.isFinite(value) || value < 0) return NextResponse.json({ error: 'cash_wage must be a non-negative number' }, { status: 400 });
       updates.cash_wage = value;
+      const oldCashWage = Number(current?.cash_wage || 0);
+      if (oldCashWage !== value) {
+        updates._cash_wage_change_note = `Manual cash wage changed from $${oldCashWage.toFixed(2)} to $${value.toFixed(2)} on ${now.toISOString().slice(0, 10)}`;
+      }
     }
     if (Object.keys(updates).length === 0) return NextResponse.json({ error: 'wage or cash_wage required' }, { status: 400 });
     updates.wage_locked = true;
     updates.wage_source = 'manual';
     updates.updated_at = new Date().toISOString();
     const wageChangeNote = updates._wage_change_note;
+    const cashWageChangeNote = updates._cash_wage_change_note;
     delete updates._wage_change_note;
+    delete updates._cash_wage_change_note;
     let q = supabase.from('employees').update(updates);
     if (id)                   q = q.eq('id', id);
     else if (seven_shifts_user_id) q = q.eq('seven_shifts_user_id', String(seven_shifts_user_id));
@@ -254,6 +260,18 @@ export async function PATCH(req: NextRequest) {
       });
       if (historyError) throw historyError;
       await insertWageHistoryRows(supabase, [manualWageHistoryRow(current, Number(current.wage || 0), Number(wage), now.toISOString())]);
+    }
+    if (cash_wage !== undefined && current && Number(current.cash_wage || 0) !== Number(cash_wage)) {
+      const { error: cashHistoryError } = await supabase.from('audit_log').insert({
+        action: 'manual_wage_changed',
+        table_name: 'employees',
+        record_id: current.employee_id,
+        old_value: { cash_wage: Number(current.cash_wage || 0) },
+        new_value: { cash_wage: Number(cash_wage), seven_shifts_user_id: current.seven_shifts_user_id, employee_name: current.full_name },
+        notes: cashWageChangeNote,
+        created_at: now.toISOString(),
+      });
+      if (cashHistoryError) throw cashHistoryError;
     }
     return NextResponse.json({ ok: true });
   } catch (e: any) {
