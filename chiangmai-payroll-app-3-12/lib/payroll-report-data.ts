@@ -11,6 +11,18 @@ async function fetchAll(supabase:any,table:string,columns:string,filter?:(query:
   const rows:any[]=[];for(let from=0;;from+=1000){let query=supabase.from(table).select(columns).range(from,from+999);if(filter)query=filter(query);const{data,error}=await query;if(error)throw error;rows.push(...(data||[]));if(!data||data.length<1000)break;}return rows;
 }
 const number=(value:any)=>{const parsed=Number(value);return Number.isFinite(parsed)?parsed:0;};
+const nameKey=(value:string)=>value.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
+const sq1PayrollLabels:Record<string,string>={
+  [nameKey('Vinith Paskaran')]:'SQ1 -> York Mills payroll',
+  [nameKey('Pinatap (Matthew) Srisa-Ardphunwong')]:'SQ1 -> Danforth payroll',
+  [nameKey('Chuni Gurung')]:'SQ1 -> York Mills payroll',
+  [nameKey('Rattanapohn (Khim) Phothi')]:'SQ1 -> Danforth payroll',
+};
+function sq1PayrollLabel(employeeName:string,locations:string[]){
+  const label=sq1PayrollLabels[nameKey(employeeName)];
+  const workedSq1=locations.some(location=>/mississauga|sq1/i.test(location));
+  return label&&workedSq1?label:null;
+}
 
 export async function getPayrollReport(start:string,end:string){
   const supabase=getSupabaseAdmin();const queryStart=new Date(`${start}T00:00:00Z`);queryStart.setUTCDate(queryStart.getUTCDate()-1);const queryEnd=new Date(`${end}T23:59:59Z`);queryEnd.setUTCDate(queryEnd.getUTCDate()+1);
@@ -60,6 +72,8 @@ export async function getPayrollReport(start:string,end:string){
     if(wageChangeLabel)labels.push(wageChangeLabel);
     if(detailLog)labels.push('POSITION CHANGED');
     if(row.locations.length>1)labels.push('MULTI-LOCATION');
+    const sq1Label=sq1PayrollLabel(row.employee_name,row.locations);
+    if(sq1Label)labels.push(sq1Label);
     if(row.daily_over_14_alerts?.length)labels.push('OVER 14.2H');
     return {
       ...row,
