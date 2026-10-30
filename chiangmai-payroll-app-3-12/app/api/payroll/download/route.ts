@@ -3,6 +3,7 @@ import { applyEmployeeWages, calculatePayroll, filterPunches, summarize } from '
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { Employee, EmployeeRule, Punch } from '@/lib/types';
 import ExcelJS from 'exceljs';
+import { loadPayrollRateChanges } from '@/lib/payroll-rate-changes';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -62,18 +63,19 @@ export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseAdmin();
 
-    const [{ data: punchData, error: punchErr }, { data: ruleData, error: ruleErr }, { data: employeeData, error: employeeErr }] =
+    const [{ data: punchData, error: punchErr }, { data: ruleData, error: ruleErr }, { data: employeeData, error: employeeErr }, rateChanges] =
       await Promise.all([
         supabase.from('punches').select('*'),
         supabase.from('employee_rules').select('*').eq('active', true),
         supabase.from('employees').select('*'),
+        loadPayrollRateChanges(supabase),
       ]);
 
     if (punchErr) throw punchErr;
     if (ruleErr)  throw ruleErr;
     if (employeeErr) throw employeeErr;
 
-    const punches = applyEmployeeWages((punchData || []).map(mapPunch), (employeeData || []) as Employee[]);
+    const punches = applyEmployeeWages((punchData || []).map(mapPunch), (employeeData || []) as Employee[], rateChanges);
     const rules   = (ruleData  || []).map(mapRule);
 
     const filtered = filterPunches(punches, year, month, period);

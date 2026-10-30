@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { applyEmployeeWages, calculatePayroll, filterPunches, filterPunchesByDateRange, summarize, summarizeDailyLabour, summarizeDailyLabourGroups, summarizeEmployeeLabourByLocation, summarizeLabourGroups } from '@/lib/payroll';
 import { getSupabaseAdmin, hasSupabaseEnv } from '@/lib/supabase';
 import { Employee, EmployeeRule, Punch } from '@/lib/types';
+import { loadPayrollRateChanges } from '@/lib/payroll-rate-changes';
 
 function toNum(v: any) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
@@ -73,16 +74,17 @@ export async function GET(req: NextRequest) {
     queryStart.setUTCDate(queryStart.getUTCDate() - 1);
     const queryEnd = new Date(`${requestedEnd}T23:59:59Z`);
     queryEnd.setUTCDate(queryEnd.getUTCDate() + 1);
-    const [punchData, ruleData, employeeData] = await Promise.all([
+    const [punchData, ruleData, employeeData, rateChanges] = await Promise.all([
       fetchAll(supabase, 'punches', 'punch_id, employee_id, employee_name, location, department, role, clocked_in, clocked_out, hours, payroll_hours, gross_hours, break_minutes, wage, cash_wage, source', query => query
         .gte('clocked_in', queryStart.toISOString())
         .lte('clocked_in', queryEnd.toISOString())
         .order('clocked_in')),
       fetchAll(supabase, 'employee_rules', 'id, employee_id, employee_name, rule_type, rule_value, combined_locations, payroll_location, notes, active, effective_from, effective_to', q => q.eq('active', true)),
       fetchAll(supabase, 'employees', 'employee_id, full_name, wage, cash_wage'),
+      loadPayrollRateChanges(supabase),
     ]);
 
-    const punches: Punch[]        = applyEmployeeWages(punchData.map(mapPunch), employeeData as Employee[]);
+    const punches: Punch[]        = applyEmployeeWages(punchData.map(mapPunch), employeeData as Employee[], rateChanges);
     const rules:   EmployeeRule[] = ruleData.map(mapRule);
 
     // Use custom date range if provided, otherwise use year/month/period

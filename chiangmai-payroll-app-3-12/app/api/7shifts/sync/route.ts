@@ -9,6 +9,7 @@ import { resolveCashWage } from '@/lib/cash-rates';
 import { evaluateSyncSafety } from '@/lib/sync-safety';
 import { getPayrollDate } from '@/lib/payroll';
 import { insertWageHistoryRows, normalizeSevenShiftsWageHistory } from '@/lib/wage-history';
+import { loadPayrollRateChanges, savedRoleForDate, type PayrollRateChange } from '@/lib/payroll-rate-changes';
 
 export const maxDuration = 300;
 
@@ -169,6 +170,10 @@ async function runSync(body: any): Promise<NextResponse> {
     .select('employee_id, seven_shifts_user_id, full_name, location, department, role, wage, cash_wage, wage_locked, wage_source');
   if (existingError) throw new Error(`Employee lookup failed: ${existingError.message}`);
   const existingBy7shiftsId = new Map<string, any>();
+  const approvedChanges = new Map<string, PayrollRateChange[]>();
+  for (const change of await loadPayrollRateChanges(supabase)) {
+    approvedChanges.set(change.employee_id, [...(approvedChanges.get(change.employee_id) || []), change]);
+  }
   for (const employee of existingEmployees || []) {
     if (employee.seven_shifts_user_id) existingBy7shiftsId.set(String(employee.seven_shifts_user_id), employee);
   }
@@ -218,7 +223,7 @@ async function runSync(body: any): Promise<NextResponse> {
       full_name:fullName(u),
       location:detailOrBlank(loc) || detailOrBlank(existing?.location),
       department:detailOrBlank(dept) || detailOrBlank(existing?.department),
-      role:detailOrBlank(role) || detailOrBlank(existing?.role),
+      role:savedRoleForDate(detailOrBlank(role) || detailOrBlank(existing?.role), torontoDate(syncNowIso), approvedChanges.get(existing?.employee_id || `7S-${u.id}`) || []),
       wage,
     });
     const detailChanges = ([

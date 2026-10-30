@@ -1,5 +1,6 @@
 import { Employee, EmployeeRule, PayrollRow, Punch } from './types';
 import { resolveCashWage } from './cash-rates';
+import { savedRateForDate, savedRoleForDate, type PayrollRateChange } from './payroll-rate-changes';
 
 const PAYROLL_TIME_ZONE = 'America/Toronto';
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -51,7 +52,11 @@ export function filterPunchesByDateRange(punches: Punch[], start: string, end: s
   });
 }
 
-export function applyEmployeeWages(punches: Punch[], employees: Employee[]) {
+export function applyEmployeeWages(punches: Punch[], employees: Employee[], rateChanges: PayrollRateChange[] = []) {
+  const changesById = new Map<string, PayrollRateChange[]>();
+  for (const change of [...rateChanges].sort((a, b) => a.effective_date.localeCompare(b.effective_date) || a.detected_at.localeCompare(b.detected_at))) {
+    changesById.set(change.employee_id, [...(changesById.get(change.employee_id) || []), change]);
+  }
   const byId = new Map<string, Employee>();
   const byName = new Map<string, Employee>();
   for (const employee of employees) {
@@ -64,10 +69,19 @@ export function applyEmployeeWages(punches: Punch[], employees: Employee[]) {
   }
   return punches.map(punch => {
     const employee = (punch.employee_id && byId.get(punch.employee_id)) || byName.get(norm(punch.employee_name));
-    if (!employee) return punch;
+    const changes = changesById.get(employee?.employee_id || punch.employee_id || '') || [];
+    if (!employee && !changes.length) return punch;
+    const date = getPayrollDate(punch.clocked_in);
+    const role = date ? savedRoleForDate(punch.role, date, changes) : punch.role;
+    if (!employee) {
+      // Former employees still need their approved rate on historical punches.
+      if (!date || date < changes[0].effective_date) return punch;
+      return { ...punch, wage:savedRateForDate(Number(changes.at(-1)!.new_wage), date, changes), role };
+    }
     return {
       ...punch,
-      wage: Number(employee.wage || 0),
+      wage: date ? savedRateForDate(Number(employee.wage || 0), date, changes) : Number(employee.wage || 0),
+      role,
       cash_wage: resolveCashWage({
         name: punch.employee_name || employee.full_name,
         location: punch.location || employee.location,
